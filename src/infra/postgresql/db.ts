@@ -74,6 +74,7 @@ export async function initPostgres(connectionString: string): Promise<AuthDB> {
       CREATE TABLE IF NOT EXISTS sessions (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        expires_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW()
       );
 

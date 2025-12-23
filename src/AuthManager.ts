@@ -6,9 +6,15 @@ import { AuthService } from "./authentication_methods/credentials/auth.service";
 import { SessionService } from "./authentication_methods/credentials/session.service";
 import { MagicLinkService } from "./authentication_methods/magic-links/magic-link.service";
 import { initPostgres } from "./infra/postgresql/db";
+import { zxcvbn } from "@zxcvbn-ts/core";
+import { isBreachedPassword } from "./infra/security/pwned-passwords";
 
-export function success<T>(data: T, message = "Success"): AuthResult<T> {
-  return { success: true, data, httpCode: 200, message };
+export function success<T>(
+  data: T,
+  message = "Success",
+  httpCode = 200
+): AuthResult<T> {
+  return { success: true, data, httpCode, message };
 }
 
 export function failure<T = null>(
@@ -66,12 +72,31 @@ export class AuthManager {
     if (authTypes.includes("credentials")) {
       manager.signup = async (email: string, password: string) => {
         try {
+          // ---------------- Password Strength ----------------
+          const result = zxcvbn(password);
+          console.log("ℹ️ Password strength result:", result);
+          if (result.score < 3) {
+            return failure(
+              "Password is too weak. Please choose a stronger password.",
+              400
+            );
+          }
+
+          const breached = await isBreachedPassword(password);
+          console.log("ℹ️ Password breach check:", breached);
+          if (breached) {
+            return failure(
+              "This password has been found in a data breach. Choose a different one.",
+              400
+            );
+          }
+
           const user = await AuthService.signup(
             email,
             password,
             manager.db.userRepo
           );
-          return success({ user }, "User signed up");
+          return success({ user }, "User signed up", 201);
         } catch (err: any) {
           return failure("Signup failed: " + (err.message || "Unknown error"));
         }
@@ -91,7 +116,8 @@ export class AuthManager {
             manager.sessionTtl,
             manager.db.sessionRepo
           );
-          return success({ user, session }, "User logged in");
+          console.log("ℹ️  Session created:", session);
+          return success({ user, session }, "User logged in", 200);
         } catch (err: any) {
           return failure("Login failed: " + (err.message || "Unknown error"));
         }
@@ -100,7 +126,7 @@ export class AuthManager {
       manager.logout = async (sessionId: string) => {
         try {
           await SessionService.destroy(sessionId, manager.db.sessionRepo);
-          return success<null>(null, "Logged out");
+          return success<null>(null, "Logged out", 200);
         } catch (err: any) {
           return failure("Logout failed: " + (err.message || "Unknown error"));
         }
@@ -108,14 +134,17 @@ export class AuthManager {
 
       manager.me = async (sessionId: string) => {
         try {
+          console.log("ℹ️  Validating session...");
+          console.log("➡️  Session ID:", sessionId);
           const session = await SessionService.validate(
             sessionId,
             manager.db.sessionRepo
           );
+          console.log("ℹ️  Session validated:", session);
           if (!session) return failure("Invalid session", 401);
 
           const user = await manager.db.userRepo.findById(session.userId);
-          return success(user, "User retrieved");
+          return success(user, "User retrieved", 200);
         } catch (err: any) {
           return failure(
             "Fetch user failed: " + (err.message || "Unknown error")

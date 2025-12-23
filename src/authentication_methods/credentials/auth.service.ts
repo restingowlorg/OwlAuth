@@ -9,7 +9,7 @@ export const AuthService = {
   async login(email: string, password: string , UserRepo: UserRepository) {
     const user = await UserRepo.findByEmail(email);
     if (!user) return null;
-    const valid = await verifyPassword(password, user.passwordHash);
+    const valid = await verifyPassword(password, user.password);
     return valid ? user : null;
   }
 };
