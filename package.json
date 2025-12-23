@@ -1,0 +1,53 @@
+{
+  "name": "mvp-flex-auth",
+  "version": "1.0.2",
+  "description": "",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "tsc --declaration"
+  },
+  "keywords": [
+    "authentication",
+    "auth",
+    "auth-library",
+    "node-auth",
+    "framework-agnostic",
+    "backend-auth",
+    "session-auth",
+    "password-auth",
+    "magic-link",
+    "passwordless",
+    "login",
+    "signup",
+    "security",
+    "user-auth",
+    "nodejs",
+    "typescript",
+    "clean-architecture",
+    "hexagonal-architecture",
+    "backend",
+    "api-auth",
+    "express-auth",
+    "nest-auth"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "@nestjs/common": "^11.1.9",
+    "bcrypt": "^6.0.0",
+    "mongoose": "^9.0.1",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.16.0"
+  },
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ]
+}
