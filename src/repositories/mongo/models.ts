@@ -2,7 +2,7 @@ import { Schema, model, Types } from 'mongoose';
 
 const UserSchema = new Schema({
   email: { type: String, unique: true, index: true },
-  passwordHash: { type: String, required: true }
+  password: { type: String, required: true }
 }, { timestamps: true });
 
 const SessionSchema = new Schema({
