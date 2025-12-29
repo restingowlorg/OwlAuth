@@ -1,6 +1,6 @@
 {
   "name": "mvp-flex-auth",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "description": "",
   "main": "dist/index.js",
   "scripts": {
@@ -51,7 +51,6 @@
   },
   "types": "dist/index.d.ts",
   "files": [
-    "dist",
-    "README.md"
+    "dist"
   ]
 }

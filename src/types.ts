@@ -20,21 +20,26 @@ export type AuthRequest = Request & { user?: AuthUser };
 export type AuthType = 'credentials' | 'magic-link';
 
 export type AuthOptions = {
-  dbType: 'mongo' | 'mysql' | string;
+  dbType: 'mongo' | 'postgres' | 'mysql' | string;
+
   mongoUri?: string;
   postgresUrl?: string;
-  mysqlConfig?: any;
+
+  postgresUserTable?: InitPostgresOptions; 
+
   authTypes?: AuthType[];
   sessionTtlSeconds?: number;
+
   cookieName?: string;
   cookieOptions?: {
     httpOnly?: boolean;
     secure?: boolean;
     sameSite?: 'lax' | 'strict' | 'none';
   };
+
   magicLinkService?: MagicLinkService;
   magicLinkBaseUrl?: string;
-}
+};
 
 export interface AuthDB {
   userRepo: any;
@@ -78,3 +83,7 @@ export interface AuthResult<T = any> {
   httpCode: number;        // intended HTTP status code
   message: string;         // descriptive message
 }
+
+export type InitPostgresOptions = {
+  userTableName?: string; // optional custom user table
+};

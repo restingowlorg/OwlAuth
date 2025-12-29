@@ -1,96 +1,195 @@
 // src/infra/postgres/db.ts
-import { Pool } from 'pg';
-import { PostgresUserRepository } from '../../repositories/postgresql/user.repo';
-import { PostgresSessionRepository } from '../../repositories/postgresql/sessions.repo';
-import { PostgresMagicLinkRepository } from '../../repositories/postgresql/magic.link.repo';
-import { AuthDB } from '../../types';
+import { Pool } from "pg";
+import { PostgresUserRepository } from "../../repositories/postgresql/user.repo";
+import { PostgresSessionRepository } from "../../repositories/postgresql/sessions.repo";
+import { PostgresMagicLinkRepository } from "../../repositories/postgresql/magic.link.repo";
+import { AuthDB, InitPostgresOptions } from "../../types";
+import { PostgresUserSchema } from "./schema";
 
 let pool: Pool | null = null;
 
 /**
- * Ensure all required columns exist in the tables
+ * Central table mapping
  */
-async function ensureColumns(pool: Pool) {
-  // --- Users table ---
-  const { rows: userCols } = await pool.query(`
-    SELECT column_name FROM information_schema.columns WHERE table_name='users';
-  `);
-  const existingUserCols = userCols.map(r => r.column_name);
+export const PostgresTables = {
+  users: "users",
+  sessions: "sessions",
+  magicLinks: "magic_links",
+};
 
-  if (!existingUserCols.includes('id'))
-    await pool.query(`ALTER TABLE users ADD COLUMN id UUID PRIMARY KEY DEFAULT gen_random_uuid()`);
-  if (!existingUserCols.includes('email'))
-    await pool.query(`ALTER TABLE users ADD COLUMN email TEXT UNIQUE NOT NULL`);
-  if (!existingUserCols.includes('password'))
-    await pool.query(`ALTER TABLE users ADD COLUMN password TEXT`);
-
-  // --- Sessions table ---
-  const { rows: sessionCols } = await pool.query(`
-    SELECT column_name FROM information_schema.columns WHERE table_name='sessions';
-  `);
-  const existingSessionCols = sessionCols.map(r => r.column_name);
-
-  if (!existingSessionCols.includes('id'))
-    await pool.query(`ALTER TABLE sessions ADD COLUMN id UUID PRIMARY KEY DEFAULT gen_random_uuid()`);
-  if (!existingSessionCols.includes('user_id'))
-    await pool.query(`ALTER TABLE sessions ADD COLUMN user_id UUID REFERENCES users(id) ON DELETE CASCADE`);
-  if (!existingSessionCols.includes('created_at'))
-    await pool.query(`ALTER TABLE sessions ADD COLUMN created_at TIMESTAMP DEFAULT NOW()`);
-
-  // --- Magic links table ---
-  const { rows: magicCols } = await pool.query(`
-    SELECT column_name FROM information_schema.columns WHERE table_name='magic_links';
-  `);
-  const existingMagicCols = magicCols.map(r => r.column_name);
-
-  if (!existingMagicCols.includes('id'))
-    await pool.query(`ALTER TABLE magic_links ADD COLUMN id UUID PRIMARY KEY DEFAULT gen_random_uuid()`);
-  if (!existingMagicCols.includes('user_id'))
-    await pool.query(`ALTER TABLE magic_links ADD COLUMN user_id UUID REFERENCES users(id) ON DELETE CASCADE`);
-  if (!existingMagicCols.includes('token'))
-    await pool.query(`ALTER TABLE magic_links ADD COLUMN token TEXT UNIQUE NOT NULL`);
-  if (!existingMagicCols.includes('created_at'))
-    await pool.query(`ALTER TABLE magic_links ADD COLUMN created_at TIMESTAMP DEFAULT NOW()`);
-  if (!existingMagicCols.includes('used_at'))
-    await pool.query(`ALTER TABLE magic_links ADD COLUMN used_at TIMESTAMP`);
+/**
+ * Quote identifiers safely
+ */
+function q(name: string) {
+  return `"${name.replace(/"/g, '""')}"`;
 }
 
 /**
- * Initialize PostgreSQL connection pool and return AuthDB
+ * Check if table exists
  */
-export async function initPostgres(connectionString: string): Promise<AuthDB> {
+async function tableExists(pool: Pool, table: string): Promise<boolean> {
+  const { rows } = await pool.query(
+    `
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = $1
+    )
+    `,
+    [table]
+  );
+
+  return rows[0]?.exists === true;
+}
+
+/**
+ * Validate user table existence + required columns
+ */
+async function validateUserTable(pool: Pool, table: string) {
+  // Fetch columns and nullability
+  const { rows } = await pool.query(
+    `
+    SELECT column_name, is_nullable
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = $1
+    `,
+    [table]
+  );
+
+  const existingColumns = rows.map((r) => r.column_name);
+  const notNullableColumns = rows
+    .filter((r) => r.is_nullable === "NO")
+    .map((r) => r.column_name);
+
+  // 1️⃣ Check required columns exist
+  for (const column of PostgresUserSchema.requiredColumns) {
+    if (!existingColumns.includes(column)) {
+      console.error(
+        `❌ User table "${table}" missing required column "${column}"`
+      );
+      throw new Error(
+        `User table "${table}" missing required column "${column}"`
+      );
+    }
+  }
+
+  // 2️⃣ Detect extra NOT NULL columns
+  const extraNotNullCols = notNullableColumns.filter(
+    (col) => !PostgresUserSchema.requiredColumns.includes(col)
+  );
+
+  if (extraNotNullCols.length > 0) {
+    console.error(
+      `❌ User table "${table}" has extra NOT NULL columns: ${extraNotNullCols.join(
+        ", "
+      )}`
+    );
+    throw new Error(
+      `User table "${table}" has extra NOT NULL columns: ${extraNotNullCols.join(
+        ", "
+      )}`
+    );
+  }
+
+  console.log(`✅ User table "${table}" validated`);
+}
+
+/**
+ * Get user table primary key column and type
+ */
+async function getUserPrimaryKey(pool: Pool, table: string) {
+  const { rows } = await pool.query(
+    `
+    SELECT column_name, data_type
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = $1
+    `,
+    [table]
+  );
+
+  // Default to first required column that exists
+  for (const col of PostgresUserSchema.requiredColumns) {
+    const match = rows.find((r) => r.column_name === col);
+    if (match) return { name: match.column_name, type: match.data_type };
+  }
+
+  throw new Error(`Cannot determine primary key of user table "${table}"`);
+}
+
+/**
+ * Initialize PostgreSQL
+ */
+export async function initPostgres(
+  connectionString: string,
+  options?: InitPostgresOptions
+): Promise<AuthDB> {
   if (!pool) {
     pool = new Pool({ connectionString });
-    console.log('ℹ️ PostgreSQL pool created');
+    console.log("ℹ️ PostgreSQL pool created");
 
-    // Create tables if missing
+    const userTable = options?.userTableName ?? "users";
+    PostgresTables.users = userTable;
+
+    const exists = await tableExists(pool, userTable);
+
+    // ---------------- USER TABLE ----------------
+    if (options?.userTableName) {
+      console.log(`🧩 Using external user table: "${userTable}"`);
+
+      if (!exists) {
+        throw new Error(`User table "${userTable}" does not exist`);
+      }
+
+      await validateUserTable(pool, userTable);
+    } else {
+      console.log("🧱 Using library-managed users table");
+
+      await pool.query(`
+        CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+        CREATE TABLE IF NOT EXISTS users (
+          id SERIAL PRIMARY KEY,,
+          email TEXT UNIQUE NOT NULL,
+          password TEXT
+        );
+      `);
+
+      await validateUserTable(pool, "users");
+    }
+
+    // Get user table PK info
+    const userPK = await getUserPrimaryKey(pool, userTable);
+    console.log(`🔑 User table primary key: "${userPK.name}" (${userPK.type})`);
+
+    // ---------------- SESSIONS ----------------
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        email TEXT UNIQUE NOT NULL,
-        password TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS sessions (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-        expires_at TIMESTAMP,
+      CREATE TABLE IF NOT EXISTS ${q(PostgresTables.sessions)} (
+        id SERIAL PRIMARY KEY,
+        user_id ${userPK.type} NOT NULL REFERENCES ${q(userTable)}(${q(
+      userPK.name
+    )}) ON DELETE CASCADE,
+        expires_at TIMESTAMP NOT NULL,
         created_at TIMESTAMP DEFAULT NOW()
       );
+    `);
 
-      CREATE TABLE IF NOT EXISTS magic_links (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    // ---------------- MAGIC LINKS ----------------
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ${q(PostgresTables.magicLinks)} (
+        id SERIAL PRIMARY KEY,
+        user_id ${userPK.type} NOT NULL REFERENCES ${q(userTable)}(${q(
+      userPK.name
+    )}) ON DELETE CASCADE,
         token TEXT UNIQUE NOT NULL,
         created_at TIMESTAMP DEFAULT NOW(),
         used_at TIMESTAMP
       );
     `);
 
-    // Add missing columns if any
-    await ensureColumns(pool);
-
-    console.log('✅ PostgreSQL initialized with automatic migrations');
+    console.log("✅ PostgreSQL auth schema ready");
   }
 
   return {
@@ -101,9 +200,10 @@ export async function initPostgres(connectionString: string): Promise<AuthDB> {
 }
 
 /**
- * Get the existing PostgreSQL pool
+ * Get PostgreSQL pool
  */
 export function getPostgresPool(): Pool {
-  if (!pool) throw new Error('PostgreSQL not initialized. Call initPostgres first.');
+  if (!pool)
+    throw new Error("PostgreSQL not initialized. Call initPostgres first.");
   return pool;
 }
