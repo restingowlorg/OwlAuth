@@ -14,7 +14,7 @@ export interface UserRepository {
 
 export interface SessionRepository {
   create(userId: string, expiresAt: Date): Promise<any>;
-  findById(id: string): Promise<any | null>;
+  findById(id: Number): Promise<any | null>;
   delete(id: string): Promise<void>;
 }
 
