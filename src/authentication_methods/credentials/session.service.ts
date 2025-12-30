@@ -1,22 +1,97 @@
 import { SessionRepository } from "../../repositories/contracts";
-import { UserId } from "../../types";
+import { AuthResult, Session } from "../../types";
 
 export const SessionService = {
-  create(userId: UserId, ttlSeconds: number, SessionRepo: SessionRepository) {
-    const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
-    return SessionRepo.create(userId, expiresAt);
-  },
-  async validate(sessionId: string, SessionRepo: SessionRepository) {
-    const session = await SessionRepo.findById(sessionId);
-    if (!session) return null;
+  async create(
+    userId: string,
+    ttlSeconds: number,
+    sessionRepo: SessionRepository
+  ): Promise<AuthResult> {
+    try {
+      const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
 
-    if (!session.expiresAt || session.expiresAt.getTime() < Date.now()) {
-      return null;
+      const session = await sessionRepo.create(userId, expiresAt);
+
+      return {
+        success: true,
+        data: { session },
+        message: "Session created",
+        httpCode: 200
+      };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+
+      return {
+        success: false,
+        data: null,
+        message: "Failed to create session: " + message,
+        httpCode: 500
+      };
     }
-    return session;
   },
 
-  destroy(sessionId: string, SessionRepo: SessionRepository) {
-    return SessionRepo.delete(sessionId);
+  async validate(
+    sessionId: number,
+    sessionRepo: SessionRepository
+  ): Promise<AuthResult<Session | null>> {
+    try {
+      const session = await sessionRepo.findById(sessionId);
+
+      if (!session) {
+        return {
+          success: false,
+          data: null,
+          message: "Session not found",
+          httpCode: 404
+        };
+      }
+
+      if (!session.expiresAt || session.expiresAt.getTime() < Date.now()) {
+        return {
+          success: false,
+          data: null,
+          message: "Session expired",
+          httpCode: 401
+        };
+      }
+
+      return {
+        success: true,
+        data: session,
+        message: "Session valid",
+        httpCode: 200
+      };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+
+      return {
+        success: false,
+        data: null,
+        message: "Failed to validate session: " + message,
+        httpCode: 500
+      };
+    }
+  },
+
+  async destroy(sessionId: string, sessionRepo: SessionRepository): Promise<AuthResult> {
+    try {
+      await sessionRepo.delete(sessionId);
+
+      return {
+        success: true,
+        data: null,
+        message: "Session destroyed",
+        httpCode: 200
+      };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+
+      return {
+        success: false,
+        data: null,
+        message: "Failed to destroy session: " + message,
+        httpCode: 500
+      };
+    }
   }
 };
