@@ -1,8 +1,16 @@
+export interface CreateUserInput {
+  email: string;
+  passwordHash: string;
+  username: string;
+}
+
 export interface UserRepository {
-  create(email: string, passwordHash: string): Promise<any>;
+  create(input: CreateUserInput): Promise<any>;
   findByEmail(email: string): Promise<any | null>;
   findById(id: string): Promise<any | null>;
+  findByUsername?(username: string): Promise<any | null>;
 }
+
 
 export interface SessionRepository {
   create(userId: string, expiresAt: Date): Promise<any>;

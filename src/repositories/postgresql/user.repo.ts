@@ -1,17 +1,24 @@
-import { getPostgresPool, PostgresTables } from '../../infra/postgresql/db';
-import { UserRepository } from '../contracts';
+import { getPostgresPool, PostgresTables } from "../../infra/postgresql/db";
+import { UserRepository, CreateUserInput } from "../contracts";
 
 export class PostgresUserRepository implements UserRepository {
   private getTable() {
-    return `"${PostgresTables.users}"`; // safely quote table name
+    return `"${PostgresTables.users}"`;
   }
 
-  async create(email: string, passwordHash: string) {
+  async create(input: CreateUserInput) {
+    const { email, username, passwordHash } = input;
     const pool = getPostgresPool();
+
     const result = await pool.query(
-      `INSERT INTO ${this.getTable()} (email, password) VALUES ($1, $2) RETURNING *`,
-      [email, passwordHash]
+      `
+      INSERT INTO ${this.getTable()} (email, username, password)
+      VALUES ($1, $2, $3)
+      RETURNING *
+      `,
+      [email, username, passwordHash]
     );
+
     return result.rows[0];
   }
 
@@ -29,6 +36,15 @@ export class PostgresUserRepository implements UserRepository {
     const result = await pool.query(
       `SELECT * FROM ${this.getTable()} WHERE id = $1`,
       [id]
+    );
+    return result.rows[0] || null;
+  }
+
+  async findByUsername(username: string) {
+    const pool = getPostgresPool();
+    const result = await pool.query(
+      `SELECT * FROM ${this.getTable()} WHERE username = $1`,
+      [username]
     );
     return result.rows[0] || null;
   }

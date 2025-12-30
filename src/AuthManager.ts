@@ -27,7 +27,8 @@ export function failure<T = null>(
 export class AuthManager {
   public signup!: (
     email: string,
-    password: string
+    password: string,
+    username: string
   ) => Promise<AuthResult<{ user: any }>>;
   public login!: (
     email: string,
@@ -42,7 +43,6 @@ export class AuthManager {
 
   private db!: any;
   private sessionTtl!: number;
-
   private constructor() {}
 
   public static async init(options: AuthOptions): Promise<AuthManager> {
@@ -57,7 +57,10 @@ export class AuthManager {
         break;
       case "postgres":
         if (!options.postgresUrl) throw new Error("postgresUrl is required");
-        manager.db = await initPostgres(options.postgresUrl , options.postgresUserTable);
+        manager.db = await initPostgres(
+          options.postgresUrl,
+          options.postgresUserTable
+        );
         console.log("ℹ️ Connected to PostgreSQL:", options.postgresUrl);
         break;
       default:
@@ -70,8 +73,17 @@ export class AuthManager {
 
     // ---------------- Credentials ----------------
     if (authTypes.includes("credentials")) {
-      manager.signup = async (email: string, password: string) => {
+      manager.signup = async (
+        email: string,
+        username: string,
+        password: string
+      ) => {
         try {
+          //Validate inputs
+          if (!email || !username || !password) {
+            return failure("Email, username, and password are required.", 400);
+          }
+
           // ---------------- Password Strength ----------------
           const result = zxcvbn(password);
           console.log("ℹ️ Password strength result:", result);
@@ -82,6 +94,7 @@ export class AuthManager {
             );
           }
 
+          // ---------------- Breach Check ----------------
           const breached = await isBreachedPassword(password);
           console.log("ℹ️ Password breach check:", breached);
           if (breached) {
@@ -91,14 +104,20 @@ export class AuthManager {
             );
           }
 
+          // ---------------- Signup ----------------
           const user = await AuthService.signup(
             email,
+            username, // ← pass username
             password,
             manager.db.userRepo
           );
+
           return success({ user }, "User signed up", 201);
         } catch (err: any) {
-          return failure("Signup failed: " + (err.message || "Unknown error"));
+          return failure(
+            "Signup failed: " + (err.message || "Unknown error"),
+            500
+          );
         }
       };
 

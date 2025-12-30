@@ -1,22 +1,84 @@
-import { Schema, model, Types } from 'mongoose';
+import { Schema, model, Types } from "mongoose";
 
-const UserSchema = new Schema({
-  email: { type: String, unique: true, index: true },
-  password: { type: String, required: true }
-}, { timestamps: true });
+/* -------------------- USER -------------------- */
+const UserSchema = new Schema(
+  {
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+      lowercase: true,
+      trim: true,
+    },
 
-const SessionSchema = new Schema({
-  userId: { type: Types.ObjectId, ref: 'User', required: true },
-  expiresAt: { type: Date, index: { expires: 0 } }
-});
+    username: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+      trim: true,
+    },
 
-const MagicLinkSchema = new Schema({
-  userId: { type: String, required: true },
-  tokenHash: { type: String, required: true, unique: true },
-  expiresAt: { type: Date, required: true },
-  usedAt: { type: Date }
-});
+    password: {
+      type: String,
+      required: true,
+      select: false, 
+    },
+  },
+  { timestamps: true }
+);
 
-export const UserModel = model('User', UserSchema);
-export const SessionModel = model('Session', SessionSchema);
-export const MagicLinkModel = model('MagicLink', MagicLinkSchema);
+/* -------------------- SESSION -------------------- */
+const SessionSchema = new Schema(
+  {
+    userId: {
+      type: Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+
+    expiresAt: {
+      type: Date,
+      required: true,
+      index: { expires: 0 }, // TTL index
+    },
+  },
+  { timestamps: true }
+);
+
+/* -------------------- MAGIC LINK -------------------- */
+const MagicLinkSchema = new Schema(
+  {
+    userId: {
+      type: Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+
+    tokenHash: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+    },
+
+    expiresAt: {
+      type: Date,
+      required: true,
+      index: true,
+    },
+
+    usedAt: {
+      type: Date,
+    },
+  },
+  { timestamps: true }
+);
+
+/* -------------------- MODELS -------------------- */
+export const UserModel = model("User", UserSchema);
+export const SessionModel = model("Session", SessionSchema);
+export const MagicLinkModel = model("MagicLink", MagicLinkSchema);
