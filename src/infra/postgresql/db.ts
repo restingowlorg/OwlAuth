@@ -151,7 +151,7 @@ export async function initPostgres(
         CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
         CREATE TABLE IF NOT EXISTS users (
-          id SERIAL PRIMARY KEY,,
+          id SERIAL PRIMARY KEY,
           email TEXT UNIQUE NOT NULL,
           password TEXT
         );
