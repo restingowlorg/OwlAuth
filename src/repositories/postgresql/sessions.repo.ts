@@ -13,7 +13,7 @@ export class PostgresSessionRepository implements SessionRepository {
     return result.rows[0];
   }
 
-  async findById(id: string) {
+  async findById(id: Number) {
     const pool = getPostgresPool();
     const result = await pool.query("SELECT * FROM sessions WHERE id = $1", [
       id,
