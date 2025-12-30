@@ -1,5 +1,4 @@
-import { Request } from 'express';
-import { MagicLinkService } from './authentication_methods/magic-links/magic-link.service';
+import { MagicLinkService } from "./authentication_methods/magic-links/magic-link.service";
 
 export type HandlerConfig = {
   db: AuthDB;
@@ -15,17 +14,15 @@ export interface AuthUser {
   email: string;
 }
 
-export type AuthRequest = Request & { user?: AuthUser };
-
-export type AuthType = 'credentials' | 'magic-link';
+export type AuthType = "credentials" | "magic-link";
 
 export type AuthOptions = {
-  dbType: 'mongo' | 'postgres' | 'mysql' | string;
+  dbType: "mongo" | "postgres" | "mysql" | string;
 
   mongoUri?: string;
   postgresUrl?: string;
 
-  postgresUserTable?: InitPostgresOptions; 
+  postgresUserTable?: InitPostgresOptions;
 
   authTypes?: AuthType[];
   sessionTtlSeconds?: number;
@@ -34,7 +31,7 @@ export type AuthOptions = {
   cookieOptions?: {
     httpOnly?: boolean;
     secure?: boolean;
-    sameSite?: 'lax' | 'strict' | 'none';
+    sameSite?: "lax" | "strict" | "none";
   };
 
   magicLinkService?: MagicLinkService;
@@ -78,12 +75,12 @@ export interface MagicLinkToken {
 }
 
 export interface AuthResult<T = any> {
-  success: boolean;        // true if operation succeeded
-  data?: T;                // returned payload
-  httpCode: number;        // intended HTTP status code
-  message: string;         // descriptive message
+  success: boolean; 
+  data?: T; 
+  httpCode: number; 
+  message: string; 
 }
 
 export type InitPostgresOptions = {
-  userTableName?: string; // optional custom user table
+  userTableName?: string; 
 };
