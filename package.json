@@ -39,6 +39,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/restingowlorg/mvp-auth.git"
+    "url": "https://github.com/OSSecPlatform/ossec-auth-library"
   }
 }
