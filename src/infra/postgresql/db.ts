@@ -163,7 +163,6 @@ export async function initPostgres(
 
     // Get user table PK info
     const userPK = await getUserPrimaryKey(pool, userTable);
-    console.log(`🔑 User table primary key: "${userPK.name}" (${userPK.type})`);
 
     // ---------------- SESSIONS ----------------
     await pool.query(`
@@ -200,9 +199,7 @@ export async function initPostgres(
   };
 }
 
-/**
- * Get PostgreSQL pool
- */
+// Get PostgreSQL pool
 export function getPostgresPool(): Pool {
   if (!pool)
     throw new Error("PostgreSQL not initialized. Call initPostgres first.");
