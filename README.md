@@ -1,52 +1,52 @@
 
 ---
 
-# 🛡️ Flex Auth - MVP Open Source Auth Library
+# 🛡️ Flex Auth
 
-A **framework-agnostic**, **database-agnostic** authentication library for Node.js providing **Credentials** and **Magic Link (passwordless)** authentication using a clean, layered architecture.
+A **framework-agnostic**, **database-agnostic** authentication library for Node.js that provides **Credentials** and **Magic Link (passwordless)** authentication using a clean, layered architecture.
 
-This library exposes **pure business functions**, not HTTP controllers — giving full control to the consumer application (Express, NestJS, Fastify, etc.).
+Flex Auth exposes **pure business services** and returns **structured results**, giving full control to the consuming application (Express, NestJS, Fastify, etc.).
 
 ---
 
 ## ✨ Features
 
-* ✅ Credentials authentication (email + password)
+* ✅ Credentials authentication (email + username + password)
 * 🔗 Magic link (passwordless) authentication
 * 🍪 Session-based authentication
 * 🧩 Framework agnostic (Express, NestJS, Fastify, custom)
-* 🗄️ Database agnostic (MongoDB, PostgreSQL)
-* 🧪 Strong typing with unified result format
-* 🧱 Clean architecture (Services, Repositories, Infra)
+* 🗄️ Database agnostic (PostgreSQL, MongoDB)
+* 🧪 Strong typing with unified `AuthResult` and `IAuthManager`
+* 🧱 Clean architecture (Manager → Services → Repositories → Infra)
 * 🔒 Secure password hashing & token handling
-* 🔄 Automatic PostgreSQL migrations for missing columns
-* 🛡️ Password strength validation and breach checks (OWASP guidelines)
+* 🔄 Automatic PostgreSQL schema validation & migrations
+* 🛡️ Password strength & breach checks (OWASP-aligned)
 
 ---
 
 ## 🧠 Design Philosophy
 
-> **The library does not handle HTTP, routes, or responses.**
+> **Flex Auth does not handle HTTP, routes, or controllers.**
 
 Instead, it:
 
-* Exposes **pure business functions**
+* Exposes **business-level service methods** via `AuthManager`
 * Returns **structured results** (`AuthResult`)
-* Lets **developers decide** how to map results to their framework
+* Keeps **framework logic outside the library**
 
-This avoids:
+This ensures:
 
-* Framework lock-in
-* Adapter complexity
-* Controller duplication
-* Hidden magic
+* No framework lock-in
+* Predictable behavior
+* Easy testing
+* Clean separation of concerns
 
 ---
 
 ## 📦 Installation
 
 ```bash
-npm i mvp-flex-auth
+npm install flex-auth
 ```
 
 ---
@@ -57,8 +57,12 @@ npm i mvp-flex-auth
 src/
 ├── auth-manager.ts
 ├── types.ts
+├── interfaces.ts
 ├── config/
 │   └── defaults.ts
+├── helpers/
+│   ├── database.init.ts
+│   └── initAuthServices.ts
 ├── authentication_methods/
 │   ├── credentials/
 │   │   ├── auth.service.ts
@@ -68,24 +72,40 @@ src/
 ├── infra/
 │   ├── crypto/
 │   │   └── crypto.ts
+│   ├── security/
+│   │   └── pwned-passwords.ts
 │   ├── mongo/
 │   │   └── db.ts
 │   └── postgres/
-│       └── db.ts          # PostgreSQL infra with automatic migrations
+│       └── db.ts
 └── repositories/
+    ├── contracts.ts
     ├── mongo/
     │   ├── user.repo.ts
     │   ├── session.repo.ts
     │   └── magicLink.repo.ts
     └── postgres/
-        ├── user.ts
-        ├── session.ts
-        └── magicLink.ts
+        ├── user.repo.ts
+        ├── session.repo.ts
+        └── magicLink.repo.ts
 ```
 
 ---
 
 ## 🧩 Core Types
+
+### `IAuthManager`
+
+```ts
+export interface IAuthManager {
+  signup: (email: string, username: string, password: string) => Promise<AuthResult>;
+  login: (email: string, password: string) => Promise<AuthResult>;
+  logout: (sessionId: string) => Promise<AuthResult>;
+  me: (sessionId: number) => Promise<AuthResult>;
+  requestMagicLink?: (email: string) => Promise<AuthResult>;
+  consumeMagicLink?: (token: string) => Promise<AuthResult>;
+}
+```
 
 ### `AuthResult`
 
@@ -98,90 +118,66 @@ export interface AuthResult<T = any> {
 }
 ```
 
-### Helper Functions
-
-```ts
-export function success<T>(
-  data: T,
-  message = "Success",
-  httpCode = 200
-): AuthResult<T> {
-  return { success: true, data, httpCode, message };
-}
-
-export function failure(
-  message: string,
-  httpCode = 400
-): AuthResult<null> {
-  return { success: false, data: null, httpCode, message };
-}
-```
+> All public APIs **always return `AuthResult`** — no thrown errors leak to consumers.
 
 ---
 
 ## 🚀 Initializing AuthManager
 
-You can now initialize with **MongoDB or PostgreSQL**:
-
-### MongoDB Example
+### PostgreSQL
 
 ```ts
-import { AuthManager } from "mvp-flex-auth";
-
-const auth = await AuthManager.init({
-  dbType: "mongo",
-  mongoUri: process.env.MONGO_URI!,
-  authTypes: ["credentials", "magic-link"],
-  sessionTtlSeconds: 60 * 60 * 24 * 7, // 7 days
-});
-```
-
-### PostgreSQL Example (with automatic migrations)
-
-```ts
-import { AuthManager } from "mvp-flex-auth";
+import { AuthManager } from "flex-auth";
 
 const auth = await AuthManager.init({
   dbType: "postgres",
   postgresUrl: process.env.POSTGRES_URL!,
   authTypes: ["credentials", "magic-link"],
-  sessionTtlSeconds: 60 * 60 * 24 * 7, // 7 days
+  sessionTtlSeconds: 60 * 60 * 24 * 7,
 });
 ```
 
-> ⚠️ Tables and missing columns will be **created automatically** if they don’t exist. Existing tables with extra columns are preserved.
+### MongoDB
+
+```ts
+const auth = await AuthManager.init({
+  dbType: "mongo",
+  mongoUri: process.env.MONGO_URI!,
+  authTypes: ["credentials"],
+});
+```
+
+> ⚠️ PostgreSQL schemas and missing columns are **automatically created or validated** without breaking existing data.
 
 ---
 
 ## 🔐 Credentials Authentication
 
-### Signup (with OWASP password checks)
+### Signup
 
 ```ts
-const result = await auth.signup("user@test.com", "Password123!");
+const result = await auth.signup("user@test.com", "username", "StrongPassword123!");
 if (!result.success) return res.status(result.httpCode).json(result);
 res.status(201).json(result);
 ```
 
-* Validates password strength
-* Checks password against known breaches (Pwned Passwords API)
-* Hashes password securely before saving
-
 ### Login
 
 ```ts
-const result = await auth.login("user@test.com", "Password123!");
+const result = await auth.login("user@test.com", "StrongPassword123!");
 if (!result.success) return res.status(result.httpCode).json(result);
 
-// result.data = { user, session }
-res.cookie("AUTH_SESSION", result.data!.session.id, { httpOnly: true });
-res.json(result);
+res.cookie("AUTH_SESSION", result.data.session.id, {
+  httpOnly: true,
+  sameSite: "lax",
+});
 ```
 
 ### Logout
 
 ```ts
-await auth.logout(sessionId);
+const result = await auth.logout(sessionId);
+res.status(result.httpCode).json(result);
 ```
 
 ### Get Current User (`me`)
@@ -203,7 +199,7 @@ const result = await auth.requestMagicLink!("user@test.com");
 res.status(result.httpCode).json(result);
 ```
 
-> ⚠️ Token is **logged only in development**, never returned in production.
+> Tokens are **never returned in production**.
 
 ### Consume Magic Link
 
@@ -211,60 +207,38 @@ res.status(result.httpCode).json(result);
 const result = await auth.consumeMagicLink!(token);
 if (!result.success) return res.status(result.httpCode).json(result);
 
-// result.data = { userId, session }
-res.cookie("AUTH_SESSION", result.data!.session.id);
+res.cookie("AUTH_SESSION", result.data.session.id);
 res.json(result);
-```
-
----
-
-## 🧪 Express Example (Minimal)
-
-```ts
-app.post("/login", async (req, res) => {
-  const { email, password } = req.body;
-  const result = await auth.login(email, password);
-  res.status(result.httpCode).json(result);
-});
 ```
 
 ---
 
 ## 🛡️ Security Notes
 
-* Passwords hashed using `bcrypt`
+* Passwords hashed with `bcrypt`
 * Magic tokens are hashed & single-use
-* Sessions are validated server-side
-* Cookies are HTTP-only by default
-* Passwords are checked for **strength** and **known breaches** following [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
+* Sessions validated server-side
+* HTTP-only cookies recommended
+* Password checks follow OWASP guidelines
 
 ---
 
-## 🧠 Why This Approach?
+## 🧠 Why This Architecture?
 
-### ✅ Pros
+### ✅ Benefits
 
-* No framework lock-in
-* No adapters to maintain
-* Easy testing (pure functions)
-* Predictable error handling
-* Works with REST, GraphQL, RPC, serverless
-* Excellent DX for advanced users
+* Database agnostic
+* Framework agnostic
+* Predictable error handling via `AuthResult`
+* No hidden side effects
+* Easy to test and extend
+* Dynamic service initialization via `initAuthServices`
 
 ### ⚠️ Trade-offs
 
-* Consumers must define routes/controllers
-* HTTP response mapping is manual
+* Consumers manage controllers/routes
+* Explicit HTTP mapping required
 
-> This design mirrors SDKs like Stripe, Prisma Client, Auth0, AWS SDK.
-
----
-
-## 🧪 Testing
-
-* Use Postman or curl
-* Inspect returned `AuthResult`
-* Assert `success === true/false`
-* Tokens only logged in development
+> Mirrors SDK-style libraries like Prisma Client, Stripe SDK, and AWS SDK.
 
 ---

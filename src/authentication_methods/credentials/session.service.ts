@@ -1,15 +1,14 @@
 import { SessionRepository } from "../../repositories/contracts";
 import { AuthResult } from "../../types";
 
-export const SessionService = {
-  async create(
-    userId: string,
-    ttlSeconds: number,
-    SessionRepo: SessionRepository
-  ): Promise<AuthResult> {
+export class SessionService {
+  constructor(private readonly sessions: SessionRepository) {}
+
+  async create(userId: string, ttlSeconds: number): Promise<AuthResult> {
     try {
       const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
-      const session = await SessionRepo.create(userId, expiresAt);
+      const session = await this.sessions.create(userId, expiresAt);
+
       return {
         success: true,
         data: { session },
@@ -25,15 +24,12 @@ export const SessionService = {
         httpCode: 500,
       };
     }
-  },
+  }
 
-  async validate(
-    sessionId: Number,
-    SessionRepo: SessionRepository
-  ): Promise<AuthResult<any | null>> {
+  async validate(sessionId:number): Promise<AuthResult> {
     try {
-      console.log("[Session Service ℹ️ ] Validating session ID:", sessionId);
-      const session = await SessionRepo.findById(sessionId);
+      const session = await this.sessions.findById(sessionId);
+
       if (!session) {
         return {
           success: false,
@@ -67,14 +63,12 @@ export const SessionService = {
         httpCode: 500,
       };
     }
-  },
+  }
 
-  async destroy(
-    sessionId: string,
-    SessionRepo: SessionRepository
-  ): Promise<AuthResult> {
+  async destroy(sessionId: string): Promise<AuthResult> {
     try {
-      await SessionRepo.delete(sessionId);
+      await this.sessions.delete(sessionId);
+
       return {
         success: true,
         data: null,
@@ -90,5 +84,5 @@ export const SessionService = {
         httpCode: 500,
       };
     }
-  },
-};
+  }
+}

@@ -5,15 +5,22 @@ import { zxcvbn } from "@zxcvbn-ts/core";
 import { isBreachedPassword } from "../../infra/security/pwned-passwords";
 import { SessionService } from "./session.service";
 
-export const AuthService = {
+export class CredentialsAuthService {
+  constructor(
+    private readonly users: UserRepository,
+    private readonly sessions: SessionService,
+    private readonly sessionTtlSeconds: number
+  ) {}
+
+  // ---------------- Signup ----------------
+
   async signup(
     email: string,
     username: string,
-    password: string,
-    UserRepo: UserRepository
+    password: string
   ): Promise<AuthResult> {
     try {
-      // Input Validation
+      // ---------------- Input Validation ----------------
       if (!email || !username || !password) {
         return {
           success: false,
@@ -23,7 +30,7 @@ export const AuthService = {
         };
       }
 
-      // Simple email format check
+      // Username format
       if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
         return {
           success: false,
@@ -34,7 +41,7 @@ export const AuthService = {
         };
       }
 
-      // Password Strength
+      // Password strength
       const pwdStrength = zxcvbn(password);
       if (pwdStrength.score < 3) {
         return {
@@ -45,7 +52,7 @@ export const AuthService = {
         };
       }
 
-      // Breach Check
+      // Breach check
       const breached = await isBreachedPassword(password);
       if (breached) {
         return {
@@ -57,33 +64,36 @@ export const AuthService = {
         };
       }
 
-      //  Email / Username Check
-      if (UserRepo.findByUsername) {
-        const existingUser = await UserRepo.findByUsername(username);
-        if (existingUser)
+      // Username uniqueness (optional)
+      if (this.users.findByUsername) {
+        const existingUsername = await this.users.findByUsername(username);
+        if (existingUsername) {
           return {
             success: false,
             data: null,
             message: "Username already taken.",
             httpCode: 400,
           };
+        }
       }
 
-      const existingEmail = await UserRepo.findByEmail(email);
-      if (existingEmail)
+      // Email uniqueness
+      const existingEmail = await this.users.findByEmail(email);
+      if (existingEmail) {
         return {
           success: false,
           data: null,
           message: "Email already registered.",
           httpCode: 400,
         };
+      }
 
-      // ---------------- Hash Password ----------------
+      // Hash password
       const passwordHash = await hashPassword(password);
 
-      // ---------------- Create User ----------------
+      // Create user
       const input: CreateUserInput = { email, username, passwordHash };
-      const user = await UserRepo.create(input);
+      const user = await this.users.create(input);
 
       return {
         success: true,
@@ -99,17 +109,13 @@ export const AuthService = {
         httpCode: 500,
       };
     }
-  },
+  }
 
-  async login(
-    email: string,
-    password: string,
-    UserRepo: UserRepository,
-    SessionRepo: any,
-    sessionTtl: number
-  ): Promise<AuthResult> {
+  // ---------------- Login ----------------
+
+  async login(email: string, password: string): Promise<AuthResult> {
     try {
-      // ---------------- Input Validation ----------------
+      // Input validation
       if (!email || !password) {
         return {
           success: false,
@@ -119,8 +125,8 @@ export const AuthService = {
         };
       }
 
-      // ---------------- Find User ----------------
-      const user = await UserRepo.findByEmail(email);
+      // Find user
+      const user = await this.users.findByEmail(email);
       if (!user) {
         return {
           success: false,
@@ -130,7 +136,7 @@ export const AuthService = {
         };
       }
 
-      // ---------------- Verify Password ----------------
+      // Verify password
       const valid = await verifyPassword(password, user.password);
       if (!valid) {
         return {
@@ -141,16 +147,22 @@ export const AuthService = {
         };
       }
 
-      // ---------------- Create Session ----------------
-      const session = await SessionService.create(
+      // Create session
+      const sessionResult = await this.sessions.create(
         user.id,
-        sessionTtl,
-        SessionRepo
+        this.sessionTtlSeconds
       );
+
+      if (!sessionResult.success) {
+        return sessionResult;
+      }
 
       return {
         success: true,
-        data: { user, session },
+        data: {
+          user,
+          session: sessionResult.data.session,
+        },
         message: "User logged in",
         httpCode: 200,
       };
@@ -162,5 +174,5 @@ export const AuthService = {
         httpCode: 500,
       };
     }
-  },
-};
+  }
+}

@@ -5,7 +5,7 @@ export const MongoSessionRepo: SessionRepository = {
   create(userId: string, expiresAt: Date) {
     return SessionModel.create({ userId, expiresAt });
   },
-  findById(id: Number) {
+  findById(id: number) {
     return SessionModel.findById(id);
   },
   delete: async (id: string) => {
