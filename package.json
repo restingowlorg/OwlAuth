@@ -1,35 +1,20 @@
 {
-  "name": "mvp-flex-auth",
-  "version": "1.0.4",
-  "description": "",
+  "name": "@restingowlorg/mvp-auth",
+  "version": "1.0.0",
+  "description": "A framework-agnostic, database-agnostic authentication library for Node.js",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc --declaration"
   },
   "keywords": [
-    "authentication",
-    "auth",
-    "auth-library",
-    "node-auth",
-    "framework-agnostic",
-    "backend-auth",
-    "session-auth",
-    "password-auth",
-    "magic-link",
-    "passwordless",
-    "login",
-    "signup",
-    "security",
-    "user-auth",
-    "nodejs",
-    "typescript",
-    "clean-architecture",
-    "hexagonal-architecture",
-    "backend",
-    "api-auth",
-    "express-auth",
-    "nest-auth"
+    "authentication", "auth", "auth-library", "node-auth", "framework-agnostic",
+    "backend-auth", "session-auth", "password-auth", "magic-link", "passwordless",
+    "login", "signup", "security", "user-auth", "nodejs", "typescript",
+    "clean-architecture", "hexagonal-architecture", "backend", "api-auth",
+    "express-auth", "nest-auth"
   ],
   "author": "",
   "license": "MIT",
@@ -49,8 +34,11 @@
     "@types/node-fetch": "^2.6.13",
     "@types/pg": "^8.16.0"
   },
-  "types": "dist/index.d.ts",
-  "files": [
-    "dist"
-  ]
+  "publishConfig": {
+    "access": "restricted"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/restingowlorg/mvp-auth.git"
+  }
 }

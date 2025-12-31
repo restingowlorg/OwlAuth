@@ -1,7 +1,7 @@
 
 ---
 
-# 🛡️ Flex Auth
+# 🛡️ MVP AUTH
 
 A **framework-agnostic**, **database-agnostic** authentication library for Node.js that provides **Credentials** and **Magic Link (passwordless)** authentication using a clean, layered architecture.
 
@@ -46,7 +46,7 @@ This ensures:
 ## 📦 Installation
 
 ```bash
-npm install flex-auth
+npm install @restingowlorg/mvp-auth
 ```
 
 ---
