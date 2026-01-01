@@ -1,9 +1,11 @@
-import { getPostgresPool, PostgresTables } from "../../infra/postgresql/db";
+import { getPostgresPool } from "../../infra/postgresql/db";
 import { UserRepository, CreateUserInput } from "../contracts";
 
 export class PostgresUserRepository implements UserRepository {
+  constructor(private readonly table: string) {}
+
   private getTable() {
-    return `"${PostgresTables.users}"`;
+    return `"${this.table}"`;
   }
 
   async create(input: CreateUserInput) {
