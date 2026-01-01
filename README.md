@@ -1,109 +1,136 @@
 
 ---
 
-# 🛡️ MVP AUTH
+# 🛡️ MVP Auth
 
-A **framework-agnostic**, **database-agnostic** authentication library for Node.js that provides **Credentials** and **Magic Link (passwordless)** authentication using a clean, layered architecture.
+[![npm version](https://img.shields.io/npm/v/@restingowlorg/mvp-auth)](https://www.npmjs.com/package/@restingowlorg/mvp-auth)
+[![License](https://img.shields.io/npm/l/@restingowlorg/mvp-auth)](LICENSE)
 
-Flex Auth exposes **pure business services** and returns **structured results**, giving full control to the consuming application (Express, NestJS, Fastify, etc.).
+**MVP Auth** is a **framework-agnostic** and **database-agnostic** Node.js authentication library providing:
+
+* Credentials authentication (`email + username + password`)
+* Magic link (passwordless) authentication
+* Session-based authentication
+
+It exposes **business-level services** (`AuthManager`) and returns **structured results** (`AuthResult`) without leaking errors to consumers.
 
 ---
 
-## ✨ Features
+## Table of Contents
+
+* [Features](#features)
+* [Architecture](#architecture)
+* [Installation](#installation)
+* [Initialization](#initialization)
+
+  * [PostgreSQL](#postgresql)
+  * [MongoDB](#mongodb)
+* [Core Types](#core-types)
+* [Usage Examples](#usage-examples)
+
+  * [Credentials Signup & Login](#credentials-signup--login)
+  * [Magic Link Flow](#magic-link-flow)
+* [Security Notes](#security-notes)
+* [Extensibility](#extensibility)
+* [Error Handling](#error-handling)
+* [Database Schema Reference](#database-schema-reference-postgresql)
+* [Best Practices](#best-practices)
+* [Diagrams](#diagrams-flow)
+
+---
+
+## Features
 
 * ✅ Credentials authentication (email + username + password)
-* 🔗 Magic link (passwordless) authentication
+* 🔗 Magic Link (passwordless) authentication
 * 🍪 Session-based authentication
 * 🧩 Framework agnostic (Express, NestJS, Fastify, custom)
 * 🗄️ Database agnostic (PostgreSQL, MongoDB)
 * 🧪 Strong typing with unified `AuthResult` and `IAuthManager`
-* 🧱 Clean architecture (Manager → Services → Repositories → Infra)
+* 🧱 Clean architecture: `AuthManager → Services → Repositories → Infra`
 * 🔒 Secure password hashing & token handling
 * 🔄 Automatic PostgreSQL schema validation & migrations
 * 🛡️ Password strength & breach checks (OWASP-aligned)
 
 ---
 
-## 🧠 Design Philosophy
+## Architecture
 
-> **Flex Auth does not handle HTTP, routes, or controllers.**
+MVP Auth follows a **layered, testable architecture**:
 
-Instead, it:
+```mermaid
+graph TD
+  A[AuthManager] --> B[Services Layer]
+  B --> C[Repositories]
+  C --> D[Infrastructure]
+```
 
-* Exposes **business-level service methods** via `AuthManager`
-* Returns **structured results** (`AuthResult`)
-* Keeps **framework logic outside the library**
+* **AuthManager:** Orchestrates authentication operations
+* **Services Layer:** Handles validation, password hashing, token management
+* **Repositories:** Implement database-agnostic CRUD contracts
+* **Infrastructure:** Database adapters (PostgreSQL, MongoDB)
 
-This ensures:
-
-* No framework lock-in
-* Predictable behavior
-* Easy testing
-* Clean separation of concerns
+> Each layer is **independently testable**, ensuring maintainability and reliability.
 
 ---
 
-## 📦 Installation
+## Installation
 
 ```bash
 npm install @restingowlorg/mvp-auth
 ```
 
+**Environment Variables:**
+
+* PostgreSQL: `POSTGRES_URL`
+* MongoDB: `MONGO_URI`
+
 ---
 
-## 📁 Folder Structure
+## Initialization
 
-```txt
-src/
-├── auth-manager.ts
-├── types.ts
-├── interfaces.ts
-├── config/
-│   └── defaults.ts
-├── helpers/
-│   ├── database.init.ts
-│   └── initAuthServices.ts
-├── authentication_methods/
-│   ├── credentials/
-│   │   ├── auth.service.ts
-│   │   └── session.service.ts
-│   └── magic-links/
-│       └── magic-link.service.ts
-├── infra/
-│   ├── crypto/
-│   │   └── crypto.ts
-│   ├── security/
-│   │   └── pwned-passwords.ts
-│   ├── mongo/
-│   │   └── db.ts
-│   └── postgres/
-│       └── db.ts
-└── repositories/
-    ├── contracts.ts
-    ├── mongo/
-    │   ├── user.repo.ts
-    │   ├── session.repo.ts
-    │   └── magicLink.repo.ts
-    └── postgres/
-        ├── user.repo.ts
-        ├── session.repo.ts
-        └── magicLink.repo.ts
+### PostgreSQL
+
+```ts
+import { AuthManager } from "flex-auth";
+
+const auth = await AuthManager.init({
+  dbType: "postgres",
+  postgresUrl: process.env.POSTGRES_URL!,
+  authTypes: ["credentials", "magic-link"],
+  sessionTtlSeconds: 60 * 60 * 24 * 7, // 7 days
+});
 ```
 
+### MongoDB
+
+```ts
+const auth = await AuthManager.init({
+  dbType: "mongo",
+  mongoUri: process.env.MONGO_URI!,
+  authTypes: ["credentials"],
+});
+```
+
+**Notes:**
+
+* PostgreSQL schemas are auto-validated/created if missing
+* Custom table names supported via `userTableName`
+
 ---
 
-## 🧩 Core Types
+## Core Types
 
 ### `IAuthManager`
 
 ```ts
 export interface IAuthManager {
-  signup: (email: string, username: string, password: string) => Promise<AuthResult>;
-  login: (email: string, password: string) => Promise<AuthResult>;
-  logout: (sessionId: string) => Promise<AuthResult>;
-  me: (sessionId: number) => Promise<AuthResult>;
-  requestMagicLink?: (email: string) => Promise<AuthResult>;
-  consumeMagicLink?: (token: string) => Promise<AuthResult>;
+  signup(email: string, username: string, password: string): Promise<AuthResult>;
+  login(email: string, password: string): Promise<AuthResult>;
+  logout(sessionId: string): Promise<AuthResult>;
+  me(sessionId: number): Promise<AuthResult>;
+  requestMagicLink?(email: string): Promise<AuthResult>;
+  consumeMagicLink?(token: string): Promise<AuthResult>;
 }
 ```
 
@@ -118,127 +145,130 @@ export interface AuthResult<T = any> {
 }
 ```
 
-> All public APIs **always return `AuthResult`** — no thrown errors leak to consumers.
+> All APIs return `AuthResult` — no errors leak to consumers.
 
 ---
 
-## 🚀 Initializing AuthManager
+## Usage Examples
 
-### PostgreSQL
-
-```ts
-import { AuthManager } from "flex-auth";
-
-const auth = await AuthManager.init({
-  dbType: "postgres",
-  postgresUrl: process.env.POSTGRES_URL!,
-  authTypes: ["credentials", "magic-link"],
-  sessionTtlSeconds: 60 * 60 * 24 * 7,
-});
-```
-
-### MongoDB
+### Credentials Signup & Login
 
 ```ts
-const auth = await AuthManager.init({
-  dbType: "mongo",
-  mongoUri: process.env.MONGO_URI!,
-  authTypes: ["credentials"],
-});
-```
-
-> ⚠️ PostgreSQL schemas and missing columns are **automatically created or validated** without breaking existing data.
-
----
-
-## 🔐 Credentials Authentication
-
-### Signup
-
-```ts
+// Signup
 const result = await auth.signup("user@test.com", "username", "StrongPassword123!");
 if (!result.success) return res.status(result.httpCode).json(result);
 res.status(201).json(result);
-```
 
-### Login
+// Login
+const loginResult = await auth.login("user@test.com", "StrongPassword123!");
+if (!loginResult.success) return res.status(loginResult.httpCode).json(loginResult);
 
-```ts
-const result = await auth.login("user@test.com", "StrongPassword123!");
-if (!result.success) return res.status(result.httpCode).json(result);
-
-res.cookie("AUTH_SESSION", result.data.session.id, {
+res.cookie("AUTH_SESSION", loginResult.data.session.id, {
   httpOnly: true,
   sameSite: "lax",
 });
 ```
 
-### Logout
+### Magic Link Flow
 
 ```ts
-const result = await auth.logout(sessionId);
-res.status(result.httpCode).json(result);
+// Request Magic Link
+const magicResult = await auth.requestMagicLink!("user@test.com");
+res.status(magicResult.httpCode).json(magicResult);
+
+// Consume Magic Link
+const consumeResult = await auth.consumeMagicLink!(token);
+if (!consumeResult.success) return res.status(consumeResult.httpCode).json(consumeResult);
+
+res.cookie("AUTH_SESSION", consumeResult.data.session.id);
+res.json(consumeResult);
 ```
 
-### Get Current User (`me`)
-
-```ts
-const result = await auth.me(sessionId);
-if (!result.success) return res.status(401).json(result);
-res.json(result);
-```
+> ⚠️ Tokens are **never returned in production**.
 
 ---
 
-## 🔗 Magic Link Authentication
-
-### Request Magic Link
-
-```ts
-const result = await auth.requestMagicLink!("user@test.com");
-res.status(result.httpCode).json(result);
-```
-
-> Tokens are **never returned in production**.
-
-### Consume Magic Link
-
-```ts
-const result = await auth.consumeMagicLink!(token);
-if (!result.success) return res.status(result.httpCode).json(result);
-
-res.cookie("AUTH_SESSION", result.data.session.id);
-res.json(result);
-```
-
----
-
-## 🛡️ Security Notes
+## Security Notes
 
 * Passwords hashed with `bcrypt`
-* Magic tokens are hashed & single-use
+* Magic link tokens are hashed & single-use
 * Sessions validated server-side
 * HTTP-only cookies recommended
 * Password checks follow OWASP guidelines
 
 ---
 
-## 🧠 Why This Architecture?
+## Extensibility
 
-### ✅ Benefits
-
-* Database agnostic
-* Framework agnostic
-* Predictable error handling via `AuthResult`
-* No hidden side effects
-* Easy to test and extend
-* Dynamic service initialization via `initAuthServices`
-
-### ⚠️ Trade-offs
-
-* Consumers manage controllers/routes
-* Explicit HTTP mapping required
-
-> Mirrors SDK-style libraries like Prisma Client, Stripe SDK, and AWS SDK.
+* Add new auth types by implementing services & repositories
+* Custom database support by implementing repository contracts
+* Use custom table names via `initPostgres` options
+* Future logging and observability hooks supported
 
 ---
+
+## Error Handling
+
+* All methods return **`AuthResult`**
+* No unhandled exceptions leak to consumers
+* HTTP codes embedded: `200, 201, 401, 400, 500`
+
+---
+
+## Database Schema Reference (PostgreSQL)
+
+| Table         | Columns                                 | Notes                                |
+| ------------- | --------------------------------------- | ------------------------------------ |
+| `users`       | id, email, username, password           | Library-managed or external table    |
+| `sessions`    | id, user_id, expires_at, created_at     | References user PK                   |
+| `magic_links` | id, user_id, token, created_at, used_at | Single-use passwordless login tokens |
+
+> Schema is auto-created for library-managed tables.
+
+---
+
+## Best Practices
+
+* Always use **HTTPS + Secure cookies**
+* Keep **sessions short-lived**
+* Validate external user tables before use
+* Use **strong passwords** with optional breach checks
+
+---
+
+## Diagrams / Flow
+
+### Signup / Login
+
+```mermaid
+sequenceDiagram
+    User->>AuthManager: signup(email, username, password)
+    AuthManager->>Services: validatePassword()
+    Services->>UserRepository: createUser()
+    UserRepository-->>AuthManager: user created
+    AuthManager-->>User: AuthResult
+```
+
+```mermaid
+sequenceDiagram
+    User->>AuthManager: login(email, password)
+    AuthManager->>Services: checkPassword()
+    Services->>UserRepository: findByEmail()
+    Services->>SessionRepository: createSession()
+    SessionRepository-->>AuthManager: session
+    AuthManager-->>User: AuthResult + cookie
+```
+
+### Magic Link Flow
+
+```mermaid
+sequenceDiagram
+    User->>AuthManager: requestMagicLink(email)
+    AuthManager->>MagicLinkRepository: createToken()
+    MagicLinkRepository-->>User: token sent via email
+
+    User->>AuthManager: consumeMagicLink(token)
+    AuthManager->>MagicLinkRepository: findByTokenHash()
+    AuthManager->>SessionRepository: createSession()
+    AuthManager-->>User: AuthResult + cookie
+```
