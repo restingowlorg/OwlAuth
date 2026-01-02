@@ -115,7 +115,7 @@ export class CredentialsAuthService {
 
   async login(email: string, password: string): Promise<AuthResult> {
     try {
-      // Input validation
+      // -------------------- Input Validation --------------------
       if (!email || !password) {
         return {
           success: false,
@@ -125,7 +125,7 @@ export class CredentialsAuthService {
         };
       }
 
-      // Find user
+      // -------------------- Find User --------------------
       const user = await this.users.findByEmail(email);
       if (!user) {
         return {
@@ -136,7 +136,7 @@ export class CredentialsAuthService {
         };
       }
 
-      // Verify password
+      // -------------------- Verify Password --------------------
       const valid = await verifyPassword(password, user.password);
       if (!valid) {
         return {
@@ -147,21 +147,29 @@ export class CredentialsAuthService {
         };
       }
 
-      // Create session
+      // -------------------- Create Session --------------------
       const sessionResult = await this.sessions.create(
         user.id,
         this.sessionTtlSeconds
       );
+      if (!sessionResult.success) return sessionResult;
 
-      if (!sessionResult.success) {
-        return sessionResult;
-      }
+      const { session, token } = sessionResult.data;
 
+      // -------------------- Return Safe Response --------------------
       return {
         success: true,
         data: {
-          user,
-          session: sessionResult.data.session,
+          user: {
+            id: user.id,
+            email: user.email,
+            username: user.username,
+          },
+          session: {
+            expiresAt: session.expiresAt,
+            lastUsedAt: session.lastUsedAt,
+          },
+          sessionToken: token,
         },
         message: "User logged in",
         httpCode: 200,
