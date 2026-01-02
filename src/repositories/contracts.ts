@@ -13,10 +13,32 @@ export interface UserRepository {
 
 
 export interface SessionRepository {
-  create(userId: string, expiresAt: Date): Promise<any>;
-  findById(id: number): Promise<any | null>;
-  delete(id: string): Promise<void>;
+  create(input: {
+    userId: string;
+    tokenHash: string;
+    expiresAt: Date;
+    lastUsedAt: Date;
+  }): Promise<{
+    id: string;
+    userId: string;
+    expiresAt: Date;
+    lastUsedAt: Date;
+    revokedAt: Date | null;
+  }>;
+
+  findByTokenHash(tokenHash: string): Promise<{
+    id: string;
+    userId: string;
+    expiresAt: Date;
+    lastUsedAt: Date;
+    revokedAt: Date | null;
+  } | null>;
+
+  updateLastUsed(tokenHash: string, date: Date): Promise<void>;
+
+  revokeByTokenHash(tokenHash: string): Promise<void>;
 }
+
 
 export interface MagicLinkToken {
   id: string;
