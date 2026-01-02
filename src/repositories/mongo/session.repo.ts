@@ -2,13 +2,47 @@ import { SessionRepository } from "../contracts";
 import { SessionModel } from "./models";
 
 export const MongoSessionRepo: SessionRepository = {
-  create(userId: string, expiresAt: Date) {
-    return SessionModel.create({ userId, expiresAt });
+  async create(input) {
+    const session = await SessionModel.create({
+      userId: input.userId,
+      tokenHash: input.tokenHash,
+      expiresAt: input.expiresAt,
+      lastUsedAt: input.lastUsedAt,
+    });
+
+    return {
+      id: session.id,
+      userId: session.userId.toString(),
+      expiresAt: session.expiresAt,
+      lastUsedAt: session.lastUsedAt,
+      revokedAt: session.revokedAt ?? null,
+    };
   },
-  findById(id: number) {
-    return SessionModel.findById(id);
+
+  async findByTokenHash(tokenHash: string) {
+    const session = await SessionModel.findOne({ tokenHash });
+    if (!session) return null;
+
+    return {
+      id: session.id,
+      userId: session.userId.toString(),
+      expiresAt: session.expiresAt,
+      lastUsedAt: session.lastUsedAt,
+      revokedAt: session.revokedAt ?? null,
+    };
   },
-  delete: async (id: string) => {
-    await SessionModel.findByIdAndDelete(id);
+
+  async updateLastUsed(tokenHash: string, date: Date) {
+    await SessionModel.updateOne(
+      { tokenHash, revokedAt: null },
+      { $set: { lastUsedAt: date } }
+    );
+  },
+
+  async revokeByTokenHash(tokenHash: string) {
+    await SessionModel.updateOne(
+      { tokenHash, revokedAt: null },
+      { $set: { revokedAt: new Date() } }
+    );
   },
 };

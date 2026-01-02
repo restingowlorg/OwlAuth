@@ -4,20 +4,31 @@ import { SessionRepository } from "../contracts";
 export class PostgresSessionRepository implements SessionRepository {
   constructor(private readonly table: string) {}
 
-  private getTable() {
+  private t() {
     return `"${this.table}"`;
   }
 
-  async create(userId: string, expiresAt: Date) {
+  async create(input: {
+    userId: string;
+    tokenHash: string;
+    expiresAt: Date;
+    lastUsedAt: Date;
+  }) {
     const pool = getPostgresPool();
 
     const result = await pool.query(
       `
-      INSERT INTO ${this.getTable()} (user_id, created_at, expires_at)
-      VALUES ($1, NOW(), $2)
-      RETURNING *
+      INSERT INTO ${this.t()}
+        (user_id, token_hash, expires_at, last_used_at)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, user_id, expires_at, last_used_at, revoked_at
       `,
-      [userId, expiresAt]
+      [
+        input.userId,
+        input.tokenHash,
+        input.expiresAt,
+        input.lastUsedAt,
+      ]
     );
 
     const row = result.rows[0];
@@ -25,17 +36,22 @@ export class PostgresSessionRepository implements SessionRepository {
     return {
       id: row.id,
       userId: row.user_id,
-      createdAt: row.created_at,
       expiresAt: row.expires_at,
+      lastUsedAt: row.last_used_at,
+      revokedAt: row.revoked_at,
     };
   }
 
-  async findById(id: number) {
+  async findByTokenHash(tokenHash: string) {
     const pool = getPostgresPool();
 
     const result = await pool.query(
-      `SELECT * FROM ${this.getTable()} WHERE id = $1`,
-      [id]
+      `
+      SELECT id, user_id, expires_at, last_used_at, revoked_at
+      FROM ${this.t()}
+      WHERE token_hash = $1
+      `,
+      [tokenHash]
     );
 
     const row = result.rows[0];
@@ -44,16 +60,37 @@ export class PostgresSessionRepository implements SessionRepository {
     return {
       id: row.id,
       userId: row.user_id,
-      createdAt: row.created_at,
       expiresAt: row.expires_at,
+      lastUsedAt: row.last_used_at,
+      revokedAt: row.revoked_at,
     };
   }
 
-  async delete(id: string) {
+  async updateLastUsed(tokenHash: string, date: Date) {
     const pool = getPostgresPool();
+
     await pool.query(
-      `DELETE FROM ${this.getTable()} WHERE id = $1`,
-      [id]
+      `
+      UPDATE ${this.t()}
+      SET last_used_at = $1
+      WHERE token_hash = $2
+        AND revoked_at IS NULL
+      `,
+      [date, tokenHash]
+    );
+  }
+
+  async revokeByTokenHash(tokenHash: string) {
+    const pool = getPostgresPool();
+
+    await pool.query(
+      `
+      UPDATE ${this.t()}
+      SET revoked_at = NOW()
+      WHERE token_hash = $1
+        AND revoked_at IS NULL
+      `,
+      [tokenHash]
     );
   }
 }
