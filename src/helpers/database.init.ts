@@ -8,7 +8,7 @@ export async function initDatabase(options: AuthOptions) {
     case "mongo":
       if (!options.mongoUri) throw new Error("mongoUri is required");
       const mongoDb = await connectMongo(options.mongoUri);
-      console.log("ℹ️ Connected to MongoDB");
+      console.log("ℹ️ Successfully Connected to MongoDB");
       return mongoDb;
 
     case "postgres":
@@ -17,7 +17,7 @@ export async function initDatabase(options: AuthOptions) {
         options.postgresUrl,
         options.postgresUserTable
       );
-      console.log("ℹ️ Connected to PostgreSQL");
+      console.log("✅ Successfully connected to PostgreSQL");
       return pgDb;
 
     default:

@@ -15,7 +15,12 @@ export async function initAuthServices(
 ): Promise<Partial<IAuthManager>> {
   const result: Partial<IAuthManager> = {};
   const authTypes = options.authTypes ?? ["credentials"];
-  const sessionService = new SessionService(db.sessionRepo, DEFAULTS.MAX_SESSIONS_PER_USER);
+  const sessionService = new SessionService(db.sessionRepo, options.maxSessionsPerUser || DEFAULTS.MAX_SESSIONS_PER_USER);
+
+  console.log(`ℹ️  Initializing auth services for types: ${authTypes.join(", ")}`);
+  console.log(`ℹ️  Session TTL set to: ${sessionTtl} seconds`);
+  console.log(`ℹ️  Idle TTL set to: ${options.idleTtlSeconds || DEFAULTS.IDLE_TTL} seconds`);
+  console.log(`ℹ️  Max sessions per user: ${options.maxSessionsPerUser || DEFAULTS.MAX_SESSIONS_PER_USER}`);
 
   // ---------------- Credentials ----------------
   if (authTypes.includes("credentials")) {
@@ -28,7 +33,7 @@ export async function initAuthServices(
     result.signup = (email, username, password) => credentialsService.signup(email, username, password);
     result.login = (email, password) => credentialsService.login(email, password);
     result.logout = (sessionId) => sessionService.destroy(sessionId);
-    result.me = (sessionId) => sessionService.validate(sessionId, DEFAULTS.IDLE_TTL);
+    result.me = (sessionId) => sessionService.validate(sessionId, options.idleTtlSeconds || DEFAULTS.IDLE_TTL);
   }
 
   // ---------------- Magic Link ----------------

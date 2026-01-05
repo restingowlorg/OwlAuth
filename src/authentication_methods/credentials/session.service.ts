@@ -56,11 +56,9 @@ export class SessionService {
   // Validate session and extend idle timeout
 async validate(token: string, idleTtlSeconds?: number): Promise<AuthResult> {
   try {
-    console.log("🔍 [DEBUG] Starting session validation");
 
     const tokenHash = createHash("sha256").update(token).digest("hex");
     const now = Date.now();
-    console.log("🗝️ [DEBUG] Token hash generated:", tokenHash);
 
     const session = await this.sessions.findByTokenHash(tokenHash);
     if (!session) {
@@ -83,10 +81,8 @@ async validate(token: string, idleTtlSeconds?: number): Promise<AuthResult> {
     // Idle expiration
     if (idleTtlSeconds && session.lastUsedAt) {
       const idleExpiry = session.lastUsedAt.getTime() + idleTtlSeconds * 1000;
-      console.log("💤 [DEBUG] Session last used at:", session.lastUsedAt, "Idle expiry:", new Date(idleExpiry));
 
       if (idleExpiry < now) {
-        console.log("💀 [DEBUG] Session expired due to inactivity");
         await this.sessions.revokeByTokenHash(tokenHash);
         return { success: false, data: null, message: "Session expired due to inactivity", httpCode: 401 };
       }

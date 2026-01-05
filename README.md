@@ -7,7 +7,7 @@
 
 * Credentials authentication (`email + username + password`)
 * Magic link (passwordless) authentication
-* Session-based authentication (**token-based sessions**)
+* Session-based authentication (**token-based sessions with rotation**)
 
 It exposes **business-level services** (`AuthManager`) and returns **structured results** (`AuthResult`) without leaking sensitive information.
 
@@ -17,7 +17,10 @@ It exposes **business-level services** (`AuthManager`) and returns **structured 
 
 * ✅ Credentials authentication (email + username + password)
 * 🔗 Magic Link (passwordless) authentication
-* 🍪 Session-based authentication with secure token sessions
+* 🍪 Session-based authentication with **secure token sessions**
+* 🔄 **Token rotation on every session validation**
+* 💤 **Idle session expiration** (configurable)
+* 🧱 Max concurrent sessions per user with automatic revocation
 * 🧩 Framework agnostic (Express, NestJS, Fastify, custom)
 * 🗄️ Database agnostic (PostgreSQL, MongoDB)
 * 🧪 Strong typing with unified `AuthResult` and `IAuthManager`
@@ -53,6 +56,8 @@ const auth = await AuthManager.init({
   postgresUrl: process.env.POSTGRES_URL!,
   authTypes: ["credentials", "magic-link"],
   sessionTtlSeconds: 60 * 60 * 24 * 7, // 7 days
+  idleTtlSeconds: 60, // 1 min idle expiration
+  maxSessionsPerUser: 3, // Limit concurrent sessions
 });
 ```
 
@@ -63,6 +68,9 @@ const auth = await AuthManager.init({
   dbType: "mongo",
   mongoUri: process.env.MONGO_URI!,
   authTypes: ["credentials"],
+  sessionTtlSeconds: 60 * 60 * 24 * 7,
+  idleTtlSeconds: 60,
+  maxSessionsPerUser: 3,
 });
 ```
 
@@ -120,6 +128,10 @@ if (loginResult.success) {
   });
 }
 res.status(loginResult.httpCode).json(loginResult);
+
+// Validate / Rotate session
+const meResult = await auth.me(loginResult.data.sessionToken);
+console.log(meResult.data.sessionToken); // ⚡ New rotated token
 ```
 
 ### Magic Link Flow
@@ -141,7 +153,7 @@ if (consumeResult.success) {
 res.json(consumeResult);
 ```
 
-> ⚠️ Tokens (`sessionToken`) are minimal and safe to expose for API clients; password and token hashes are never returned.
+> ⚠️ Tokens (`sessionToken`) are safe for API clients; passwords and token hashes are never returned.
 
 ---
 
@@ -149,8 +161,10 @@ res.json(consumeResult);
 
 * Passwords hashed with `bcrypt`
 * Sessions use **secure, revocable token-based approach**
+* **Token rotation** on every validation prevents token reuse
 * HTTP-only cookies recommended
-* Session TTL configurable, supports idle-timeout policies
+* **Idle timeout** revokes inactive sessions
+* **Max concurrent sessions** prevents account abuse
 * Password checks follow OWASP guidelines
 
 ---
@@ -173,6 +187,8 @@ res.json(consumeResult);
 * Keep **sessions short-lived**
 * Validate external user tables before use
 * Use **strong passwords** with optional breach checks
-* Revoke tokens on logout or suspicious activity
+* Revoke tokens on logout, inactivity, or suspicious activity
+* Monitor logs for **session rotations** 🔄 and revocations 🗑️
 
 ---
+

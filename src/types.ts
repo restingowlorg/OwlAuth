@@ -26,7 +26,8 @@ export type AuthOptions = {
 
   authTypes?: AuthType[];
   sessionTtlSeconds?: number;
-
+  idleTtlSeconds?: number;
+  maxSessionsPerUser?: number;
   cookieName?: string;
   cookieOptions?: {
     httpOnly?: boolean;
@@ -75,12 +76,12 @@ export interface MagicLinkToken {
 }
 
 export interface AuthResult<T = any> {
-  success: boolean; 
-  data?: T; 
-  httpCode: number; 
-  message: string; 
+  success: boolean;
+  data?: T;
+  httpCode: number;
+  message: string;
 }
 
 export type InitPostgresOptions = {
-  userTableName?: string; 
+  userTableName?: string;
 };
