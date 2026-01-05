@@ -45,4 +45,13 @@ export const MongoSessionRepo: SessionRepository = {
       { $set: { revokedAt: new Date() } }
     );
   },
+
+  async revokeOldestForUser(userId: string, keepLatest: number) {
+    const sessions = await SessionModel.find({ userId, revokedAt: null })
+      .sort({ createdAt: 1 }) // Oldest first
+      .skip(keepLatest);
+    await Promise.all(
+      sessions.map((session) => SessionModel.updateOne({ _id: session.id }, { $set: { revokedAt: new Date() } }))
+    );
+  },
 };

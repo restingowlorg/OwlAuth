@@ -11,7 +11,6 @@ export interface UserRepository {
   findByUsername?(username: string): Promise<any | null>;
 }
 
-
 export interface SessionRepository {
   create(input: {
     userId: string;
@@ -37,8 +36,9 @@ export interface SessionRepository {
   updateLastUsed(tokenHash: string, date: Date): Promise<void>;
 
   revokeByTokenHash(tokenHash: string): Promise<void>;
-}
 
+  revokeOldestForUser(userId: string, keepLatest: number): Promise<void>;
+}
 
 export interface MagicLinkToken {
   id: string;

@@ -23,12 +23,7 @@ export class PostgresSessionRepository implements SessionRepository {
       VALUES ($1, $2, $3, $4)
       RETURNING id, user_id, expires_at, last_used_at, revoked_at
       `,
-      [
-        input.userId,
-        input.tokenHash,
-        input.expiresAt,
-        input.lastUsedAt,
-      ]
+      [input.userId, input.tokenHash, input.expiresAt, input.lastUsedAt]
     );
 
     const row = result.rows[0];
@@ -92,5 +87,51 @@ export class PostgresSessionRepository implements SessionRepository {
       `,
       [tokenHash]
     );
+  }
+
+  async revokeOldestForUser(userId: string, keepLatest: number) {
+    const pool = getPostgresPool();
+
+    console.log(
+      `[DEBUG] revokeOldestForUser called for userId=${userId}, keepLatest=${keepLatest}`
+    );
+
+    // Get all active sessions
+    const result = await pool.query(
+      `
+    SELECT id, last_used_at
+    FROM ${this.t()}
+    WHERE user_id = $1
+      AND revoked_at IS NULL
+    ORDER BY last_used_at ASC
+    `,
+      [userId]
+    );
+
+    const sessions = result.rows;
+    console.log(`[DEBUG] Active sessions for user:`, sessions);
+
+    const toRevoke = sessions.slice(0, sessions.length - keepLatest);
+    console.log(`[DEBUG] Sessions to revoke:`, toRevoke);
+
+    if (toRevoke.length === 0) return;
+
+    const ids = toRevoke.map((s) => s.id);
+    console.log(`[DEBUG] IDs to revoke:`, ids);
+
+    try {
+      // Use UNNEST for integer arrays
+      const query = `
+      UPDATE ${this.t()}
+      SET revoked_at = NOW()
+      WHERE id = ANY($1::int[])
+    `;
+
+      await pool.query(query, [ids]);
+      console.log(`[DEBUG] Successfully revoked oldest sessions`);
+    } catch (err) {
+      console.error(`[ERROR] Failed to revoke oldest sessions:`, err);
+      throw err;
+    }
   }
 }
