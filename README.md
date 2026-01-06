@@ -157,6 +157,53 @@ res.json(consumeResult);
 
 ---
 
+## NestJS Integration – Protected Routes
+
+You can now protect your NestJS endpoints using the built-in `MvpAuthGuard`:
+
+```ts
+import { Controller, Get, UseGuards, Req, Res } from '@nestjs/common';
+import { MvpAuthGuard } from '@restingowlorg/mvp-auth';
+
+@Controller('auth')
+export class AuthController {
+  @UseGuards(MvpAuthGuard)
+  @Get('protected')
+  async protectedResource(@Req() req, @Res() res) {
+    return res.status(200).json({
+      success: true,
+      message: 'You have accessed a protected resource',
+      userId: req.user.id,
+    });
+  }
+}
+```
+
+**Behavior:**
+
+* If the session is invalid, expired, or missing, the guard returns a structured JSON response:
+
+```json
+{
+  "statusCode": 401,
+  "message": "Session expired due to inactivity",
+  "error": "Unauthorized"
+}
+```
+
+* Token rotation happens automatically on every valid request.
+* The latest `sessionToken` is sent via HTTP-only cookie for the client to continue using.
+
+---
+
+## Framework-specific Utilities
+
+* `MvpAuthGuard` for NestJS (protect endpoints)
+* For Express/Fastify, create a middleware using `session.validate(token)`
+* Transparent session rotation and idle timeout handling works across all integrations
+
+---
+
 ## Security Notes
 
 * Passwords hashed with `bcrypt`
