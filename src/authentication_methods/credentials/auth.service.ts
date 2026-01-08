@@ -4,6 +4,7 @@ import { AuthResult } from "../../types";
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { isBreachedPassword } from "../../infra/security/pwned-passwords";
 import { SessionService } from "./session.service";
+import { getSessionToken } from "../../utils/session-token.util";
 
 export class CredentialsAuthService {
   constructor(
@@ -182,5 +183,85 @@ export class CredentialsAuthService {
         httpCode: 500,
       };
     }
+  }
+
+  async changePassword(
+    req: any,
+    currentPassword: string,
+    newPassword: string
+  ): Promise<AuthResult> {
+    console.log("🛠️ [DEBUG] changePassword called");
+
+    // Use the rotated session from the guard
+    const sessionToken = req.session?.sessionToken; 
+    const userId = req.user?.id;
+
+    if (!sessionToken || !userId) {
+      return {
+        success: false,
+        data: null,
+        message: "No valid session available",
+        httpCode: 401,
+      };
+    }
+    console.log("🔑 [DEBUG] Using rotated session token:", sessionToken);
+
+    //Fetch user
+    const user = await this.users.findById(userId);
+    if (!user) {
+      return {
+        success: false,
+        data: null,
+        message: "User not found",
+        httpCode: 404,
+      };
+    }
+
+    //Verify current password
+    const valid = await verifyPassword(currentPassword, user.password);
+    if (!valid) {
+      return {
+        success: false,
+        data: null,
+        message: "Current password is incorrect",
+        httpCode: 401,
+      };
+    }
+
+    //Check new password strength & breach
+    if (zxcvbn(newPassword).score < 3) {
+      return {
+        success: false,
+        data: null,
+        message: "New password too weak",
+        httpCode: 400,
+      };
+    }
+    if (await isBreachedPassword(newPassword)) {
+      return {
+        success: false,
+        data: null,
+        message: "New password found in breach",
+        httpCode: 400,
+      };
+    }
+
+    //Hash new password & update
+    const newHash = await hashPassword(newPassword);
+    await this.users.updatePassword(userId, newHash);
+
+    //Revoke all other sessions except the current one
+    await this.sessions.revokeAllExcept(userId, req.session.id);
+
+    console.log("✅ [DEBUG] Password updated successfully for user:", userId);
+
+    return {
+      success: true,
+      message: "Password updated successfully",
+      data: {
+        sessionToken, // latest rotated token from guard
+      },
+      httpCode: 200,
+    };
   }
 }

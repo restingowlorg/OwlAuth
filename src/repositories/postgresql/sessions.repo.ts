@@ -134,4 +134,19 @@ export class PostgresSessionRepository implements SessionRepository {
       throw err;
     }
   }
+
+  async revokeAllExcept(userId: string, keepSessionId: string) {
+    const pool = getPostgresPool();
+
+    await pool.query(
+      `
+    UPDATE ${this.t()}
+    SET revoked_at = NOW()
+    WHERE user_id = $1
+      AND id <> $2
+      AND revoked_at IS NULL
+    `,
+      [userId, keepSessionId]
+    );
+  }
 }

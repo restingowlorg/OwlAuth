@@ -50,4 +50,17 @@ export class PostgresUserRepository implements UserRepository {
     );
     return result.rows[0] || null;
   }
+
+  //Update password
+  async updatePassword(userId: string, passwordHash: string) {
+    const pool = getPostgresPool();
+    await pool.query(
+      `
+      UPDATE ${this.getTable()}
+      SET password = $1
+      WHERE id = $2
+      `,
+      [passwordHash, userId]
+    );
+  }
 }

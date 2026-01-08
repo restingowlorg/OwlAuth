@@ -23,4 +23,11 @@ export const MongoUserRepo: UserRepository = {
   findByUsername(username: string) {
     return UserModel.findOne({ username });
   },
+
+  async updatePassword(userId: string, passwordHash: string) {
+    await UserModel.updateOne(
+      { _id: userId },
+      { $set: { password: passwordHash } }
+    );
+  },
 };

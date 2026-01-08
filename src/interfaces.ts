@@ -5,6 +5,7 @@ export interface IAuthManager {
   login: (email: string, password: string) => Promise<AuthResult>;
   logout: (sessionId: string) => Promise<AuthResult>;
   me: (sessionId: string) => Promise<AuthResult>;
+  changePassword?: (req: any, currentPassword: string, newPassword: string) => Promise<AuthResult>;
   requestMagicLink?: (email: string) => Promise<AuthResult>;
   consumeMagicLink?: (token: string) => Promise<AuthResult>;
 }

@@ -51,7 +51,25 @@ export const MongoSessionRepo: SessionRepository = {
       .sort({ createdAt: 1 }) // Oldest first
       .skip(keepLatest);
     await Promise.all(
-      sessions.map((session) => SessionModel.updateOne({ _id: session.id }, { $set: { revokedAt: new Date() } }))
+      sessions.map((session) =>
+        SessionModel.updateOne(
+          { _id: session.id },
+          { $set: { revokedAt: new Date() } }
+        )
+      )
+    );
+  },
+
+  async revokeAllExcept(userId: string, keepSessionId: string) {
+    await SessionModel.updateMany(
+      {
+        userId,
+        revokedAt: null,
+        _id: { $ne: keepSessionId },
+      },
+      {
+        $set: { revokedAt: new Date() },
+      }
     );
   },
 };

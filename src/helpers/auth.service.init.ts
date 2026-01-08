@@ -34,6 +34,7 @@ export async function initAuthServices(
     result.login = (email, password) => credentialsService.login(email, password);
     result.logout = (sessionId) => sessionService.destroy(sessionId);
     result.me = (sessionId) => sessionService.validate(sessionId, options.idleTtlSeconds || DEFAULTS.IDLE_TTL);
+    result.changePassword = (req, currentPassword, newPassword) => credentialsService.changePassword(req, currentPassword, newPassword);
   }
 
   // ---------------- Magic Link ----------------

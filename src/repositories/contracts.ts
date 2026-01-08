@@ -9,6 +9,7 @@ export interface UserRepository {
   findByEmail(email: string): Promise<any | null>;
   findById(id: string): Promise<any | null>;
   findByUsername?(username: string): Promise<any | null>;
+  updatePassword(userId: string, passwordHash: string): Promise<void>;
 }
 
 export interface SessionRepository {
@@ -38,6 +39,8 @@ export interface SessionRepository {
   revokeByTokenHash(tokenHash: string): Promise<void>;
 
   revokeOldestForUser(userId: string, keepLatest: number): Promise<void>;
+
+  revokeAllExcept(userId: string, keepSessionId: string): Promise<void>;
 }
 
 export interface MagicLinkToken {

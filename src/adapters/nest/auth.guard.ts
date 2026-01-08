@@ -1,16 +1,8 @@
-import {
-  CanActivate,
-  Inject,
-  ExecutionContext,
-  HttpStatus,
-} from "@nestjs/common";
+import { CanActivate, Inject, ExecutionContext, HttpStatus } from "@nestjs/common";
 import { IAuthManager } from "../../interfaces";
 
 export class MvpAuthGuard implements CanActivate {
-  constructor(
-    @Inject("AUTH_MANAGER")
-    private readonly auth: IAuthManager
-  ) {}
+  constructor(@Inject("AUTH_MANAGER") private readonly auth: IAuthManager) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const req = ctx.switchToHttp().getRequest();
@@ -26,7 +18,11 @@ export class MvpAuthGuard implements CanActivate {
       return false;
     }
 
+    // 
     const result = await this.auth.me(token);
+
+    console.log("🛠️ [DEBUG] Auth Guard - session validation result:", result);
+    console.log("🛠️ [DEBUG] Auth Guard - session token rotated:", result.data?.sessionToken);
 
     if (!result.success) {
       res.status(HttpStatus.UNAUTHORIZED).json({
@@ -37,13 +33,11 @@ export class MvpAuthGuard implements CanActivate {
       return false;
     }
 
+    // ✅ Attach typed user and session
     req.user = { id: result.data.userId };
     req.session = result.data;
 
-    console.log(" MvpAuthGuard: User authenticated ✅", req.user);
-    console.log(" Rotated session token ✅");
-
-    // Transparent rotation
+    // Token rotation cookie
     res.cookie("AUTH_SESSION", result.data.sessionToken, {
       httpOnly: true,
       sameSite: "lax",
