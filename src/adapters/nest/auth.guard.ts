@@ -18,7 +18,7 @@ export class MvpAuthGuard implements CanActivate {
       return false;
     }
 
-    // 
+    
     const result = await this.auth.me(token);
 
     console.log("🛠️ [DEBUG] Auth Guard - session validation result:", result);
