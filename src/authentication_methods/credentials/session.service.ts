@@ -56,7 +56,7 @@ export class SessionService {
 // Validate session and extend idle timeout
 async validate(token: string, idleTtlSeconds?: number): Promise<AuthResult> {
   try {
-    console.log("✅ Validate function called with token:", token);
+    console.log("✅ Session Validate function called with token:", token);
     const tokenHash = createHash("sha256").update(token).digest("hex");
     const now = Date.now();
 
@@ -89,9 +89,9 @@ async validate(token: string, idleTtlSeconds?: number): Promise<AuthResult> {
     }
 
     // ---- Token rotation ----
-    console.log("🔄 [DEBUG - Session Validate function] Rotating session token for user:", session.userId);
+    console.log("🔄 Session Validate function - Rotating session token for user:", session.userId);
     const { token: newToken, tokenHash: newTokenHash } = this.generateToken();
-    console.log("🆕 [DEBUG - Session Validate function] New token hash generated:", newTokenHash);
+    console.log("🆕 Session Validate function - New token hash generated:", newTokenHash);
 
     // Create a new session with same properties
     const newSession = await this.sessions.create({
@@ -100,11 +100,11 @@ async validate(token: string, idleTtlSeconds?: number): Promise<AuthResult> {
       expiresAt: session.expiresAt, // keep absolute expiry same
       lastUsedAt: new Date(),
     });
-    console.log("✅ [DEBUG - Session Validate function] New session created:", newSession);
+    console.log("✅ Session Validate function - New session created:", newSession);
 
     // Revoke old token
     await this.sessions.revokeByTokenHash(tokenHash);
-    console.log("🗑️ [DEBUG - Session Validate function] Old session revoked:", session.id);
+    console.log("🚫 Old session revoked:", session.id);
 
     return {
       success: true,
