@@ -53,75 +53,130 @@ export class SessionService {
     }
   }
 
-// Validate session and extend idle timeout
-async validate(token: string, idleTtlSeconds?: number): Promise<AuthResult> {
-  try {
-    console.log("✅ Session Validate function called with token:", token);
-    const tokenHash = createHash("sha256").update(token).digest("hex");
-    const now = Date.now();
+  // Validate session and extend idle timeout
+  async validate(
+    token: string,
+    idleTtlSeconds?: number,
+    forceRotate = false
+  ): Promise<AuthResult> {
+    try {
+      console.log("✅ Session Validate called with token:", token);
 
-    const session = await this.sessions.findByTokenHash(tokenHash);
-    if (!session) {
-      console.log("❌ [DEBUG - Session Validate function] Session not found for token");
-      return { success: false, data: null, message: "Invalid session", httpCode: 401 };
-    }
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      const now = Date.now();
 
-    if (session.revokedAt) {
-      console.log("🚫 [DEBUG - Session Validate function] Session is revoked:", session);
-      return { success: false, data: null, message: "Invalid session", httpCode: 401 };
-    }
-
-    // Absolute expiration
-    if (session.expiresAt.getTime() < now) {
-      console.log("⏰ [DEBUG - Session Validate function] Session expired at:", session.expiresAt);
-      await this.sessions.revokeByTokenHash(tokenHash);
-      return { success: false, data: null, message: "Session expired", httpCode: 401 };
-    }
-
-    // Idle expiration
-    if (idleTtlSeconds && session.lastUsedAt) {
-      const idleExpiry = session.lastUsedAt.getTime() + idleTtlSeconds * 1000;
-
-      if (idleExpiry < now) {
-        await this.sessions.revokeByTokenHash(tokenHash);
-        return { success: false, data: null, message: "Session expired due to inactivity", httpCode: 401 };
+      const session = await this.sessions.findByTokenHash(tokenHash);
+      if (!session) {
+        console.log("❌ Session not found for token");
+        return {
+          success: false,
+          data: null,
+          message: "Invalid session",
+          httpCode: 401,
+        };
       }
+
+      if (session.revokedAt) {
+        console.log("🚫 Session is revoked:", session);
+        return {
+          success: false,
+          data: null,
+          message: "Invalid session",
+          httpCode: 401,
+        };
+      }
+
+      // Absolute expiration
+      if (session.expiresAt.getTime() < now) {
+        console.log("⏰ Session expired at:", session.expiresAt);
+        await this.sessions.revokeByTokenHash(tokenHash);
+        return {
+          success: false,
+          data: null,
+          message: "Session expired",
+          httpCode: 401,
+        };
+      }
+
+      console.log("ℹ️ Session Last Used:", session.lastUsedAt);
+      console.log("ℹ️ Provided idleTtlSeconds:", idleTtlSeconds);
+
+      // Idle expiration (sliding window)
+      if (idleTtlSeconds && session.lastUsedAt) {
+        const lastUsed = session.lastUsedAt.getTime();
+        const idleExpiry = lastUsed + idleTtlSeconds * 1000;
+        const secondsLeft = Math.max(0, Math.round((idleExpiry - now) / 1000));
+
+        console.log(`ℹ️ Seconds left until idle expiry = ${secondsLeft}`);
+
+        if (idleExpiry < now) {
+          console.log(
+            `❌ Session expired due to inactivity for user ${
+              session.userId
+            }, idle expiry was at ${new Date(idleExpiry).toISOString()}`
+          );
+          await this.sessions.revokeByTokenHash(tokenHash);
+          return {
+            success: false,
+            data: null,
+            message: "Session expired due to inactivity",
+            httpCode: 401,
+          };
+        }
+      }
+
+      console.log("ℹ️ Old last used at:", session.lastUsedAt);
+
+      // Update lastUsedAt in DB and in-memory
+      const nowDate = new Date();
+      await this.sessions.updateLastUsed(tokenHash, nowDate);
+      session.lastUsedAt = nowDate;
+
+      console.log("ℹ️ Updated last used at to:", session.lastUsedAt);
+
+      // ---- Conditional token rotation ----
+      if (forceRotate) {
+        console.log("🔄 Force rotating token for user:", session.userId);
+        const rotated = this.generateToken();
+
+        // Use repository method for atomic rotation (race-safe)
+        const newSession = await this.sessions.createAndRotate(
+          tokenHash,
+          session.userId,
+          session.expiresAt,
+          rotated.token,
+          rotated.tokenHash
+        );
+
+        // Revoke all other sessions except the newly rotated one
+        await this.sessions.revokeAllExcept(session.userId, newSession.id);
+        console.log("🆕 New session created with rotation:", newSession.id);
+        return {
+          success: true,
+          data: newSession,
+          message: "Session valid and rotated",
+          httpCode: 200,
+        };
+      }
+
+      // ---- Return current session if no rotation ----
+      return {
+        success: true,
+        data: { ...session, sessionToken: token }, // token unchanged
+        message: "Session valid",
+        httpCode: 200,
+      };
+    } catch (err: any) {
+      console.error("🔥 Failed to validate session:", err);
+      return {
+        success: false,
+        data: null,
+        message:
+          "Failed to validate session: " + (err.message || "Unknown error"),
+        httpCode: 500,
+      };
     }
-
-    // ---- Token rotation ----
-    console.log("🔄 Session Validate function - Rotating session token for user:", session.userId);
-    const { token: newToken, tokenHash: newTokenHash } = this.generateToken();
-    console.log("🆕 Session Validate function - New token hash generated:", newTokenHash);
-
-    // Create a new session with same properties
-    const newSession = await this.sessions.create({
-      userId: session.userId,
-      tokenHash: newTokenHash,
-      expiresAt: session.expiresAt, // keep absolute expiry same
-      lastUsedAt: new Date(),
-    });
-    console.log("✅ Session Validate function - New session created:", newSession);
-
-    // Revoke old token
-    await this.sessions.revokeByTokenHash(tokenHash);
-    console.log("🚫 Old session revoked:", session.id);
-
-    return {
-      success: true,
-      data: { ...newSession, sessionToken: newToken },
-      message: "Session valid and rotated",
-      httpCode: 200,
-    };
-  } catch (err: any) {
-    console.error("🔥 [ERROR] Failed to validate session:", err);
-    return {
-      success: false,
-      data: null,
-      message: "Failed to validate session: " + (err.message || "Unknown error"),
-      httpCode: 500,
-    };
   }
-}
 
   // Revoke session (logout)
   async destroy(token: string): Promise<AuthResult> {
@@ -148,14 +203,14 @@ async validate(token: string, idleTtlSeconds?: number): Promise<AuthResult> {
 
   // Revoke all sessions for a user except the specified one
   async revokeAllExcept(userId: string, keepSessionId: string): Promise<void> {
-  try {
-    await this.sessions.revokeAllExcept(userId, keepSessionId);
-  } catch (err: any) {
-    console.error(
-      `[ERROR] Failed to revoke all sessions except one for user ${userId}:`,
-      err
-    );
-    throw err;
+    try {
+      await this.sessions.revokeAllExcept(userId, keepSessionId);
+    } catch (err: any) {
+      console.error(
+        `[ERROR] Failed to revoke all sessions except one for user ${userId}:`,
+        err
+      );
+      throw err;
+    }
   }
-}
 }

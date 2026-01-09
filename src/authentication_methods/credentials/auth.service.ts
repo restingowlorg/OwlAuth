@@ -250,8 +250,7 @@ export class CredentialsAuthService {
     const newHash = await hashPassword(newPassword);
     await this.users.updatePassword(userId, newHash);
 
-    //Revoke all other sessions except the current one
-    await this.sessions.revokeAllExcept(userId, req.session.id);
+
 
     console.log("✅ [DEBUG] Password updated successfully for user:", userId);
 

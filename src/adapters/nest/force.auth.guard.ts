@@ -6,7 +6,7 @@ import {
 } from "@nestjs/common";
 import { IAuthManager } from "../../interfaces";
 
-export class MvpAuthGuard implements CanActivate {
+export class MvpForceRotateGuard implements CanActivate {
   constructor(@Inject("AUTH_MANAGER") private readonly auth: IAuthManager) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -23,11 +23,11 @@ export class MvpAuthGuard implements CanActivate {
       return false;
     }
 
-    // Use AuthManager to validate session; no rotation for normal guard
-    const result = await this.auth.me(token, undefined, false);
+    // Force rotation by passing true to forceRotate
+    const result = await this.auth.me(token, undefined, true);
 
-    console.log("ℹ️ Auth Guard - session token:", token);
-    console.log("ℹ️ Auth Guard - validation result:", result);
+    console.log("ℹ️ ForceRotate Guard - old token:", token);
+    console.log("ℹ️ ForceRotate Guard - new token:", result.data?.sessionToken);
 
     if (!result.success) {
       res.status(HttpStatus.UNAUTHORIZED).json({
@@ -38,11 +38,11 @@ export class MvpAuthGuard implements CanActivate {
       return false;
     }
 
-    // Attach typed user and session to request
+    // Attach user and session to request
     req.user = { id: result.data.userId };
     req.session = result.data;
 
-    // Keep the same cookie (no rotation)
+    // Update cookie with new rotated token
     res.cookie("AUTH_SESSION", result.data.sessionToken, {
       httpOnly: true,
       sameSite: "lax",

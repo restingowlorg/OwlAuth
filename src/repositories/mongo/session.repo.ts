@@ -72,4 +72,44 @@ export const MongoSessionRepo: SessionRepository = {
       }
     );
   },
+
+  async createAndRotate(
+    oldTokenHash: string,
+    userId: string,
+    expiresAt: Date,
+    newToken: string,
+    newTokenHash: string
+  ) {
+    const session = await SessionModel.findOne({
+      tokenHash: oldTokenHash,
+      revokedAt: null,
+    });
+
+    if (!session) {
+      throw new Error("Session not found for rotation");
+    }
+
+    // Create the new session
+    const newSession = await SessionModel.create({
+      userId,
+      tokenHash: newTokenHash,
+      expiresAt,
+      lastUsedAt: new Date(),
+    });
+
+    // Revoke the old session
+    await SessionModel.updateOne(
+      { _id: session._id, revokedAt: null },
+      { $set: { revokedAt: new Date() } }
+    );
+
+    return {
+      id: newSession.id,
+      userId: newSession.userId.toString(),
+      expiresAt: newSession.expiresAt,
+      lastUsedAt: newSession.lastUsedAt,
+      revokedAt: newSession.revokedAt ?? null,
+      sessionToken: newToken,
+    };
+  },
 };

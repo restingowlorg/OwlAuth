@@ -138,15 +138,78 @@ export class PostgresSessionRepository implements SessionRepository {
   async revokeAllExcept(userId: string, keepSessionId: string) {
     const pool = getPostgresPool();
 
-    await pool.query(
+    const result = await pool.query(
       `
-    UPDATE ${this.t()}
-    SET revoked_at = NOW()
-    WHERE user_id = $1
-      AND id <> $2
-      AND revoked_at IS NULL
+      UPDATE ${this.t()}
+      SET revoked_at = NOW()
+      WHERE user_id = $1
+        AND id <> $2
+        AND revoked_at IS NULL
     `,
       [userId, keepSessionId]
     );
+
+    console.log(
+      `ℹ️ RevokeAllExcept: Revoked ${result.rowCount} sessions for user ${userId}, keeping session ${keepSessionId}`
+    );
+  }
+
+  async createAndRotate(
+    oldTokenHash: string,
+    userId: string,
+    expiresAt: Date,
+    newToken: string,
+    newTokenHash: string
+  ) {
+    const pool = getPostgresPool();
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      // Lock old session row
+      const oldSessionRes = await client.query(
+        `SELECT * FROM ${this.t()} WHERE token_hash = $1 FOR UPDATE`,
+        [oldTokenHash]
+      );
+
+      if (oldSessionRes.rowCount === 0) {
+        throw new Error("Session not found for rotation");
+      }
+
+      const oldSession = oldSessionRes.rows[0];
+
+      // Insert new session using the token/tokenHash from parameters
+      const newSessionRes = await client.query(
+        `INSERT INTO ${this.t()} (user_id, token_hash, expires_at, last_used_at)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, user_id, expires_at, last_used_at, revoked_at`,
+        [userId, newTokenHash, expiresAt, new Date()]
+      );
+
+      const newSession = newSessionRes.rows[0];
+
+      // Revoke old session
+      await client.query(
+        `UPDATE ${this.t()} SET revoked_at = NOW() WHERE id = $1`,
+        [oldSession.id]
+      );
+
+      await client.query("COMMIT");
+
+      return {
+        id: newSession.id,
+        userId: newSession.user_id,
+        expiresAt: newSession.expires_at,
+        lastUsedAt: newSession.last_used_at,
+        revokedAt: newSession.revoked_at,
+        sessionToken: newToken,
+      };
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 }

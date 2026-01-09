@@ -34,6 +34,21 @@ export interface SessionRepository {
     revokedAt: Date | null;
   } | null>;
 
+  createAndRotate(
+    oldTokenHash: string,
+    userId: string,
+    expiresAt: Date,
+    newToken: string,
+    newTokenHash: string
+  ): Promise<{
+    id: string;
+    userId: string;
+    expiresAt: Date;
+    lastUsedAt: Date;
+    revokedAt: Date | null;
+    sessionToken: string;
+  }>;
+
   updateLastUsed(tokenHash: string, date: Date): Promise<void>;
 
   revokeByTokenHash(tokenHash: string): Promise<void>;
