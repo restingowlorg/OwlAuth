@@ -3,9 +3,8 @@ import {
   Inject,
   ExecutionContext,
   HttpStatus,
-  UnauthorizedException,
 } from "@nestjs/common";
-import { IAuthManager } from "../../interfaces";
+import { IAuthManager } from "../../../interfaces";
 
 export class MvpAuthGuard implements CanActivate {
   constructor(@Inject("AUTH_MANAGER") private readonly auth: IAuthManager) {}
@@ -14,7 +13,6 @@ export class MvpAuthGuard implements CanActivate {
     const req = ctx.switchToHttp().getRequest();
     const res = ctx.switchToHttp().getResponse();
 
-    // const token = req.cookies?.AUTH_SESSION;
     const token =
       req.cookies?.AUTH_SESSION ||
       req.headers.authorization?.replace("Bearer ", "");
@@ -27,10 +25,6 @@ export class MvpAuthGuard implements CanActivate {
       });
       return false;
     }
-
-    // if (!token) {
-    //   throw new UnauthorizedException("No session token provided");
-    // }
 
     // Use AuthManager to validate session; no rotation for normal guard
     const result = await this.auth.me(token, undefined, false);
@@ -46,10 +40,6 @@ export class MvpAuthGuard implements CanActivate {
       });
       return false;
     }
-
-    // if (!result.success) {
-    //   throw new UnauthorizedException(result.message || "Invalid session");
-    // }
 
     // Attach typed user and session to request
     req.user = { id: result.data.userId };
