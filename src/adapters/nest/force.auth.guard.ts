@@ -13,7 +13,11 @@ export class MvpForceRotateGuard implements CanActivate {
     const req = ctx.switchToHttp().getRequest();
     const res = ctx.switchToHttp().getResponse();
 
-    const token = req.cookies?.AUTH_SESSION;
+    // const token = req.cookies?.AUTH_SESSION;
+    const token =
+      req.cookies?.AUTH_SESSION ||
+      req.headers.authorization?.replace("Bearer ", "");
+
     if (!token) {
       res.status(HttpStatus.UNAUTHORIZED).json({
         statusCode: HttpStatus.UNAUTHORIZED,
@@ -22,6 +26,10 @@ export class MvpForceRotateGuard implements CanActivate {
       });
       return false;
     }
+
+    // if (!token) {
+    //   throw new UnauthorizedException("No session token provided");
+    // }
 
     // Force rotation by passing true to forceRotate
     const result = await this.auth.me(token, undefined, true);
@@ -38,16 +46,20 @@ export class MvpForceRotateGuard implements CanActivate {
       return false;
     }
 
+    // if (!result.success || !result.data) {
+    //   throw new MvpUnauthorizedError(result.message);
+    // }
+
     // Attach user and session to request
     req.user = { id: result.data.userId };
     req.session = result.data;
 
     // Update cookie with new rotated token
-    res.cookie("AUTH_SESSION", result.data.sessionToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: true,
-    });
+    // res.cookie("AUTH_SESSION", result.data.sessionToken, {
+    //   httpOnly: true,
+    //   sameSite: "lax",
+    //   secure: true,
+    // });
 
     return true;
   }
