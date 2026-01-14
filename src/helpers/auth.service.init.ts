@@ -4,6 +4,7 @@ import { SessionService } from "../authentication_methods/credentials/session.se
 import { MagicLinkService } from "../authentication_methods/magic-links/magic-link.service";
 import { IAuthManager } from "../interfaces";
 import { DEFAULTS } from "../config/defaults";
+import { authLog } from "../utils/logger";
 
 /**
  * Initialize auth services based on the provided authTypes
@@ -20,17 +21,18 @@ export async function initAuthServices(
     options.maxSessionsPerUser || DEFAULTS.MAX_SESSIONS_PER_USER
   );
 
-  console.log(
-    `ℹ️  Initializing auth services for types: ${authTypes.join(", ")}`
+  authLog(
+    "info",
+    `Initializing auth services for types: ${authTypes.join(", ")}`
   );
-  console.log(`ℹ️  Session TTL set to: ${sessionTtl} seconds`);
-  console.log(
-    `ℹ️  Idle TTL set to: ${
-      options.idleTtlSeconds || DEFAULTS.IDLE_TTL
-    } seconds`
+  authLog("info", `Session TTL set to: ${sessionTtl} seconds`);
+  authLog(
+    "info",
+    `Idle TTL set to: ${options.idleTtlSeconds || DEFAULTS.IDLE_TTL} seconds`
   );
-  console.log(
-    `ℹ️  Max sessions per user: ${
+  authLog(
+    "info",
+    `Max sessions per user: ${
       options.maxSessionsPerUser || DEFAULTS.MAX_SESSIONS_PER_USER
     }`
   );
@@ -44,7 +46,7 @@ export async function initAuthServices(
     );
 
     result.signup = (email, username, password) =>
-      credentialsService.signup(email, username, password);
+      credentialsService.signup(email, username, password , options.blockedPasswords);
     result.login = (email, password) =>
       credentialsService.login(email, password);
     result.logout = (sessionId) => sessionService.destroy(sessionId);
@@ -56,7 +58,7 @@ export async function initAuthServices(
       sessionService.validate(sessionId, options.idleTtlSeconds, forceRotate);
 
     result.changePassword = (req, currentPassword, newPassword) =>
-      credentialsService.changePassword(req, currentPassword, newPassword);
+      credentialsService.changePassword(req, currentPassword, newPassword,options.blockedPasswords);
   }
 
   // ---------------- Magic Link ----------------

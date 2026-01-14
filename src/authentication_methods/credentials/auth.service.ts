@@ -4,7 +4,7 @@ import { AuthResult } from "../../types";
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { isBreachedPassword } from "../../infra/security/pwned-passwords";
 import { SessionService } from "./session.service";
-import { getSessionToken } from "../../utils/session-token.util";
+import { containsBlockedPasswords } from "../../utils/check-blocked-passwords";
 
 export class CredentialsAuthService {
   constructor(
@@ -18,7 +18,8 @@ export class CredentialsAuthService {
   async signup(
     email: string,
     username: string,
-    password: string
+    password: string,
+    blockedPasswords?: string[]
   ): Promise<AuthResult> {
     try {
       // ---------------- Input Validation ----------------
@@ -38,6 +39,17 @@ export class CredentialsAuthService {
           data: null,
           message:
             "Invalid username format. Use 3-20 alphanumeric characters or underscore.",
+          httpCode: 400,
+        };
+      }
+
+      if (
+        containsBlockedPasswords(password, email, username, blockedPasswords)
+      ) {
+        return {
+          success: false,
+          data: null,
+          message: "Password cannot contain username, email, or blocked words",
           httpCode: 400,
         };
       }
@@ -188,12 +200,13 @@ export class CredentialsAuthService {
   async changePassword(
     req: any,
     currentPassword: string,
-    newPassword: string
+    newPassword: string,
+    blockedPasswords?: string[]
   ): Promise<AuthResult> {
     console.log("🛠️ [DEBUG] changePassword called");
 
     // Use the rotated session from the guard
-    const sessionToken = req.session?.sessionToken; 
+    const sessionToken = req.session?.sessionToken;
     const userId = req.user?.id;
 
     if (!sessionToken || !userId) {
@@ -204,7 +217,6 @@ export class CredentialsAuthService {
         httpCode: 401,
       };
     }
-    console.log("🔑 [DEBUG] Using rotated session token:", sessionToken);
 
     //Fetch user
     const user = await this.users.findById(userId);
@@ -225,6 +237,23 @@ export class CredentialsAuthService {
         data: null,
         message: "Current password is incorrect",
         httpCode: 401,
+      };
+    }
+
+    if (
+      containsBlockedPasswords(
+        newPassword,
+        user.email,
+        user.username,
+        blockedPasswords
+      )
+    ) {
+      return {
+        success: false,
+        data: null,
+        message:
+          "New password cannot contain username, email, or blocked words",
+        httpCode: 400,
       };
     }
 
@@ -249,8 +278,6 @@ export class CredentialsAuthService {
     //Hash new password & update
     const newHash = await hashPassword(newPassword);
     await this.users.updatePassword(userId, newHash);
-
-
 
     console.log("✅ [DEBUG] Password updated successfully for user:", userId);
 

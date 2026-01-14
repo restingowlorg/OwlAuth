@@ -23,11 +23,11 @@ export type AuthOptions = {
   postgresUrl?: string;
 
   postgresUserTable?: InitPostgresOptions;
-
   authTypes?: AuthType[];
   sessionTtlSeconds?: number;
   idleTtlSeconds?: number;
   maxSessionsPerUser?: number;
+  blockedPasswords?: string[];
   cookieName?: string;
   cookieOptions?: {
     httpOnly?: boolean;
@@ -85,3 +85,6 @@ export interface AuthResult<T = any> {
 export type InitPostgresOptions = {
   userTableName?: string;
 };
+
+export type AuthLogLevel = "info" | "warn" | "error";
+

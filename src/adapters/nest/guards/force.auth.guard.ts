@@ -29,9 +29,6 @@ export class MvpForceRotateGuard implements CanActivate {
     // Force rotation by passing true to forceRotate
     const result = await this.auth.me(token, undefined, true);
 
-    console.log("ℹ️ ForceRotate Guard - old token:", token);
-    console.log("ℹ️ ForceRotate Guard - new token:", result.data?.sessionToken);
-
     if (!result.success) {
       res.status(HttpStatus.UNAUTHORIZED).json({
         statusCode: HttpStatus.UNAUTHORIZED,
