@@ -5,6 +5,7 @@ import {
   HttpStatus,
 } from "@nestjs/common";
 import { IAuthManager } from "../../../interfaces";
+import { authLog } from "../../../utils/logger";
 
 export class MvpAuthGuard implements CanActivate {
   constructor(@Inject("AUTH_MANAGER") private readonly auth: IAuthManager) {}
@@ -29,8 +30,7 @@ export class MvpAuthGuard implements CanActivate {
     // Use AuthManager to validate session; no rotation for normal guard
     const result = await this.auth.me(token, undefined, false);
 
-    console.log("ℹ️ Auth Guard - session token:", token);
-    console.log("ℹ️ Auth Guard - validation result:", result);
+
 
     if (!result.success) {
       res.status(HttpStatus.UNAUTHORIZED).json({
@@ -38,6 +38,7 @@ export class MvpAuthGuard implements CanActivate {
         message: result.message || "Invalid session",
         error: "Unauthorized",
       });
+      authLog("error", result.message || "Invalid session");
       return false;
     }
 
@@ -45,6 +46,7 @@ export class MvpAuthGuard implements CanActivate {
     req.user = { id: result.data.userId };
     req.session = result.data;
 
+    authLog("info", "Session validated");
     return true;
   }
 }
