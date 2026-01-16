@@ -1,15 +1,24 @@
 
+
+# 🛡️ MVP Auth (Authentication-Only)
+
+**MVP Auth** is a **framework-agnostic** and **database-agnostic** Node.js **authentication library** focused exclusively on **OWASP ASVS V6 – Authentication**.
+
+It provides **secure user identity verification** (credentials and magic links) without imposing session, token, or state management, allowing consumer applications to fully control **sessions, tokens, cookies, and authorization**.
+
 ---
 
-# 🛡️ MVP Auth
+## 🎯 Scope & Philosophy
 
-**MVP Auth** is a **framework-agnostic** and **database-agnostic** Node.js authentication library providing:
+It intentionally **does NOT**:
 
-* Credentials authentication (`email + username + password`)
-* Magic link (passwordless) authentication
-* Session-based authentication (**token-based sessions with rotation**)
+* Create or manage sessions
+* Issue or rotate tokens
+* Store cookies
+* Enforce authorization or permissions
+* Implement OAuth / OIDC flows
 
-It exposes **business-level services** (`AuthManager`) and returns **structured results** (`AuthResult`) without leaking sensitive information.
+These concerns are expected to be handled by **consumer applications or separate libraries**.
 
 ---
 
@@ -17,30 +26,25 @@ It exposes **business-level services** (`AuthManager`) and returns **structured 
 
 * ✅ Credentials authentication (email + username + password)
 * 🔗 Magic Link (passwordless) authentication
-* 🍪 Session-based authentication with **secure token sessions**
-* 🔄 **Token rotation on every session validation**
-* 💤 **Idle session expiration** (configurable)
-* 🧱 Max concurrent sessions per user with automatic revocation
-* 🧩 Framework agnostic (Express, NestJS, Fastify, custom)
-* 🗄️ Database agnostic (PostgreSQL, MongoDB)
-* 🧪 Strong typing with unified `AuthResult` and `IAuthManager`
-* 🧱 Clean architecture: `AuthManager → Services → Repositories → Infra`
-* 🔒 Secure password hashing & token handling
-* 🔄 PostgreSQL schema auto-validation and migration
-* 🛡️ OWASP-aligned password strength and session handling
+* 🔐 OWASP-aligned password validation
 
----
+  * Minimum length & entropy checks
+  * Breached password detection
+  * Context-aware blocked passwords
+* 🧱 Stateless authentication responses
+* 🧩 Framework agnostic (Express, NestJS, Fastify, custom)
+* 🗄️ Database agnostic (PostgreSQL, MongoDB, custom adapters)
+* 🧪 Strong typing with unified `AuthResult`
+* 🧼 Clean architecture: `AuthManager → Services → Repositories → Infra`
+* 🔒 Secure password & token hashing
+* 📜 Designed for OWASP ASVS V6 compliance
+
 
 ## Installation
 
 ```bash
 npm install @restingowlorg/mvp-auth
 ```
-
-**Environment Variables:**
-
-* PostgreSQL: `POSTGRES_URL`
-* MongoDB: `MONGO_URI`
 
 ---
 
@@ -55,9 +59,7 @@ const auth = await AuthManager.init({
   dbType: "postgres",
   postgresUrl: process.env.POSTGRES_URL!,
   authTypes: ["credentials", "magic-link"],
-  sessionTtlSeconds: 60 * 60 * 24 * 7, // 7 days
-  idleTtlSeconds: 60, // 1 min idle expiration
-  maxSessionsPerUser: 3, // Limit concurrent sessions
+  blockedPasswords: ["companyname", "admin"],
 });
 ```
 
@@ -68,13 +70,10 @@ const auth = await AuthManager.init({
   dbType: "mongo",
   mongoUri: process.env.MONGO_URI!,
   authTypes: ["credentials"],
-  sessionTtlSeconds: 60 * 60 * 24 * 7,
-  idleTtlSeconds: 60,
-  maxSessionsPerUser: 3,
 });
 ```
 
-> PostgreSQL schemas are auto-validated/created if missing. Custom table names supported via `userTableName`.
+> Database schemas for **users** and **magic links** are validated or created automatically.
 
 ---
 
@@ -86,12 +85,18 @@ const auth = await AuthManager.init({
 export interface IAuthManager {
   signup(email: string, username: string, password: string): Promise<AuthResult>;
   login(email: string, password: string): Promise<AuthResult>;
-  logout(sessionToken: string): Promise<AuthResult>;
-  me(sessionToken: string): Promise<AuthResult>;
+  changePassword(
+    req: any,
+    currentPassword: string,
+    newPassword: string
+  ): Promise<AuthResult>;
+
   requestMagicLink?(email: string): Promise<AuthResult>;
   consumeMagicLink?(token: string): Promise<AuthResult>;
 }
 ```
+
+---
 
 ### `AuthResult`
 
@@ -104,138 +109,135 @@ export interface AuthResult<T = any> {
 }
 ```
 
-> All APIs return `AuthResult` — sensitive information (passwords, token hashes) is never exposed.
+> All APIs return `AuthResult`.
+> Passwords, hashes, and secrets are **never exposed**.
 
 ---
 
 ## Usage Examples
 
-### Credentials Signup & Login
+### Credentials Signup
 
 ```ts
-// Signup
-const signupResult = await auth.signup("user@test.com", "username", "StrongPassword123!");
-res.status(signupResult.httpCode).json(signupResult);
+const result = await auth.signup(
+  "user@test.com",
+  "username",
+  "StrongPassword123!"
+);
 
-// Login
-const loginResult = await auth.login("user@test.com", "StrongPassword123!");
-if (loginResult.success) {
-  res.cookie("AUTH_SESSION", loginResult.data.sessionToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: loginResult.data.session.expiresAt.getTime() - Date.now(),
-  });
-}
-res.status(loginResult.httpCode).json(loginResult);
-
-// Validate / Rotate session
-const meResult = await auth.me(loginResult.data.sessionToken);
-console.log(meResult.data.sessionToken); // ⚡ New rotated token
+res.status(result.httpCode).json(result);
 ```
-
-### Magic Link Flow
-
-```ts
-// Request Magic Link
-const magicResult = await auth.requestMagicLink!("user@test.com");
-res.status(magicResult.httpCode).json(magicResult);
-
-// Consume Magic Link
-const consumeResult = await auth.consumeMagicLink!(token);
-if (consumeResult.success) {
-  res.cookie("AUTH_SESSION", consumeResult.data.sessionToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-  });
-}
-res.json(consumeResult);
-```
-
-> ⚠️ Tokens (`sessionToken`) are safe for API clients; passwords and token hashes are never returned.
 
 ---
 
-## NestJS Integration – Protected Routes
-
-You can now protect your NestJS endpoints using the built-in `MvpAuthGuard`:
+### Credentials Login (Stateless)
 
 ```ts
-import { Controller, Get, UseGuards, Req, Res } from '@nestjs/common';
-import { MvpAuthGuard } from '@restingowlorg/mvp-auth';
+const result = await auth.login("user@test.com", "StrongPassword123!");
 
-@Controller('auth')
-export class AuthController {
-  @UseGuards(MvpAuthGuard)
-  @Get('protected')
-  async protectedResource(@Req() req, @Res() res) {
-    return res.status(200).json({
-      success: true,
-      message: 'You have accessed a protected resource',
-      userId: req.user.id,
-    });
+if (result.success) {
+  // Consumer app decides:
+  // - Create session
+  // - Issue JWT
+  // - Set cookie
+  // - Call downstream services
+}
+
+res.status(result.httpCode).json(result);
+```
+
+Returned `data` example:
+
+```json
+{
+  "user": {
+    "id": "user_id",
+    "email": "user@test.com",
+    "username": "username"
   }
 }
 ```
 
-**Behavior:**
+---
 
-* If the session is invalid, expired, or missing, the guard returns a structured JSON response:
+### Change Password
 
-```json
-{
-  "statusCode": 401,
-  "message": "Session expired due to inactivity",
-  "error": "Unauthorized"
-}
+```ts
+const result = await auth.changePassword(
+  req, // must contain req.user.id (set by consumer app)
+  "CurrentPassword123!",
+  "NewStrongPassword456!"
+);
+
+res.status(result.httpCode).json(result);
 ```
 
-* Token rotation happens automatically on every valid request.
-* The latest `sessionToken` is sent via HTTP-only cookie for the client to continue using.
+> 🔐 Authentication is assumed to be handled **before** calling this method.
 
 ---
 
-## Framework-specific Utilities
+### Magic Link Flow
 
-* `MvpAuthGuard` for NestJS (protect endpoints)
-* For Express/Fastify, create a middleware using `session.validate(token)`
-* Transparent session rotation and idle timeout handling works across all integrations
+#### Request Magic Link
 
----
+```ts
+const result = await auth.requestMagicLink!("user@test.com");
 
-## Security Notes
+// Send token via email in consumer app
+res.status(result.httpCode).json(result);
+```
 
-* Passwords hashed with `bcrypt`
-* Sessions use **secure, revocable token-based approach**
-* **Token rotation** on every validation prevents token reuse
-* HTTP-only cookies recommended
-* **Idle timeout** revokes inactive sessions
-* **Max concurrent sessions** prevents account abuse
-* Password checks follow OWASP guidelines
+#### Consume Magic Link
 
----
+```ts
+const result = await auth.consumeMagicLink!(token);
 
-## Database Schema Reference (PostgreSQL)
+if (result.success) {
+  // Consumer app decides how to authenticate the user:
+  // - Issue token
+  // - Create session
+}
 
-| Table         | Columns                                                       |
-| ------------- | ------------------------------------------------------------- |
-| `users`       | id, email, username, password                                 |
-| `sessions`    | id, user_id, token_hash, expires_at, last_used_at, revoked_at |
-| `magic_links` | id, user_id, token, created_at, used_at                       |
-
-> Library auto-creates or migrates schemas as needed.
+res.json(result);
+```
 
 ---
 
-## Best Practices
+## Security Notes (OWASP ASVS V6)
 
-* Always use **HTTPS + Secure cookies**
-* Keep **sessions short-lived**
-* Validate external user tables before use
-* Use **strong passwords** with optional breach checks
-* Revoke tokens on logout, inactivity, or suspicious activity
-* Monitor logs for **session rotations** 🔄 and revocations 🗑️
+* Passwords hashed using a strong adaptive hashing algorithm
+* Password strength validated using entropy analysis
+* Breached passwords rejected
+* Context-aware password blocking (email, username, custom words)
+* Magic link tokens:
+
+  * Cryptographically secure
+  * Single-use
+  * Time-limited
+  * Stored hashed at rest
+* Authentication responses are stateless and safe for APIs
 
 ---
 
+## Database Schema Reference
+
+### Users
+
+| Column   | Description     |
+| -------- | --------------- |
+| id       | User identifier |
+| email    | Unique email    |
+| username | Unique username |
+| password | Hashed password |
+
+### Magic Links
+
+| Column     | Description            |
+| ---------- | ---------------------- |
+| id         | Record ID              |
+| user_id    | User reference         |
+| token_hash | Hashed magic token     |
+| expires_at | Expiration timestamp   |
+| used_at    | Single-use enforcement |
+
+---
