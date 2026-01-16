@@ -7,12 +7,6 @@ export interface IAuthManager {
     password: string
   ) => Promise<AuthResult>;
   login: (email: string, password: string) => Promise<AuthResult>;
-  logout: (sessionId: string) => Promise<AuthResult>;
-  me: (
-    sessionId: string,
-    idleTtlSeconds?: number,
-    forceRotate?: boolean
-  ) => Promise<AuthResult>;
   changePassword?: (
     req: any,
     currentPassword: string,

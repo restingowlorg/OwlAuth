@@ -12,51 +12,6 @@ export interface UserRepository {
   updatePassword(userId: string, passwordHash: string): Promise<void>;
 }
 
-export interface SessionRepository {
-  create(input: {
-    userId: string;
-    tokenHash: string;
-    expiresAt: Date;
-    lastUsedAt: Date;
-  }): Promise<{
-    id: string;
-    userId: string;
-    expiresAt: Date;
-    lastUsedAt: Date;
-    revokedAt: Date | null;
-  }>;
-
-  findByTokenHash(tokenHash: string): Promise<{
-    id: string;
-    userId: string;
-    expiresAt: Date;
-    lastUsedAt: Date;
-    revokedAt: Date | null;
-  } | null>;
-
-  createAndRotate(
-    oldTokenHash: string,
-    userId: string,
-    expiresAt: Date,
-    newToken: string,
-    newTokenHash: string
-  ): Promise<{
-    id: string;
-    userId: string;
-    expiresAt: Date;
-    lastUsedAt: Date;
-    revokedAt: Date | null;
-    sessionToken: string;
-  }>;
-
-  updateLastUsed(tokenHash: string, date: Date): Promise<void>;
-
-  revokeByTokenHash(tokenHash: string): Promise<void>;
-
-  revokeOldestForUser(userId: string, keepLatest: number): Promise<void>;
-
-  revokeAllExcept(userId: string, keepSessionId: string): Promise<void>;
-}
 
 export interface MagicLinkToken {
   id: string;

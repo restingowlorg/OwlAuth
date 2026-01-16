@@ -3,17 +3,12 @@ import { hashPassword, verifyPassword } from "../../infra/crypto/crypto";
 import { AuthResult } from "../../types";
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { isBreachedPassword } from "../../infra/security/pwned-passwords";
-import { SessionService } from "./session.service";
 import { containsBlockedPasswords } from "../../utils/check-blocked-passwords";
 
 export class CredentialsAuthService {
   constructor(
     private readonly users: UserRepository,
-    private readonly sessions: SessionService,
-    private readonly sessionTtlSeconds: number
   ) {}
-
-  // ---------------- Signup ----------------
 
   async signup(
     email: string,
@@ -124,8 +119,6 @@ export class CredentialsAuthService {
     }
   }
 
-  // ---------------- Login ----------------
-
   async login(email: string, password: string): Promise<AuthResult> {
     try {
       // -------------------- Input Validation --------------------
@@ -160,15 +153,6 @@ export class CredentialsAuthService {
         };
       }
 
-      // -------------------- Create Session --------------------
-      const sessionResult = await this.sessions.create(
-        user.id,
-        this.sessionTtlSeconds
-      );
-      if (!sessionResult.success) return sessionResult;
-
-      const { session, token } = sessionResult.data;
-
       // -------------------- Return Safe Response --------------------
       return {
         success: true,
@@ -178,11 +162,6 @@ export class CredentialsAuthService {
             email: user.email,
             username: user.username,
           },
-          session: {
-            expiresAt: session.expiresAt,
-            lastUsedAt: session.lastUsedAt,
-          },
-          sessionToken: token,
         },
         message: "User logged in",
         httpCode: 200,
@@ -205,18 +184,9 @@ export class CredentialsAuthService {
   ): Promise<AuthResult> {
     console.log("🛠️ [DEBUG] changePassword called");
 
-    // Use the rotated session from the guard
-    const sessionToken = req.session?.sessionToken;
     const userId = req.user?.id;
 
-    if (!sessionToken || !userId) {
-      return {
-        success: false,
-        data: null,
-        message: "No valid session available",
-        httpCode: 401,
-      };
-    }
+
 
     //Fetch user
     const user = await this.users.findById(userId);
@@ -284,9 +254,7 @@ export class CredentialsAuthService {
     return {
       success: true,
       message: "Password updated successfully",
-      data: {
-        sessionToken, // latest rotated token from guard
-      },
+      data: null,
       httpCode: 200,
     };
   }
