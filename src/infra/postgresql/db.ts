@@ -39,7 +39,6 @@ export async function initPostgres(
     const userPK = await getUserPrimaryKey(pool, tables.users);
 
 
-
     await ensureMagicLinkTable(
       pool,
       tables.magicLinks,

@@ -33,9 +33,9 @@ export async function initAuthServices(
     result.login = (email, password) =>
       credentialsService.login(email, password);
 
-    result.changePassword = (req, currentPassword, newPassword) =>
+    result.changePassword = (userId, currentPassword, newPassword) =>
       credentialsService.changePassword(
-        req,
+        userId,
         currentPassword,
         newPassword,
         options.blockedPasswords

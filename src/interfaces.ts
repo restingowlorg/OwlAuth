@@ -7,8 +7,8 @@ export interface IAuthManager {
     password: string
   ) => Promise<AuthResult>;
   login: (email: string, password: string) => Promise<AuthResult>;
-  changePassword?: (
-    req: any,
+  changePassword: (
+    userId: any,
     currentPassword: string,
     newPassword: string
   ) => Promise<AuthResult>;

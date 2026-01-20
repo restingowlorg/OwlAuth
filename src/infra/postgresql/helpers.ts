@@ -1,6 +1,7 @@
 // src/infra/postgres/helpers.ts
 import { Pool } from "pg";
 import { PostgresUserSchema } from "./schema";
+import { authLog } from "../../utils/logger";
 
 // Quote identifier
 export function q(identifier: string) {
@@ -18,7 +19,7 @@ export async function tableExists(pool: Pool, table: string): Promise<boolean> {
         AND table_name = $1
     )
     `,
-    [table]
+    [table],
   );
 
   return rows[0]?.exists === true;
@@ -33,7 +34,7 @@ export async function validateUserTable(pool: Pool, table: string) {
     WHERE table_schema = 'public'
       AND table_name = $1
     `,
-    [table]
+    [table],
   );
 
   const existingColumns = rows.map((r) => r.column_name);
@@ -43,19 +44,24 @@ export async function validateUserTable(pool: Pool, table: string) {
 
   for (const col of PostgresUserSchema.requiredColumns) {
     if (!existingColumns.includes(col)) {
+      authLog("error", `User table "${table}" missing column "${col}"`);
       throw new Error(`User table "${table}" missing required column "${col}"`);
     }
   }
 
   const illegalNotNulls = notNullColumns.filter(
-    (c) => !PostgresUserSchema.requiredColumns.includes(c)
+    (c) => !PostgresUserSchema.requiredColumns.includes(c),
   );
 
   if (illegalNotNulls.length > 0) {
+    authLog(
+      "error",
+      `User table "${table}" has extra NOT NULL columns: ${illegalNotNulls.join(", ")}`,
+    );
     throw new Error(
       `User table "${table}" has extra NOT NULL columns: ${illegalNotNulls.join(
-        ", "
-      )}`
+        ", ",
+      )}`,
     );
   }
 }
@@ -77,7 +83,7 @@ export async function getUserPrimaryKey(pool: Pool, table: string) {
       AND tc.table_schema = 'public'
       AND tc.table_name = $1
     `,
-    [table]
+    [table],
   );
 
   if (!rows.length) {
@@ -94,20 +100,53 @@ export async function getUserPrimaryKey(pool: Pool, table: string) {
 export async function ensureUserTable(
   pool: Pool,
   userTable: string,
-  isExternal: boolean
+  isExternal: boolean,
 ) {
-  if (isExternal) {
-    if (!(await tableExists(pool, userTable))) {
-      throw new Error(`User table "${userTable}" does not exist`);
+  authLog(
+    "info",
+    `Starting ensureUserTable for "${userTable}", isExternal=${isExternal}`,
+  );
+
+  // Check if table exists
+  const exists = await tableExists(pool, userTable);
+
+  if (exists) {
+    authLog(
+      "info",
+      `User table "${userTable}" already exists. Ensuring required columns...`,
+    );
+
+    // Add missing columns one by one
+    const { rows } = await pool.query(
+      `
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = $1
+    `,
+      [userTable],
+    );
+
+    const existingColumns = rows.map((r) => r.column_name);
+
+    if (!existingColumns.includes("username")) {
+      authLog("info", `Adding missing column "username"`);
+      await pool.query(
+        `ALTER TABLE ${q(userTable)} ADD COLUMN username TEXT UNIQUE NOT NULL`,
+      );
     }
-    await validateUserTable(pool, userTable);
+
+    if (!existingColumns.includes("password")) {
+      authLog("info", `Adding missing column "password"`);
+      await pool.query(`ALTER TABLE ${q(userTable)} ADD COLUMN password TEXT`);
+    }
+
+    authLog("info", `All required columns exist for "${userTable}"`);
     return;
   }
 
+  // Table does not exist → create it
+  authLog("info", `Auto-creating user table "${userTable}"`);
   await pool.query(`
-    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
-    CREATE TABLE IF NOT EXISTS ${q(userTable)} (
+    CREATE TABLE ${q(userTable)} (
       id SERIAL PRIMARY KEY,
       email TEXT UNIQUE NOT NULL,
       username TEXT UNIQUE NOT NULL,
@@ -115,7 +154,7 @@ export async function ensureUserTable(
     );
   `);
 
-  await validateUserTable(pool, userTable);
+  authLog("info", `User table "${userTable}" created successfully`);
 }
 
 // Ensure magic link table exists
@@ -123,7 +162,7 @@ export async function ensureMagicLinkTable(
   pool: Pool,
   table: string,
   userTable: string,
-  userPK: { name: string; type: string }
+  userPK: { name: string; type: string },
 ) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS ${q(table)} (

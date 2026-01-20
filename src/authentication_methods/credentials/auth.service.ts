@@ -177,16 +177,12 @@ export class CredentialsAuthService {
   }
 
   async changePassword(
-    req: any,
+    userId: any,
     currentPassword: string,
     newPassword: string,
     blockedPasswords?: string[]
   ): Promise<AuthResult> {
     console.log("🛠️ [DEBUG] changePassword called");
-
-    const userId = req.user?.id;
-
-
 
     //Fetch user
     const user = await this.users.findById(userId);
