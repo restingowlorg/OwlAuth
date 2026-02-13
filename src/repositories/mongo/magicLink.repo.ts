@@ -1,60 +1,78 @@
 import { MagicLinkRepository, MagicLinkToken } from "../contracts";
-import { MagicLinkModel } from "./models";
-import { Types } from "mongoose";
+import { Collection, ObjectId, Document } from "mongodb";
 
-export const MongoMagicLinkRepo: MagicLinkRepository = {
+/**
+ * MongoDB implementation of MagicLinkRepository
+ * Operates directly on a consumer-provided collection
+ */
+export class MongoMagicLinkRepo implements MagicLinkRepository {
+  private collection: Collection<Document>;
+
+  constructor(collection: Collection<Document>) {
+    this.collection = collection;
+  }
+
   async create(token: {
     userId: string;
     tokenHash: string;
     expiresAt: Date;
     usedAt?: Date;
   }): Promise<MagicLinkToken> {
-    console.log("🔑 Creating magic link for user:", token.userId);
+    const now = new Date();
 
-    // Convert string userId to ObjectId
-    const userIdObj = new Types.ObjectId(token.userId);
-
-    const doc = await MagicLinkModel.create({
-      ...token,
-      userId: userIdObj,
+    const result = await this.collection.insertOne({
+      userId: new ObjectId(token.userId),
+      tokenHash: token.tokenHash,
+      expiresAt: token.expiresAt,
+      usedAt: token.usedAt ?? null,
+      createdAt: now,
+      updatedAt: now,
     });
 
-    console.log("📨 Magic link record saved with id:", doc._id.toString());
-
-    return { ...token, id: doc._id.toString(), userId: doc.userId.toString() };
-  },
+    return {
+      id: result.insertedId.toString(),
+      userId: token.userId,
+      tokenHash: token.tokenHash,
+      expiresAt: token.expiresAt,
+      usedAt: token.usedAt,
+    };
+  }
 
   async findByTokenHash(tokenHash: string): Promise<MagicLinkToken | null> {
-    const doc = await MagicLinkModel.findOne({ tokenHash }).lean();
+    const doc = await this.collection.findOne({ tokenHash });
     if (!doc) return null;
 
     return {
       id: doc._id.toString(),
-      userId: doc.userId.toString(), // convert ObjectId to string
+      userId: doc.userId.toString(),
       tokenHash: doc.tokenHash,
       expiresAt: doc.expiresAt,
       usedAt: doc.usedAt ?? undefined,
     };
-  },
+  }
 
   async markUsed(id: string): Promise<void> {
-    console.log("✅ Marking magic link as used, id:", id);
-    await MagicLinkModel.findByIdAndUpdate(id, { usedAt: new Date() });
-  },
+    await this.collection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { usedAt: new Date(), updatedAt: new Date() } },
+    );
+  }
 
   async findAll(): Promise<MagicLinkToken[]> {
     const now = new Date();
-    const docs = await MagicLinkModel.find({
-      expiresAt: { $gt: now },
-      usedAt: { $exists: false },
-    }).lean();
+    const docs = await this.collection
+      .find({
+        expiresAt: { $gt: now },
+        usedAt: null,
+      })
+      .toArray();
 
     return docs.map((doc) => ({
       id: doc._id.toString(),
-      userId: doc.userId.toString(), // convert ObjectId to string
+      userId: doc.userId.toString(),
       tokenHash: doc.tokenHash,
       expiresAt: doc.expiresAt,
       usedAt: doc.usedAt ?? undefined,
     }));
-  },
-};
+  }
+}

@@ -1,5 +1,3 @@
-
-
 // ------------------------------
 // Authenticated User Interface
 // ------------------------------
@@ -8,8 +6,6 @@ export interface AuthUser {
   email: string;
   username?: string;
 }
-
-
 
 // ------------------------------
 // Repository Interface
@@ -39,4 +35,3 @@ export interface AuthResult<T = any> {
   httpCode: number;
   message: string;
 }
-

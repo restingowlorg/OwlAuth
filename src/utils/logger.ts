@@ -1,4 +1,4 @@
-import { AuthLogLevel } from "../types";
+import { AuthLogLevel } from "../types/index";
 
 export function authLog(level: AuthLogLevel, message: string) {
   const prefix = "MVP-AUTH";

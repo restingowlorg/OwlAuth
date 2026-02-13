@@ -1,7 +1,8 @@
-import { AuthOptions } from "../types";
+
 import { CredentialsAuthService } from "../authentication_methods/credentials/auth.service";
 import { MagicLinkService } from "../authentication_methods/magic-links/magic-link.service";
 import { IAuthManager } from "../interfaces";
+import { AuthOptions } from "../types/index";
 import { authLog } from "../utils/logger";
 
 /**
