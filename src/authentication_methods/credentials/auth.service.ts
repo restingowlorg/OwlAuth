@@ -1,6 +1,6 @@
 import { UserRepository, CreateUserInput } from "../../repositories/contracts";
 import { hashPassword, verifyPassword } from "../../infra/crypto/crypto";
-import { AuthResult } from "../../types";
+import { AuthResult } from "../../interfaces/index";
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { isBreachedPassword } from "../../infra/security/pwned-passwords";
 import { containsBlockedPasswords } from "../../utils/check-blocked-passwords";

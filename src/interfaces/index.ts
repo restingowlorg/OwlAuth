@@ -35,3 +35,19 @@ export interface AuthResult<T = any> {
   httpCode: number;
   message: string;
 }
+
+export interface IAuthManager {
+  signup: (
+    email: string,
+    username: string,
+    password: string,
+  ) => Promise<AuthResult>;
+  login: (email: string, password: string) => Promise<AuthResult>;
+  changePassword: (
+    userId: any,
+    currentPassword: string,
+    newPassword: string,
+  ) => Promise<AuthResult>;
+  requestMagicLink?: (email: string) => Promise<AuthResult>;
+  consumeMagicLink?: (token: string) => Promise<AuthResult>;
+}

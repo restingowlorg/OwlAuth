@@ -7,7 +7,7 @@ import {
   verifyToken,
   generateToken,
 } from "../../infra/crypto/crypto";
-import { AuthResult } from "../../types";
+import { AuthResult } from "../../interfaces/index";
 
 export class MagicLinkService {
   constructor(
