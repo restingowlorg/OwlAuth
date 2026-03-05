@@ -1,0 +1,142 @@
+set -eu
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+info() {
+  printf "${BLUE}INFO${NC}: %s\n" "$1"
+}
+
+success() {
+  printf "${GREEN}SUCCESS${NC}: %s\n" "$1"
+}
+
+warn() {
+  printf "${YELLOW}WARNING${NC}: %s\n" "$1"
+}
+
+error() {
+  printf "${RED}ERROR${NC}: %s\n" "$1"
+}
+
+resolve_npm() {
+  if command -v npm >/dev/null 2>&1; then
+    NPM_CMD="$(command -v npm)"
+    return 0
+  fi
+
+  if [ -s "$HOME/.nvm/nvm.sh" ]; then
+    . "$HOME/.nvm/nvm.sh" >/dev/null 2>&1 || true
+  fi
+
+  if command -v npm >/dev/null 2>&1; then
+    NPM_CMD="$(command -v npm)"
+    return 0
+  fi
+
+  for candidate in /opt/homebrew/bin/npm /usr/local/bin/npm /usr/bin/npm; do
+    if [ -x "$candidate" ]; then
+      NPM_CMD="$candidate"
+      return 0
+    fi
+  done
+
+  if command -v node >/dev/null 2>&1; then
+    node_dir="$(dirname "$(command -v node)")"
+    if [ -x "$node_dir/npm" ]; then
+      NPM_CMD="$node_dir/npm"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+# Start timing
+START_TIME=$(date +%s)
+
+info "Running pre-commit checks..."
+echo ""
+
+# Check for skip flag
+if [ "${SKIP_HOOKS:-false}" = "true" ]; then
+  warn "Skipping pre-commit hook (SKIP_HOOKS=true)"
+  exit 0
+fi
+
+if ! resolve_npm; then
+  error "npm is not available in this Git hook environment."
+  warn "Install Node.js/npm or make npm available in PATH for GUI Git clients."
+  exit 1
+fi
+
+export PATH="$PWD/node_modules/.bin:$PATH"
+
+info "Step 1: Checking for secrets and sensitive data..."
+if "$NPM_CMD" exec --no -- secretlint "**/*" 2>/dev/null; then
+  success "No secrets detected"
+else
+  error "Secret detected: Potential credentials found in staged files"
+  warn "Review and remove sensitive data before committing"
+  exit 1
+fi
+
+echo ""
+info "Step 2: Checking file sizes..."
+FIND_LARGE=$(git diff --cached --name-only --diff-filter=ACM | while read file; do
+  if [ -f "$file" ]; then
+    size=$(wc -c < "$file" 2>/dev/null || echo 0)
+    if [ "$size" -gt 5242880 ]; then
+      echo "$file ($((size / 1024 / 1024))MB)"
+    fi
+  fi
+done)
+
+if [ -n "$FIND_LARGE" ]; then
+  error "Large files detected (max 5MB):"
+  echo "$FIND_LARGE"
+  warn "Use Git LFS for large files or exclude from repository"
+  exit 1
+fi
+success "All files within size limits"
+
+echo ""
+info "Step 3: Validating package-lock consistency..."
+if [ -f "package-lock.json" ]; then
+  if "$NPM_CMD" ls >/dev/null 2>&1; then
+    success "package-lock.json is in sync"
+  else
+    error "package-lock.json is out of sync with package.json"
+    warn "Run: npm install"
+    exit 1
+  fi
+fi
+
+echo ""
+info "Step 4: Fixing linting issues..."
+"$NPM_CMD" exec --no -- eslint --fix --ext .ts,.js src/ 2>/dev/null || true
+success "Linting complete"
+
+echo ""
+info "Step 5: Formatting code..."
+"$NPM_CMD" exec --no -- lint-staged
+success "Code formatted"
+
+echo ""
+info "Step 6: Type checking (incremental)..."
+if "$NPM_CMD" exec --no -- tsc --noEmit --incremental; then
+  success "Type check passed"
+else
+  error "Type check failed"
+  exit 1
+fi
+
+# Calculate duration
+END_TIME=$(date +%s)
+DURATION=$((END_TIME - START_TIME))
+
+echo ""
+success "Pre-commit checks passed in ${DURATION}s"

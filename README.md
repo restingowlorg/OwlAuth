@@ -1,4 +1,3 @@
-
 # 🛡️ Flex Auth - MVP Open Source Auth Library
 
 A **framework-agnostic**, **database-agnostic** authentication library for Node.js providing **Credentials** and **Magic Link (passwordless)** authentication using a clean, layered architecture.
@@ -9,15 +8,15 @@ This library exposes **pure business functions**, not HTTP controllers — givin
 
 ## ✨ Features
 
-* ✅ Credentials authentication (email + password)
-* 🔗 Magic link (passwordless) authentication
-* 🍪 Session-based authentication
-* 🧩 Framework agnostic (Express, NestJS, Fastify, custom)
-* 🗄️ Database agnostic (MongoDB, PostgreSQL)
-* 🧪 Strong typing with unified result format
-* 🧱 Clean architecture (Services, Repositories, Infra)
-* 🔒 Secure password hashing & token handling
-* 🔄 Automatic PostgreSQL migrations for missing columns
+- ✅ Credentials authentication (email + password)
+- 🔗 Magic link (passwordless) authentication
+- 🍪 Session-based authentication
+- 🧩 Framework agnostic (Express, NestJS, Fastify, custom)
+- 🗄️ Database agnostic (MongoDB, PostgreSQL)
+- 🧪 Strong typing with unified result format
+- 🧱 Clean architecture (Services, Repositories, Infra)
+- 🔒 Secure password hashing & token handling
+- 🔄 Automatic PostgreSQL migrations for missing columns
 
 ---
 
@@ -27,16 +26,16 @@ This library exposes **pure business functions**, not HTTP controllers — givin
 
 Instead, it:
 
-* Exposes **pure business functions**
-* Returns **structured results** (`AuthResult`)
-* Lets **developers decide** how to map results to their framework
+- Exposes **pure business functions**
+- Returns **structured results** (`AuthResult`)
+- Lets **developers decide** how to map results to their framework
 
 This avoids:
 
-* Framework lock-in
-* Adapter complexity
-* Controller duplication
-* Hidden magic
+- Framework lock-in
+- Adapter complexity
+- Controller duplication
+- Hidden magic
 
 ---
 
@@ -45,6 +44,12 @@ This avoids:
 ```bash
 npm i mvp-flex-auth
 ```
+
+## Development
+
+For local development workflow, commit conventions, and Git hooks, see:
+
+- [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)
 
 ---
 
@@ -98,18 +103,11 @@ export interface AuthResult<T = any> {
 ### Helper Functions
 
 ```ts
-export function success<T>(
-  data: T,
-  message = "Success",
-  httpCode = 200
-): AuthResult<T> {
+export function success<T>(data: T, message = "Success", httpCode = 200): AuthResult<T> {
   return { success: true, data, httpCode, message };
 }
 
-export function failure(
-  message: string,
-  httpCode = 400
-): AuthResult<null> {
+export function failure(message: string, httpCode = 400): AuthResult<null> {
   return { success: false, data: null, httpCode, message };
 }
 ```
@@ -129,7 +127,7 @@ const auth = await AuthManager.init({
   dbType: "mongo",
   mongoUri: process.env.MONGO_URI!,
   authTypes: ["credentials", "magic-link"],
-  sessionTtlSeconds: 60 * 60 * 24 * 7, // 7 days
+  sessionTtlSeconds: 60 * 60 * 24 * 7 // 7 days
 });
 ```
 
@@ -142,7 +140,7 @@ const auth = await AuthManager.init({
   dbType: "postgres",
   postgresUrl: process.env.POSTGRES_URL!,
   authTypes: ["credentials", "magic-link"],
-  sessionTtlSeconds: 60 * 60 * 24 * 7, // 7 days
+  sessionTtlSeconds: 60 * 60 * 24 * 7 // 7 days
 });
 ```
 
@@ -227,17 +225,17 @@ app.post("/login", async (req, res) => {
 
 ### ✅ Pros
 
-* No framework lock-in
-* No adapters to maintain
-* Easy testing (pure functions)
-* Predictable error handling
-* Works with REST, GraphQL, RPC, serverless
-* Excellent DX for advanced users
+- No framework lock-in
+- No adapters to maintain
+- Easy testing (pure functions)
+- Predictable error handling
+- Works with REST, GraphQL, RPC, serverless
+- Excellent DX for advanced users
 
 ### ⚠️ Trade-offs
 
-* Consumers must define routes/controllers
-* HTTP response mapping is manual
+- Consumers must define routes/controllers
+- HTTP response mapping is manual
 
 > This design mirrors SDKs like Stripe, Prisma Client, Auth0, AWS SDK.
 
@@ -245,17 +243,16 @@ app.post("/login", async (req, res) => {
 
 ## 🛡️ Security Notes
 
-* Passwords hashed using `bcrypt`
-* Magic tokens are hashed & single-use
-* Sessions are validated server-side
-* Cookies are HTTP-only by default
+- Passwords hashed using `bcrypt`
+- Magic tokens are hashed & single-use
+- Sessions are validated server-side
+- Cookies are HTTP-only by default
 
 ---
 
 ## 🧪 Testing
 
-* Use Postman or curl
-* Inspect returned `AuthResult`
-* Assert `success === true/false`
-* Tokens only logged in development
-
+- Use Postman or curl
+- Inspect returned `AuthResult`
+- Assert `success === true/false`
+- Tokens only logged in development
