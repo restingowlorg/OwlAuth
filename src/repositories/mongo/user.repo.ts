@@ -1,15 +1,39 @@
-
-import { UserRepository } from '../contracts';
-import { UserModel } from './models';
+import { UserRepository } from "../contracts";
+import { User } from "../../types";
+import { UserModel } from "./models";
 
 export const MongoUserRepo: UserRepository = {
-  create(email: string, passwordHash: string) {
-    return UserModel.create({ email, passwordHash });
+  async create(email: string, passwordHash: string): Promise<User> {
+    const doc = await UserModel.create({ email, password: passwordHash });
+
+    // ensure email and createdAt exist for the User interface
+    return {
+      id: doc._id.toString(),
+      email: doc.email || "", // map null/undefined to empty string if needed
+      password: doc.password,
+      createdAt: doc.createdAt
+    };
   },
-  findByEmail(email: string) {
-    return UserModel.findOne({ email });
+
+  async findByEmail(email: string): Promise<User | null> {
+    const doc = await UserModel.findOne({ email }).exec();
+    if (!doc) return null;
+    return {
+      id: doc._id.toString(),
+      email: doc.email || "",
+      password: doc.password,
+      createdAt: doc.createdAt
+    };
   },
-  findById(id: string) {
-    return UserModel.findById(id).select('-passwordHash');
+
+  async findById(id: string): Promise<User | null> {
+    const doc = await UserModel.findById(id).select("-password").exec();
+    if (!doc) return null;
+    return {
+      id: doc._id.toString(),
+      email: doc.email || "",
+      password: "", // password excluded by select
+      createdAt: doc.createdAt
+    };
   }
 };

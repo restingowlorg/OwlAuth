@@ -1,9 +1,9 @@
-// src/infra/postgres/db.ts
-import { Pool } from 'pg';
-import { PostgresUserRepository } from '../../repositories/postgresql/user.repo';
-import { PostgresSessionRepository } from '../../repositories/postgresql/sessions.repo';
-import { PostgresMagicLinkRepository } from '../../repositories/postgresql/magic.link.repo';
-import { AuthDB } from '../../types';
+// src/infra/postgresql/db.ts
+import { Pool, QueryResult } from "pg";
+import { PostgresUserRepository } from "../../repositories/postgresql/user.repo";
+import { PostgresSessionRepository } from "../../repositories/postgresql/sessions.repo";
+import { PostgresMagicLinkRepository } from "../../repositories/postgresql/magic.link.repo";
+import { AuthDB } from "../../types";
 
 let pool: Pool | null = null;
 
@@ -12,46 +12,54 @@ let pool: Pool | null = null;
  */
 async function ensureColumns(pool: Pool) {
   // --- Users table ---
-  const { rows: userCols } = await pool.query(`
+  const userColsResult: QueryResult<{ column_name: string }> = await pool.query(`
     SELECT column_name FROM information_schema.columns WHERE table_name='users';
   `);
-  const existingUserCols = userCols.map(r => r.column_name);
+  const existingUserCols = userColsResult.rows.map((r) => r.column_name);
 
-  if (!existingUserCols.includes('id'))
+  if (!existingUserCols.includes("id"))
     await pool.query(`ALTER TABLE users ADD COLUMN id UUID PRIMARY KEY DEFAULT gen_random_uuid()`);
-  if (!existingUserCols.includes('email'))
+  if (!existingUserCols.includes("email"))
     await pool.query(`ALTER TABLE users ADD COLUMN email TEXT UNIQUE NOT NULL`);
-  if (!existingUserCols.includes('password'))
+  if (!existingUserCols.includes("password"))
     await pool.query(`ALTER TABLE users ADD COLUMN password TEXT`);
 
   // --- Sessions table ---
-  const { rows: sessionCols } = await pool.query(`
+  const sessionColsResult: QueryResult<{ column_name: string }> = await pool.query(`
     SELECT column_name FROM information_schema.columns WHERE table_name='sessions';
   `);
-  const existingSessionCols = sessionCols.map(r => r.column_name);
+  const existingSessionCols = sessionColsResult.rows.map((r) => r.column_name);
 
-  if (!existingSessionCols.includes('id'))
-    await pool.query(`ALTER TABLE sessions ADD COLUMN id UUID PRIMARY KEY DEFAULT gen_random_uuid()`);
-  if (!existingSessionCols.includes('user_id'))
-    await pool.query(`ALTER TABLE sessions ADD COLUMN user_id UUID REFERENCES users(id) ON DELETE CASCADE`);
-  if (!existingSessionCols.includes('created_at'))
+  if (!existingSessionCols.includes("id"))
+    await pool.query(
+      `ALTER TABLE sessions ADD COLUMN id UUID PRIMARY KEY DEFAULT gen_random_uuid()`
+    );
+  if (!existingSessionCols.includes("user_id"))
+    await pool.query(
+      `ALTER TABLE sessions ADD COLUMN user_id UUID REFERENCES users(id) ON DELETE CASCADE`
+    );
+  if (!existingSessionCols.includes("created_at"))
     await pool.query(`ALTER TABLE sessions ADD COLUMN created_at TIMESTAMP DEFAULT NOW()`);
 
   // --- Magic links table ---
-  const { rows: magicCols } = await pool.query(`
+  const magicColsResult: QueryResult<{ column_name: string }> = await pool.query(`
     SELECT column_name FROM information_schema.columns WHERE table_name='magic_links';
   `);
-  const existingMagicCols = magicCols.map(r => r.column_name);
+  const existingMagicCols = magicColsResult.rows.map((r) => r.column_name);
 
-  if (!existingMagicCols.includes('id'))
-    await pool.query(`ALTER TABLE magic_links ADD COLUMN id UUID PRIMARY KEY DEFAULT gen_random_uuid()`);
-  if (!existingMagicCols.includes('user_id'))
-    await pool.query(`ALTER TABLE magic_links ADD COLUMN user_id UUID REFERENCES users(id) ON DELETE CASCADE`);
-  if (!existingMagicCols.includes('token'))
+  if (!existingMagicCols.includes("id"))
+    await pool.query(
+      `ALTER TABLE magic_links ADD COLUMN id UUID PRIMARY KEY DEFAULT gen_random_uuid()`
+    );
+  if (!existingMagicCols.includes("user_id"))
+    await pool.query(
+      `ALTER TABLE magic_links ADD COLUMN user_id UUID REFERENCES users(id) ON DELETE CASCADE`
+    );
+  if (!existingMagicCols.includes("token"))
     await pool.query(`ALTER TABLE magic_links ADD COLUMN token TEXT UNIQUE NOT NULL`);
-  if (!existingMagicCols.includes('created_at'))
+  if (!existingMagicCols.includes("created_at"))
     await pool.query(`ALTER TABLE magic_links ADD COLUMN created_at TIMESTAMP DEFAULT NOW()`);
-  if (!existingMagicCols.includes('used_at'))
+  if (!existingMagicCols.includes("used_at"))
     await pool.query(`ALTER TABLE magic_links ADD COLUMN used_at TIMESTAMP`);
 }
 
@@ -61,9 +69,9 @@ async function ensureColumns(pool: Pool) {
 export async function initPostgres(connectionString: string): Promise<AuthDB> {
   if (!pool) {
     pool = new Pool({ connectionString });
-    console.log('ℹ️ PostgreSQL pool created');
+    // eslint-disable-next-line no-console
+    console.log("ℹ️ PostgreSQL pool created");
 
-    // Create tables if missing
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -74,6 +82,7 @@ export async function initPostgres(connectionString: string): Promise<AuthDB> {
       CREATE TABLE IF NOT EXISTS sessions (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        expires_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT NOW()
       );
 
@@ -86,16 +95,15 @@ export async function initPostgres(connectionString: string): Promise<AuthDB> {
       );
     `);
 
-    // Add missing columns if any
     await ensureColumns(pool);
-
-    console.log('✅ PostgreSQL initialized with automatic migrations');
+    // eslint-disable-next-line no-console
+    console.log("✅ PostgreSQL initialized with automatic migrations");
   }
 
   return {
     userRepo: new PostgresUserRepository(),
     sessionRepo: new PostgresSessionRepository(),
-    magicLinkRepo: new PostgresMagicLinkRepository(),
+    magicLinkRepo: new PostgresMagicLinkRepository()
   };
 }
 
@@ -103,6 +111,6 @@ export async function initPostgres(connectionString: string): Promise<AuthDB> {
  * Get the existing PostgreSQL pool
  */
 export function getPostgresPool(): Pool {
-  if (!pool) throw new Error('PostgreSQL not initialized. Call initPostgres first.');
+  if (!pool) throw new Error("PostgreSQL not initialized. Call initPostgres first.");
   return pool;
 }

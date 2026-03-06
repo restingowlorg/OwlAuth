@@ -1,5 +1,5 @@
-import * as bcrypt from 'bcrypt';
-import * as crypto from 'crypto';
+import * as bcrypt from "bcrypt";
+import * as crypto from "crypto";
 
 const SALT_ROUNDS = 10;
 
@@ -14,7 +14,7 @@ export function verifyPassword(password: string, hash: string) {
 
 // ---------------- Magic Link Helpers ----------------
 export function generateToken(length = 32) {
-  return crypto.randomBytes(length).toString('hex');
+  return crypto.randomBytes(length).toString("hex");
 }
 
 export async function hashToken(token: string) {
