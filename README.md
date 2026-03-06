@@ -1,9 +1,9 @@
+---
 # 🛡️ Flex Auth - MVP Open Source Auth Library
 
 A **framework-agnostic**, **database-agnostic** authentication library for Node.js providing **Credentials** and **Magic Link (passwordless)** authentication using a clean, layered architecture.
 
 This library exposes **pure business functions**, not HTTP controllers — giving full control to the consumer application (Express, NestJS, Fastify, etc.).
-
 ---
 
 ## ✨ Features
@@ -17,6 +17,7 @@ This library exposes **pure business functions**, not HTTP controllers — givin
 - 🧱 Clean architecture (Services, Repositories, Infra)
 - 🔒 Secure password hashing & token handling
 - 🔄 Automatic PostgreSQL migrations for missing columns
+- 🛡️ Password strength validation and breach checks (OWASP guidelines)
 
 ---
 
@@ -150,18 +151,22 @@ const auth = await AuthManager.init({
 
 ## 🔐 Credentials Authentication
 
-### Signup
+### Signup (with OWASP password checks)
 
 ```ts
-const result = await auth.signup("user@test.com", "password123");
+const result = await auth.signup("user@test.com", "Password123!");
 if (!result.success) return res.status(result.httpCode).json(result);
 res.status(201).json(result);
 ```
 
+- Validates password strength
+- Checks password against known breaches (Pwned Passwords API)
+- Hashes password securely before saving
+
 ### Login
 
 ```ts
-const result = await auth.login("user@test.com", "password123");
+const result = await auth.login("user@test.com", "Password123!");
 if (!result.success) return res.status(result.httpCode).json(result);
 
 // result.data = { user, session }
@@ -221,6 +226,16 @@ app.post("/login", async (req, res) => {
 
 ---
 
+## 🛡️ Security Notes
+
+- Passwords hashed using `bcrypt`
+- Magic tokens are hashed & single-use
+- Sessions are validated server-side
+- Cookies are HTTP-only by default
+- Passwords are checked for **strength** and **known breaches** following [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
+
+---
+
 ## 🧠 Why This Approach?
 
 ### ✅ Pros
@@ -241,18 +256,11 @@ app.post("/login", async (req, res) => {
 
 ---
 
-## 🛡️ Security Notes
-
-- Passwords hashed using `bcrypt`
-- Magic tokens are hashed & single-use
-- Sessions are validated server-side
-- Cookies are HTTP-only by default
-
----
-
 ## 🧪 Testing
 
 - Use Postman or curl
 - Inspect returned `AuthResult`
 - Assert `success === true/false`
 - Tokens only logged in development
+
+---
