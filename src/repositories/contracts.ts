@@ -1,25 +1,26 @@
+// src/repositories/contracts.ts
+
+import { User, Session, MagicLinkToken, UserId } from "../types";
+
+/* ---------------------- USER REPOSITORY ---------------------- */
+
 export interface UserRepository {
-  create(email: string, passwordHash: string): Promise<any>;
-  findByEmail(email: string): Promise<any | null>;
-  findById(id: string): Promise<any | null>;
+  create(email: string, passwordHash: string): Promise<User>;
+  findByEmail(email: string): Promise<User | null>;
+  findById(id: string): Promise<User | null>;
 }
 
+/* ---------------------- SESSION REPOSITORY ---------------------- */
+
 export interface SessionRepository {
-  create(userId: string, expiresAt: Date): Promise<any>;
-  findById(id: string): Promise<any | null>;
+  create(userId: UserId, expiresAt: Date): Promise<Session>;
+  findById(id: string): Promise<Session | null>;
   delete(id: string): Promise<void>;
 }
 
-export interface MagicLinkToken {
-  id: string;
-  userId: string; // Always a string
-  tokenHash: string;
-  expiresAt: Date;
-  usedAt?: Date;
-}
+/* ---------------------- MAGIC LINK REPOSITORY ---------------------- */
 
 export interface MagicLinkRepository {
-  // Create a new magic link token record
   create(token: {
     userId: string;
     tokenHash: string;
@@ -27,12 +28,9 @@ export interface MagicLinkRepository {
     usedAt?: Date;
   }): Promise<MagicLinkToken>;
 
-  // Find a magic link record by its hashed token
   findByTokenHash(tokenHash: string): Promise<MagicLinkToken | null>;
 
-  // Mark a magic link as used
   markUsed(id: string): Promise<void>;
 
-  // Get all unexpired and unused magic link tokens
   findAll(): Promise<MagicLinkToken[]>;
 }

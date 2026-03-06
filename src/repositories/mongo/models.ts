@@ -1,13 +1,17 @@
-import { Schema, model, Types } from 'mongoose';
+import { Schema, model, Types } from "mongoose";
 
-const UserSchema = new Schema({
-  email: { type: String, unique: true, index: true },
-  passwordHash: { type: String, required: true }
-}, { timestamps: true });
+const UserSchema = new Schema(
+  {
+    email: { type: String, unique: true, index: true },
+    password: { type: String, required: true }
+  },
+  { timestamps: true }
+);
 
 const SessionSchema = new Schema({
-  userId: { type: Types.ObjectId, ref: 'User', required: true },
-  expiresAt: { type: Date, index: { expires: 0 } }
+  userId: { type: Types.ObjectId, ref: "User", required: true },
+  expiresAt: { type: Date, index: { expires: 0 } },
+  createdAt: { type: Date, default: Date.now }
 });
 
 const MagicLinkSchema = new Schema({
@@ -17,6 +21,6 @@ const MagicLinkSchema = new Schema({
   usedAt: { type: Date }
 });
 
-export const UserModel = model('User', UserSchema);
-export const SessionModel = model('Session', SessionSchema);
-export const MagicLinkModel = model('MagicLink', MagicLinkSchema);
+export const UserModel = model("User", UserSchema);
+export const SessionModel = model("Session", SessionSchema);
+export const MagicLinkModel = model("MagicLink", MagicLinkSchema);

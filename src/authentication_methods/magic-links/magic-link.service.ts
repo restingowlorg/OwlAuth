@@ -21,7 +21,7 @@ export class MagicLinkService {
     await this.magicLinks.create({
       userId: user.id,
       tokenHash,
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 min
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 min
     });
 
     return token; // dev-only, do not expose in prod
