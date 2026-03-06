@@ -41,15 +41,22 @@ export interface AuthDB {
   magicLinkRepo?: MagicLinkRepository;
 }
 
+export type TableColumn = {
+  column_name: string;
+  is_nullable?: "YES" | "NO";
+  data_type?: string;
+};
+
 /* ------------------------------------------------ */
 /* AUTH CONFIG */
 /* ------------------------------------------------ */
-
-export interface AuthOptions {
+export type AuthOptions = {
   dbType: DatabaseType;
 
   mongoUri?: string;
   postgresUrl?: string;
+
+  postgresUserTable?: InitPostgresOptions;
 
   authTypes?: AuthType[];
 
@@ -60,7 +67,7 @@ export interface AuthOptions {
 
   magicLinkService?: MagicLinkService;
   magicLinkBaseUrl?: string;
-}
+};
 
 /* ------------------------------------------------ */
 /* HANDLER TYPES */
@@ -157,3 +164,7 @@ export interface MagicLinkToken {
 }
 
 export type UserId = string | number;
+
+export type InitPostgresOptions = {
+  userTableName?: string; // optional custom user table
+};

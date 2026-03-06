@@ -48,7 +48,7 @@ export class AuthManager {
         break;
       case "postgres":
         if (!options.postgresUrl) throw new Error("postgresUrl is required");
-        manager.db = await initPostgres(options.postgresUrl);
+        manager.db = await initPostgres(options.postgresUrl, options.postgresUserTable);
         break;
       default:
         throw new Error(`Unsupported dbType: ${String(options.dbType)}`);
