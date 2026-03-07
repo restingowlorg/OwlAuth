@@ -2,23 +2,12 @@ import { Request, Response, NextFunction } from "express";
 import { MagicLinkService } from "./authentication_methods/magic-links/magic-link.service";
 import { UserRepository, SessionRepository, MagicLinkRepository } from "./repositories/contracts";
 
-/* ------------------------------------------------ */
-/* AUTH USER */
-/* ------------------------------------------------ */
-
 export interface AuthUser {
   id: string;
   email: string;
 }
-
 export type AuthRequest = Request & { user?: AuthUser };
-
-/* ------------------------------------------------ */
-/* AUTH TYPES */
-/* ------------------------------------------------ */
-
 export type AuthType = "credentials" | "magic-link";
-
 export type DatabaseType = "mongo" | "postgres";
 
 /* ------------------------------------------------ */
@@ -52,19 +41,13 @@ export type TableColumn = {
 /* ------------------------------------------------ */
 export type AuthOptions = {
   dbType: DatabaseType;
-
   mongoUri?: string;
   postgresUrl?: string;
-
   postgresUserTable?: InitPostgresOptions;
-
   authTypes?: AuthType[];
-
   sessionTtlSeconds?: number;
-
   cookieName?: string;
   cookieOptions?: CookieOptions;
-
   magicLinkService?: MagicLinkService;
   magicLinkBaseUrl?: string;
 };
@@ -117,7 +100,16 @@ export interface MagicLinkToken {
 /* ------------------------------------------------ */
 /* AUTH RESULT */
 /* ------------------------------------------------ */
+export interface SignupInput {
+  email: string;
+  username: string;
+  password: string;
+}
 
+export interface LoginInput {
+  email: string;
+  password: string;
+}
 export interface AuthResult<T = unknown> {
   success: boolean;
   data?: T;
@@ -166,5 +158,5 @@ export interface MagicLinkToken {
 export type UserId = string | number;
 
 export type InitPostgresOptions = {
-  userTableName?: string; // optional custom user table
+  userTableName?: string;
 };

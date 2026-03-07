@@ -1,3 +1,4 @@
+import { Types } from "mongoose";
 import { MagicLinkToken } from "../../types";
 import { MagicLinkRepository } from "../contracts";
 import { MagicLinkModel } from "./models";
@@ -9,12 +10,15 @@ export const MongoMagicLinkRepo: MagicLinkRepository = {
     expiresAt: Date;
     usedAt?: Date;
   }): Promise<MagicLinkToken> {
+    // Convert string userId to ObjectId
+    const userIdObj = new Types.ObjectId(token.userId);
+
     const doc = await MagicLinkModel.create({
       ...token,
-      userId: token.userId.toString() // normalize string
+      userId: userIdObj
     });
 
-    return { ...token, id: doc._id.toString() };
+    return { ...token, id: doc._id.toString(), userId: doc.userId.toString() };
   },
 
   async findByTokenHash(tokenHash: string): Promise<MagicLinkToken | null> {
@@ -23,7 +27,7 @@ export const MongoMagicLinkRepo: MagicLinkRepository = {
 
     return {
       id: doc._id.toString(),
-      userId: doc.userId,
+      userId: doc.userId.toString(), // convert ObjectId to string
       tokenHash: doc.tokenHash,
       expiresAt: doc.expiresAt,
       usedAt: doc.usedAt ?? undefined
@@ -43,7 +47,7 @@ export const MongoMagicLinkRepo: MagicLinkRepository = {
 
     return docs.map((doc) => ({
       id: doc._id.toString(),
-      userId: doc.userId,
+      userId: doc.userId.toString(), // convert ObjectId to string
       tokenHash: doc.tokenHash,
       expiresAt: doc.expiresAt,
       usedAt: doc.usedAt ?? undefined
