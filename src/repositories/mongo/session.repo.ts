@@ -17,7 +17,7 @@ export const MongoSessionRepo: SessionRepository = {
     return {
       id: obj._id.toString(),
       userId: obj.userId.toString(),
-      expiresAt: obj.expiresAt!,
+      expiresAt: obj.expiresAt,
       createdAt: obj.createdAt
     };
   },
@@ -30,7 +30,7 @@ export const MongoSessionRepo: SessionRepository = {
     return {
       id: obj._id.toString(),
       userId: obj.userId.toString(),
-      expiresAt: obj.expiresAt!,
+      expiresAt: obj.expiresAt,
       createdAt: obj.createdAt
     };
   },

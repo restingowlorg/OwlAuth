@@ -42,15 +42,17 @@
   "type": "commonjs",
   "dependencies": {
     "@nestjs/common": "^11.1.9",
+    "@zxcvbn-ts/core": "^3.0.4",
     "bcrypt": "^6.0.0",
+    "js-sha1": "^0.7.0",
     "mongoose": "^9.0.1",
     "pg": "^8.16.3"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.0",
     "@commitlint/config-conventional": "^19.8.0",
-    "@secretlint/secretlint-rule-preset-recommend": "^8.4.0",
     "@secretlint/quick-start": "^8.4.0",
+    "@secretlint/secretlint-rule-preset-recommend": "^8.4.0",
     "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.6",
     "@types/pg": "^8.16.0",

@@ -1,13 +1,20 @@
 // src/repositories/contracts.ts
 
-import { User, Session, MagicLinkToken, UserId } from "../types";
+import { Session, MagicLinkToken, User, UserId } from "../types";
 
 /* ---------------------- USER REPOSITORY ---------------------- */
 
+export interface CreateUserInput {
+  email: string;
+  passwordHash: string;
+  username: string;
+}
+
 export interface UserRepository {
-  create(email: string, passwordHash: string): Promise<User>;
+  create(input: CreateUserInput): Promise<User>;
   findByEmail(email: string): Promise<User | null>;
   findById(id: string): Promise<User | null>;
+  findByUsername?(username: string): Promise<User | null>;
 }
 
 /* ---------------------- SESSION REPOSITORY ---------------------- */
