@@ -3,7 +3,7 @@ import { UserRepository, MagicLinkRepository } from "../../repositories/contract
 import { hashToken, verifyToken, generateToken } from "../../infra/crypto/crypto";
 
 import { AuthResult } from "../../types";
-import { MagicLinkRecord } from "../../types";
+import { MagicLinkRow } from "../../types";
 
 export class MagicLinkService {
   constructor(
@@ -57,12 +57,12 @@ export class MagicLinkService {
     try {
       const records = await this.magicLinks.findAll();
 
-      let record: MagicLinkRecord | null = null;
+      let record: MagicLinkRow | null = null;
 
       for (const r of records) {
-        if (r.usedAt) continue;
+        if (r.used_at) continue;
 
-        const match = await verifyToken(token, r.tokenHash);
+        const match = await verifyToken(token, r.token);
 
         if (match) {
           record = r;
@@ -79,7 +79,7 @@ export class MagicLinkService {
         };
       }
 
-      if (record.expiresAt.getTime() < Date.now()) {
+      if (record.expires_at.getTime() < Date.now()) {
         return {
           success: false,
           data: null,
@@ -92,7 +92,7 @@ export class MagicLinkService {
 
       return {
         success: true,
-        data: { userId: String(record.userId) },
+        data: { userId: String(record.user_id) },
         message: "Magic link consumed",
         httpCode: 200
       };

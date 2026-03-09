@@ -1,5 +1,5 @@
 import { Types } from "mongoose";
-import { MagicLinkToken } from "../../types";
+import { MagicLinkRow, MagicLinkToken } from "../../types";
 import { MagicLinkRepository } from "../contracts";
 import { MagicLinkModel } from "./models";
 
@@ -10,7 +10,6 @@ export const MongoMagicLinkRepo: MagicLinkRepository = {
     expiresAt: Date;
     usedAt?: Date;
   }): Promise<MagicLinkToken> {
-    // Convert string userId to ObjectId
     const userIdObj = new Types.ObjectId(token.userId);
 
     const doc = await MagicLinkModel.create({
@@ -18,7 +17,14 @@ export const MongoMagicLinkRepo: MagicLinkRepository = {
       userId: userIdObj
     });
 
-    return { ...token, id: doc._id.toString(), userId: doc.userId.toString() };
+    return {
+      id: doc._id.toString(),
+      userId: doc.userId.toString(),
+      tokenHash: doc.tokenHash,
+      expiresAt: doc.expiresAt,
+      usedAt: doc.usedAt ?? null, // ensure null if undefined
+      createdAt: doc.createdAt // include createdAt
+    };
   },
 
   async findByTokenHash(tokenHash: string): Promise<MagicLinkToken | null> {
@@ -27,10 +33,11 @@ export const MongoMagicLinkRepo: MagicLinkRepository = {
 
     return {
       id: doc._id.toString(),
-      userId: doc.userId.toString(), // convert ObjectId to string
+      userId: doc.userId.toString(),
       tokenHash: doc.tokenHash,
       expiresAt: doc.expiresAt,
-      usedAt: doc.usedAt ?? undefined
+      usedAt: doc.usedAt ?? null, // ensure null
+      createdAt: doc.createdAt // include createdAt
     };
   },
 
@@ -38,7 +45,7 @@ export const MongoMagicLinkRepo: MagicLinkRepository = {
     await MagicLinkModel.findByIdAndUpdate(id, { usedAt: new Date() });
   },
 
-  async findAll(): Promise<MagicLinkToken[]> {
+  async findAll(): Promise<MagicLinkRow[]> {
     const now = new Date();
     const docs = await MagicLinkModel.find({
       expiresAt: { $gt: now },
@@ -47,10 +54,11 @@ export const MongoMagicLinkRepo: MagicLinkRepository = {
 
     return docs.map((doc) => ({
       id: doc._id.toString(),
-      userId: doc.userId.toString(), // convert ObjectId to string
-      tokenHash: doc.tokenHash,
-      expiresAt: doc.expiresAt,
-      usedAt: doc.usedAt ?? undefined
+      user_id: doc.userId.toString(),
+      token: doc.tokenHash,
+      expires_at: doc.expiresAt,
+      used_at: doc.usedAt ?? null, // ensure null
+      created_at: doc.createdAt // include createdAt
     }));
   }
 };
