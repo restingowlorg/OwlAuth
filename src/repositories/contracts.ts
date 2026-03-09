@@ -1,9 +1,8 @@
 // src/repositories/contracts.ts
 
-import { Session, User, UserId, MagicLinkRecord, MagicLinkToken } from "../types";
+import { Session, User, UserId, MagicLinkRow, MagicLinkToken } from "../types";
 
 /* ---------------------- USER REPOSITORY ---------------------- */
-
 export interface CreateUserInput {
   email: string;
   passwordHash: string;
@@ -34,7 +33,7 @@ export interface MagicLinkRepository {
     expiresAt: Date;
   }): Promise<MagicLinkToken>;
 
-  findAll(): Promise<MagicLinkRecord[]>;
+  findAll(): Promise<MagicLinkRow[]>;
   findByTokenHash(tokenHash: string): Promise<MagicLinkToken | null>;
-  markUsed(id: string): Promise<void>;
+  markUsed(id: string | number): Promise<void>;
 }

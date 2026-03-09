@@ -1,15 +1,23 @@
 import { getPostgresPool } from "../../infra/postgresql/db";
-import { Session, SessionRow } from "../../types";
+import { SessionRow } from "../../types";
 import { SessionRepository } from "../contracts";
-import { QueryResult } from "pg";
 
 export class PostgresSessionRepository implements SessionRepository {
-  async create(userId: string, expiresAt: Date): Promise<Session> {
+  constructor(private readonly table: string) {}
+
+  private getTable() {
+    return `"${this.table}"`;
+  }
+
+  async create(userId: string, expiresAt: Date) {
     const pool = getPostgresPool();
-    const result: QueryResult<SessionRow> = await pool.query(
-      `INSERT INTO sessions (user_id, created_at, expires_at) 
-       VALUES ($1, NOW(), $2) 
-       RETURNING *`,
+
+    const result = await pool.query<SessionRow>(
+      `
+      INSERT INTO ${this.getTable()} (user_id, created_at, expires_at)
+      VALUES ($1, NOW(), $2)
+      RETURNING *
+      `,
       [userId, expiresAt]
     );
 
@@ -23,12 +31,12 @@ export class PostgresSessionRepository implements SessionRepository {
     };
   }
 
-  async findById(id: string): Promise<Session | null> {
+  async findById(id: number) {
     const pool = getPostgresPool();
-    const result: QueryResult<SessionRow> = await pool.query(
-      "SELECT * FROM sessions WHERE id = $1",
-      [id]
-    );
+
+    const result = await pool.query<SessionRow>(`SELECT * FROM ${this.getTable()} WHERE id = $1`, [
+      id
+    ]);
 
     const row = result.rows[0];
     if (!row) return null;
@@ -43,6 +51,6 @@ export class PostgresSessionRepository implements SessionRepository {
 
   async delete(id: string): Promise<void> {
     const pool = getPostgresPool();
-    await pool.query("DELETE FROM sessions WHERE id = $1", [id]);
+    await pool.query(`DELETE FROM ${this.getTable()} WHERE id = $1`, [id]);
   }
 }
