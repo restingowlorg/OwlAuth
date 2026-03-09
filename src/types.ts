@@ -133,7 +133,7 @@ export interface SessionRow {
 }
 
 export interface Session {
-  id: string;
+  id: string | number;
   userId: string;
   createdAt: Date;
   expiresAt: Date;
@@ -160,3 +160,11 @@ export type UserId = string | number;
 export type InitPostgresOptions = {
   userTableName?: string;
 };
+
+export interface MagicLinkRecord {
+  id: string;
+  userId: string | number;
+  tokenHash: string;
+  expiresAt: Date;
+  usedAt?: Date | null;
+}
