@@ -60,6 +60,8 @@ export type AuthOptions = {
   postgresUserTable?: InitPostgresOptions;
   authTypes?: AuthType[];
   sessionTtlSeconds?: number;
+  idleTtlSeconds?: number;
+  maxSessionsPerUser?: number;
   cookieName?: string;
   cookieOptions?: CookieOptions;
   magicLinkService?: MagicLinkService;
