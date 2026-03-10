@@ -1,7 +1,7 @@
-import { AuthOptions } from "./types";
 import { initDatabase } from "./helpers/database.init";
-import { IAuthManager } from "./interfaces";
+import { IAuthManager } from "./interfaces/index";
 import { initAuthServices } from "./helpers/auth.service.init";
+import { AuthOptions } from "./types/index";
 
 export class AuthManager implements IAuthManager {
   public signup!: IAuthManager["signup"];

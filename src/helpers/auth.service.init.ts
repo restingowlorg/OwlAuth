@@ -1,8 +1,7 @@
-// src/helpers/auth.service.init.ts
-import { IAuthManager } from "../interfaces";
 import { AuthService } from "../authentication_methods/credentials/auth.service";
 import { MagicLinkService } from "../authentication_methods/magic-links/magic-link.service";
-import { AuthDB, AuthOptions } from "../types";
+import { IAuthManager } from "../interfaces";
+import { AuthDB, AuthOptions } from "../types/index";
 import { authLog } from "../utils/logger";
 
 /* -------------------------------------------------------------------------- */
