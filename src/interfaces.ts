@@ -8,8 +8,6 @@ export interface AuthenticatedRequest {
 export interface IAuthManager {
   signup: (email: string, username: string, password: string) => Promise<AuthResult>;
   login: (email: string, password: string) => Promise<AuthResult>;
-  logout: (sessionId: string) => Promise<AuthResult>;
-  me: (sessionId: string) => Promise<AuthResult>;
   changePassword?: (
     req: AuthenticatedRequest,
     currentPassword: string,

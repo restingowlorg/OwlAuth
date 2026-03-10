@@ -1,188 +1,44 @@
-/* -------------------------------------------------------------------------- */
-/*                         TYPED AUTHENTICATED REQUEST                        */
-
-import { zxcvbn } from "@zxcvbn-ts/core";
-import { hashPassword, verifyPassword } from "../infra/crypto/crypto";
-import { isBreachedPassword } from "../infra/security/pwned-passwords";
-import { UserRepository, CreateUserInput } from "../repositories/contracts";
-import { AuthResult } from "../types";
+// src/helpers/auth.service.init.ts
+import { AuthenticatedRequest, IAuthManager } from "../interfaces";
+import { AuthService } from "../authentication_methods/credentials/auth.service";
+import { MagicLinkService } from "../authentication_methods/magic-links/magic-link.service";
+import { AuthDB, AuthOptions } from "../types";
+import { authLog } from "../utils/logger";
 
 /* -------------------------------------------------------------------------- */
-export interface AuthenticatedRequest {
-  user?: {
-    id: string;
-  };
-  session?: {
-    sessionToken?: string;
-  };
-}
+export function initAuthServices(db: AuthDB, options: AuthOptions): Partial<IAuthManager> {
+  const result: Partial<IAuthManager> = {};
+  const authTypes = options.authTypes ?? ["credentials"];
 
-/* -------------------------------------------------------------------------- */
-/*                               AUTH SERVICE                                  */
-/* -------------------------------------------------------------------------- */
-export const AuthService = {
-  /* ---------------------------- SIGNUP ------------------------------------ */
-  async signup(
-    email: string,
-    username: string,
-    password: string,
-    UserRepo: UserRepository
-  ): Promise<AuthResult> {
-    try {
-      // Basic validation
-      if (!email || !username || !password) {
-        return {
-          success: false,
-          data: null,
-          message: "Email, username, and password are required.",
-          httpCode: 400
-        };
-      }
+  authLog("info", `Initializing auth services for types: ${authTypes.join(", ")}`);
 
-      // Username format
-      if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
-        return {
-          success: false,
-          data: null,
-          message: "Invalid username format.",
-          httpCode: 400
-        };
-      }
+  // ---------------- CREDENTIALS AUTH ----------------
+  if (authTypes.includes("credentials")) {
+    const credentialsService = new AuthService(db.userRepo);
 
-      // Password strength
-      if (zxcvbn(password).score < 3) {
-        return {
-          success: false,
-          data: null,
-          message: "Password too weak.",
-          httpCode: 400
-        };
-      }
+    result.signup = (email, username, password) =>
+      credentialsService.signup(email, username, password, db.userRepo, options.blockedPasswords);
 
-      // Breach check
-      if (await isBreachedPassword(password)) {
-        return {
-          success: false,
-          data: null,
-          message: "Password found in breach.",
-          httpCode: 400
-        };
-      }
+    result.login = (email, password) => credentialsService.login(email, password);
 
-      // Unique username check
-      if (UserRepo.findByUsername) {
-        const existingUser = await UserRepo.findByUsername(username);
-        if (existingUser) {
-          return {
-            success: false,
-            data: null,
-            message: "Username already taken.",
-            httpCode: 400
-          };
-        }
-      }
-
-      // Unique email check
-      const existingEmail = await UserRepo.findByEmail(email);
-      if (existingEmail) {
-        return {
-          success: false,
-          data: null,
-          message: "Email already registered.",
-          httpCode: 400
-        };
-      }
-
-      // Hash password and create user
-      const passwordHash = await hashPassword(password);
-      const input: CreateUserInput = { email, username, passwordHash };
-      const user = await UserRepo.create(input);
-
-      return {
-        success: true,
-        data: { user },
-        message: "User signed up",
-        httpCode: 201
-      };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      return {
-        success: false,
-        data: null,
-        message: "Signup failed: " + message,
-        httpCode: 500
-      };
-    }
-  },
-
-  /* --------------------------- CHANGE PASSWORD ----------------------------- */
-  async changePassword(
-    req: AuthenticatedRequest,
-    currentPassword: string,
-    newPassword: string,
-    UserRepo: UserRepository
-  ): Promise<AuthResult> {
-    const sessionToken = req.session?.sessionToken;
-    const userId = req.user?.id;
-
-    if (!sessionToken || !userId) {
-      return {
-        success: false,
-        data: null,
-        message: "No valid session",
-        httpCode: 401
-      };
-    }
-
-    // Fetch user
-    const user = await UserRepo.findById(userId);
-    if (!user) {
-      return {
-        success: false,
-        data: null,
-        message: "User not found",
-        httpCode: 404
-      };
-    }
-
-    // Verify current password
-    const valid = await verifyPassword(currentPassword, user.password);
-    if (!valid) {
-      return {
-        success: false,
-        data: null,
-        message: "Current password incorrect",
-        httpCode: 401
-      };
-    }
-
-    // New password strength & breach
-    if (zxcvbn(newPassword).score < 3) {
-      return {
-        success: false,
-        data: null,
-        message: "New password too weak",
-        httpCode: 400
-      };
-    }
-    if (await isBreachedPassword(newPassword)) {
-      return {
-        success: false,
-        data: null,
-        message: "New password breached",
-        httpCode: 400
-      };
-    }
-
-    // Hash and update
-    const newHash = await hashPassword(newPassword);
-    await UserRepo.updatePassword(userId, newHash);
-
-    return {
-      success: true,
-      data: { sessionToken },
-      message: "Password updated successfully",
-      httpCode: 200
-    };
+    result.changePassword = (req: AuthenticatedRequest, currentPassword, newPassword) =>
+      credentialsService.changePassword(
+        req,
+        currentPassword,
+        newPassword,
+        db.userRepo,
+        options.blockedPasswords
+      );
   }
-};
+
+  // ---------------- MAGIC LINK AUTH ----------------
+  if (authTypes.includes("magic-link") && db.magicLinkRepo) {
+    const magicLinkService =
+      options.magicLinkService ?? new MagicLinkService(db.userRepo, db.magicLinkRepo);
+
+    result.requestMagicLink = (email: string) => magicLinkService.request(email);
+    result.consumeMagicLink = (token: string) => magicLinkService.consume(token);
+  }
+
+  return result;
+}
