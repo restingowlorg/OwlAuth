@@ -7,11 +7,15 @@ export type AuthType = "credentials" | "magic-link";
 // ------------------------------
 // PostgreSQL & MongoDB DB options
 // ------------------------------
-export type InitPostgresOptions = {
+export interface InitPostgresOptions {
   postgresUrl: string;
-  magicLinkTableName?: string; // Optional, default will be "magic_links"
+
   userTableName: string;
-};
+  userSchema?: string; // NEW (default: public)
+
+  magicLinkTableName?: string;
+  magicLinkSchema?: string; // NEW (default: public)
+}
 
 export type InitMongoOptions = {
   mongoUri: string;
