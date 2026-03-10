@@ -42,6 +42,10 @@ export type TableColumn = {
   data_type?: string;
 };
 
+export interface ColumnRow {
+  column_name: string;
+}
+
 /* ------------------------------------------------ */
 /* AUTH CONFIG OPTIONS */
 /* ------------------------------------------------ */

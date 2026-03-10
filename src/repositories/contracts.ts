@@ -12,7 +12,7 @@ export interface CreateUserInput {
 export interface UserRepository {
   create(input: CreateUserInput): Promise<User>;
   findByEmail(email: string): Promise<User | null>;
-  findById(id: string): Promise<User | null>;
+  findById(id: string | number): Promise<User | null>;
   findByUsername?(username: string): Promise<User | null>;
   updatePassword(userId: string | number, passwordHash: string): Promise<void>;
 }

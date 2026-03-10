@@ -1,5 +1,5 @@
 // src/helpers/auth.service.init.ts
-import { AuthenticatedRequest, IAuthManager } from "../interfaces";
+import { IAuthManager } from "../interfaces";
 import { AuthService } from "../authentication_methods/credentials/auth.service";
 import { MagicLinkService } from "../authentication_methods/magic-links/magic-link.service";
 import { AuthDB, AuthOptions } from "../types";
@@ -19,11 +19,9 @@ export function initAuthServices(db: AuthDB, options: AuthOptions): Partial<IAut
     result.signup = (email, username, password) =>
       credentialsService.signup(email, username, password, db.userRepo, options.blockedPasswords);
 
-    result.login = (email, password) => credentialsService.login(email, password);
-
-    result.changePassword = (req: AuthenticatedRequest, currentPassword, newPassword) =>
+    result.changePassword = (userId, currentPassword, newPassword) =>
       credentialsService.changePassword(
-        req,
+        userId,
         currentPassword,
         newPassword,
         db.userRepo,

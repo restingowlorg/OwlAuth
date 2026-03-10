@@ -6,6 +6,7 @@ import { initAuthServices } from "./helpers/auth.service.init";
 export class AuthManager implements IAuthManager {
   public signup!: IAuthManager["signup"];
   public login!: IAuthManager["login"];
+  public changePassword!: IAuthManager["changePassword"];
   public requestMagicLink?: IAuthManager["requestMagicLink"];
   public consumeMagicLink?: IAuthManager["consumeMagicLink"];
 
