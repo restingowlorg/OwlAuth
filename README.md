@@ -1,6 +1,7 @@
 ---
 # 🛡️ Flex Auth - MVP Open Source Auth Library
 
+<<<<<<< HEAD
 A **framework-agnostic**, **database-agnostic** authentication library for Node.js providing **Credentials** and **Magic Link (passwordless)** authentication using a clean, layered architecture.
 
 This library exposes **pure business functions**, not HTTP controllers — giving full control to the consumer application (Express, NestJS, Fastify, etc.).
@@ -17,15 +18,32 @@ This library exposes **pure business functions**, not HTTP controllers — givin
 - 🧱 Clean architecture (Services, Repositories, Infra)
 - 🔒 Secure password hashing & token handling
 - 🔄 Automatic PostgreSQL migrations for missing columns
-- 🛡️ Password strength validation and breach checks (OWASP guidelines)
+- # 🛡️ Password strength validation and breach checks (OWASP guidelines)
+
+````markdown
+# 🛡️ MVP Auth (Authentication-Only)
+
+**MVP Auth** is a **framework-agnostic** and **database-agnostic** Node.js **authentication library** focused exclusively on **OWASP ASVS V6 – Authentication**.
+
+It provides **secure user identity verification** (credentials and magic links) without managing sessions, tokens, or cookies. Consumer applications remain fully responsible for **session management, tokens, cookies, and authorization**.
+
+> > > > > > > 3681d1f (Refactor changePassword to use userId and update docs)
 
 ---
 
 ## 🧠 Design Philosophy
 
-> **The library does not handle HTTP, routes, or responses.**
+<<<<<<< HEAD
+
+> # **The library does not handle HTTP, routes, or responses.**
+>
+> MVP Auth **does NOT**:
+>
+> > > > > > > 3681d1f (Refactor changePassword to use userId and update docs)
 
 Instead, it:
+
+<<<<<<< HEAD
 
 - Exposes **pure business functions**
 - Returns **structured results** (`AuthResult`)
@@ -90,6 +108,92 @@ src/
 
 ## 🧩 Core Types
 
+=======
+All these concerns are left to the **consumer application** or separate libraries.
+
+---
+
+## Features
+
+- ✅ Credentials authentication (email + username + password)
+- 🔗 Magic Link (passwordless) authentication
+- 🔐 OWASP-aligned password validation:
+  - Minimum length & entropy checks
+  - Breached password detection
+  - Context-aware blocked passwords
+- 🧱 Stateless authentication responses
+- 🧩 Framework-agnostic (Express, NestJS, Fastify, custom)
+- 🗄️ Database-agnostic (PostgreSQL, MongoDB, custom adapters)
+- 🧪 Strong typing with unified `AuthResult`
+- 🧼 Clean architecture: `AuthManager → Services → Repositories → Infra`
+- 🔒 Secure password & token hashing
+- 📜 Designed for OWASP ASVS V6 compliance
+
+---
+
+## Installation
+
+```bash
+npm install @restingowlorg/mvp-auth
+```
+````
+
+---
+
+## Initialization
+
+### PostgreSQL
+
+```ts
+import { AuthManager } from "@restingowlorg/mvp-auth";
+
+const auth = await AuthManager.init({
+  dbType: "postgres",
+  postgresUrl: process.env.POSTGRES_URL!,
+  authTypes: ["credentials", "magic-link"],
+  blockedPasswords: ["companyname", "admin"] // optional blocked words
+});
+```
+
+### MongoDB
+
+```ts
+const auth = await AuthManager.init({
+  dbType: "mongo",
+  mongoUri: process.env.MONGO_URI!,
+  authTypes: ["credentials"]
+});
+```
+
+> The library automatically **validates or creates `users` and `magic_links` tables** if they do not exist.
+
+---
+
+## Core Types
+
+### `IAuthManager`
+
+```ts
+export interface IAuthManager {
+  signup(email: string, username: string, password: string): Promise<AuthResult>;
+  login(email: string, password: string): Promise<AuthResult>;
+  changePassword(
+    req: any, // Must contain req.user.id set by consumer app
+    currentPassword: string,
+    newPassword: string
+  ): Promise<AuthResult>;
+
+  requestMagicLink?(email: string): Promise<AuthResult>;
+  consumeMagicLink?(token: string): Promise<AuthResult>;
+}
+```
+
+> `changePassword`, `requestMagicLink`, and `consumeMagicLink` are optional in the interface; consumers must check or assert (`!`) if using them.
+
+---
+
+> > > > > > > 3681d1f (Refactor changePassword to use userId and update docs)
+
 ### `AuthResult`
 
 ```ts
@@ -101,11 +205,45 @@ export interface AuthResult<T = any> {
 }
 ```
 
+<<<<<<< HEAD
+
 ### Helper Functions
 
-```ts
+````ts
 export function success<T>(data: T, message = "Success", httpCode = 200): AuthResult<T> {
   return { success: true, data, httpCode, message };
+=======
+> All APIs return `AuthResult`. Sensitive information (passwords, token hashes) is **never exposed**.
+
+---
+
+## Usage Examples
+
+### Credentials Signup
+
+```ts
+const result = await auth.signup(
+  "user@test.com",
+  "username",
+  "StrongPassword123!"
+);
+
+res.status(result.httpCode).json(result);
+````
+
+---
+
+### Credentials Login (Stateless)
+
+```ts
+const result = await auth.login("user@test.com", "StrongPassword123!");
+
+if (result.success) {
+  // Consumer decides:
+  // - Create session
+  // - Issue JWT
+  // - Set cookies
+>>>>>>> 3681d1f (Refactor changePassword to use userId and update docs)
 }
 
 export function failure(message: string, httpCode = 400): AuthResult<null> {
@@ -122,7 +260,18 @@ You can now initialize with **MongoDB or PostgreSQL**:
 ### MongoDB Example
 
 ```ts
+<<<<<<< HEAD
 import { AuthManager } from "mvp-flex-auth";
+=======
+// Consumer must ensure the user is authenticated
+if (!auth.changePassword) throw new Error("Change password not enabled");
+
+const result = await auth.changePassword(
+  req, // must contain req.user.id
+  "CurrentPassword123!",
+  "NewStrongPassword456!"
+);
+>>>>>>> 3681d1f (Refactor changePassword to use userId and update docs)
 
 const auth = await AuthManager.init({
   dbType: "mongo",
@@ -131,6 +280,8 @@ const auth = await AuthManager.init({
   sessionTtlSeconds: 60 * 60 * 24 * 7 // 7 days
 });
 ```
+
+<<<<<<< HEAD
 
 ### PostgreSQL Example (with automatic migrations)
 
@@ -145,7 +296,11 @@ const auth = await AuthManager.init({
 });
 ```
 
-> ⚠️ Tables and missing columns will be **created automatically** if they don’t exist. Existing tables with extra columns are preserved.
+> # ⚠️ Tables and missing columns will be **created automatically** if they don’t exist. Existing tables with extra columns are preserved.
+>
+> 🔐 Authentication is assumed to be **handled by the consumer** before calling this method.
+>
+> > > > > > > 3681d1f (Refactor changePassword to use userId and update docs)
 
 ---
 
@@ -154,9 +309,16 @@ const auth = await AuthManager.init({
 ### Signup (with OWASP password checks)
 
 ```ts
+<<<<<<< HEAD
 const result = await auth.signup("user@test.com", "Password123!");
 if (!result.success) return res.status(result.httpCode).json(result);
 res.status(201).json(result);
+=======
+const result = await auth.requestMagicLink!("user@test.com");
+
+// Send the token via email in consumer application
+res.status(result.httpCode).json(result);
+>>>>>>> 3681d1f (Refactor changePassword to use userId and update docs)
 ```
 
 - Validates password strength
@@ -169,10 +331,19 @@ res.status(201).json(result);
 const result = await auth.login("user@test.com", "Password123!");
 if (!result.success) return res.status(result.httpCode).json(result);
 
+<<<<<<< HEAD
 // result.data = { user, session }
 res.cookie("AUTH_SESSION", result.data!.session.id, { httpOnly: true });
 res.json(result);
 ```
+
+=======
+if (result.success) {
+// Consumer decides how to authenticate user
+// e.g., issue token, create session, set cookie
+}
+
+> > > > > > > 3681d1f (Refactor changePassword to use userId and update docs)
 
 ### Logout
 
@@ -191,6 +362,8 @@ res.json(result);
 ---
 
 ## 🔗 Magic Link Authentication
+
+<<<<<<< HEAD
 
 ### Request Magic Link
 
@@ -212,9 +385,25 @@ res.cookie("AUTH_SESSION", result.data!.session.id);
 res.json(result);
 ```
 
+=======
+
+- Passwords hashed with a **strong adaptive hashing algorithm**
+- Password strength validated using **entropy analysis**
+- **Breached passwords rejected**
+- Context-aware password blocking (email, username, custom words)
+- Magic link tokens:
+  - Cryptographically secure
+  - Single-use & time-limited
+  - Stored hashed at rest
+
+- Responses are stateless and safe for API usage
+  > > > > > > > 3681d1f (Refactor changePassword to use userId and update docs)
+
 ---
 
 ## 🧪 Express Example (Minimal)
+
+<<<<<<< HEAD
 
 ```ts
 app.post("/login", async (req, res) => {
@@ -261,6 +450,29 @@ app.post("/login", async (req, res) => {
 - Use Postman or curl
 - Inspect returned `AuthResult`
 - Assert `success === true/false`
-- Tokens only logged in development
+- # Tokens only logged in development
 
----
+### Users
+
+| Column   | Description     |
+| -------- | --------------- |
+| id       | User identifier |
+| email    | Unique email    |
+| username | Unique username |
+| password | Hashed password |
+
+### Magic Links
+
+| Column     | Description            |
+| ---------- | ---------------------- |
+| id         | Record ID              |
+| user_id    | Reference to `users`   |
+| token_hash | Hashed magic token     |
+| expires_at | Expiration timestamp   |
+| used_at    | Single-use enforcement |
+
+> > > > > > > 3681d1f (Refactor changePassword to use userId and update docs)
+
+```
+
+```

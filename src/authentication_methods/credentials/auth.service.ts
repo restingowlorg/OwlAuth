@@ -1,7 +1,6 @@
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { hashPassword, verifyPassword } from "../../infra/crypto/crypto";
 import { isBreachedPassword } from "../../infra/security/pwned-passwords";
-import { AuthenticatedRequest } from "../../interfaces";
 import { UserRepository, CreateUserInput } from "../../repositories/contracts";
 import { AuthResult } from "../../types";
 import { containsBlockedPasswords } from "../../utils/check-blocked-passwords";
@@ -135,23 +134,12 @@ export class AuthService {
    * Change password for an authenticated user
    */
   async changePassword(
-    req: AuthenticatedRequest,
+    userId: string | number,
     currentPassword: string,
     newPassword: string,
     UserRepo: UserRepository,
     blockedPasswords?: string[]
   ): Promise<AuthResult> {
-    const userId = req.user?.id;
-
-    if (userId === undefined) {
-      return {
-        success: false,
-        data: null,
-        message: "Unauthorized",
-        httpCode: 401
-      };
-    }
-
     // Fetch user
     const user = await UserRepo.findById(userId);
     if (!user) return { success: false, data: null, message: "User not found", httpCode: 404 };
