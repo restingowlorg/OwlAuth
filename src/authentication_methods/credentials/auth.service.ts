@@ -1,9 +1,10 @@
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { hashPassword, verifyPassword } from "../../infra/crypto/crypto";
 import { isBreachedPassword } from "../../infra/security/pwned-passwords";
-import { UserRepository, CreateUserInput } from "../../repositories/contracts";
-import { AuthResult } from "../../types";
+import { UserRepository } from "../../repositories/contracts";
 import { containsBlockedPasswords } from "../../utils/check-blocked-passwords";
+import { AuthResult } from "../../types/index";
+import { CreateUserInput } from "../../interfaces/index";
 
 export class AuthService {
   constructor(private readonly users: UserRepository) {}

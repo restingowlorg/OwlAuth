@@ -13,9 +13,13 @@ export interface User {
   password: string;
 }
 
+// ------------------------------
+// Authenticated User Interface
+// ------------------------------
 export interface AuthUser {
   id: string;
   email: string;
+  username?: string;
 }
 
 export type AuthRequest = Request & { user?: AuthUser };
@@ -100,6 +104,9 @@ export interface FrameworkAdapter {
 /* USER / SESSION TYPES */
 /* ------------------------------------------------ */
 
+// ------------------------------
+// Repository Interface
+// ------------------------------
 export interface AuthDB {
   userRepo: UserRepository;
   magicLinkRepo?: MagicLinkRepository;
@@ -110,13 +117,6 @@ export interface SessionRow {
   user_id: string;
   created_at: Date;
   expires_at: Date;
-}
-
-export interface Session {
-  id: string | number;
-  userId: string;
-  createdAt: Date;
-  expiresAt: Date;
 }
 
 /* ------------------------------------------------ */
@@ -134,12 +134,9 @@ export interface LoginInput {
   password: string;
 }
 
-export interface AuthResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  httpCode: number;
-  message: string;
-}
+// ------------------------------
+// Standard Auth Result
+// ------------------------------
 
 /* ------------------------------------------------ */
 /* MAGIC LINK TYPES */

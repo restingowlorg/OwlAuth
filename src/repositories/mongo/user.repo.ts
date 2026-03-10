@@ -1,30 +1,75 @@
-import { UserRepository, CreateUserInput } from "../contracts";
-import { UserModel } from "./models";
+import { CreateUserInput, MongoUserDoc } from "../../interfaces/index";
+import { User } from "../../types/index";
+import { UserRepository } from "../contracts";
+import { Collection, ObjectId, InsertOneResult } from "mongodb";
 
-export const MongoUserRepo: UserRepository = {
-  create(input: CreateUserInput) {
+/**
+ * MongoDB implementation of UserRepository
+ */
+export class MongoUserRepo implements UserRepository {
+  private collection: Collection<MongoUserDoc>;
+
+  constructor(collection: Collection<MongoUserDoc>) {
+    this.collection = collection;
+  }
+
+  async create(input: CreateUserInput): Promise<User> {
     const { email, username, passwordHash } = input;
 
-    return UserModel.create({
+    const result: InsertOneResult<MongoUserDoc> = await this.collection.insertOne({
       email,
       username,
       password: passwordHash
     });
-  },
 
-  findByEmail(email: string) {
-    return UserModel.findOne({ email });
-  },
-
-  findById(id: string) {
-    return UserModel.findById(id).select("-password");
-  },
-
-  findByUsername(username: string) {
-    return UserModel.findOne({ username });
-  },
-
-  async updatePassword(userId: string, passwordHash: string) {
-    await UserModel.findByIdAndUpdate(userId, { $set: { password: passwordHash } }, { new: false });
+    return {
+      id: result.insertedId.toString(),
+      email,
+      username,
+      password: passwordHash
+    };
   }
-};
+
+  async findByEmail(email: string): Promise<User | null> {
+    const user = await this.collection.findOne({ email });
+    if (!user) return null;
+
+    return {
+      id: user._id?.toString() ?? "", // safe fallback just in case
+      email: user.email,
+      username: user.username,
+      password: user.password
+    };
+  }
+
+  async findById(id: string): Promise<User | null> {
+    const user = await this.collection.findOne({ _id: new ObjectId(id) });
+    if (!user) return null;
+
+    return {
+      id: user._id?.toString() ?? "",
+      email: user.email,
+      username: user.username,
+      password: user.password
+    };
+  }
+
+  async findByUsername(username: string): Promise<User | null> {
+    const user = await this.collection.findOne({ username });
+    if (!user) return null;
+
+    return {
+      id: user._id?.toString() ?? "",
+      email: user.email,
+      username: user.username,
+      password: user.password
+    };
+  }
+
+  async updatePassword(userId: string, passwordHash: string): Promise<void> {
+    await this.collection.updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: { password: passwordHash } }
+    );
+  }
+}

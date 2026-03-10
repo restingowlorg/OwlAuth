@@ -1,7 +1,8 @@
 import { QueryResult } from "pg";
 import { getPostgresPool } from "../../infra/postgresql/db";
 import { User } from "../../types";
-import { UserRepository, CreateUserInput } from "../contracts";
+import { UserRepository } from "../contracts";
+import { CreateUserInput } from "../../interfaces/index";
 
 export class PostgresUserRepository implements UserRepository {
   constructor(private readonly table: string) {}

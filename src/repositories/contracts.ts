@@ -1,13 +1,9 @@
 // src/repositories/contracts.ts
 
+import { CreateUserInput } from "../interfaces/index";
 import { User, MagicLinkRow, MagicLinkToken } from "../types";
 
 /* ---------------------- USER REPOSITORY ---------------------- */
-export interface CreateUserInput {
-  email: string;
-  passwordHash: string;
-  username: string;
-}
 
 export interface UserRepository {
   create(input: CreateUserInput): Promise<User>;
