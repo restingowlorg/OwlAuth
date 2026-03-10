@@ -49,10 +49,6 @@ export type TableColumn = {
 /* AUTH CONFIG OPTIONS */
 /* ------------------------------------------------ */
 
-export type InitPostgresOptions = {
-  userTableName?: string;
-};
-
 export type AuthOptions = {
   dbType: DatabaseType;
   mongoUri?: string;
@@ -62,6 +58,7 @@ export type AuthOptions = {
   sessionTtlSeconds?: number;
   idleTtlSeconds?: number;
   maxSessionsPerUser?: number;
+  blockedPasswords?: string[];
   cookieName?: string;
   cookieOptions?: CookieOptions;
   magicLinkService?: MagicLinkService;
@@ -108,6 +105,7 @@ export interface FrameworkAdapter {
 export interface User {
   id: string;
   email: string;
+  username: string;
   password: string;
   createdAt?: Date;
   updatedAt?: Date;
@@ -190,3 +188,8 @@ export interface MagicLinkRepository {
 }
 
 export type UserId = string | number;
+export type InitPostgresOptions = {
+  userTableName?: string;
+};
+
+export type AuthLogLevel = "info" | "warn" | "error";
