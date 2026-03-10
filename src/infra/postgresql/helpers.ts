@@ -144,24 +144,7 @@ export async function ensureUserTable(pool: Pool, userTable: string, isExternal:
   await validateUserTable(pool, userTable);
 }
 
-export async function ensureSessionTable(
-  pool: Pool,
-  table: string,
-  userTable: string,
-  userPK: { name: string; type: string }
-) {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ${q(table)} (
-      id SERIAL PRIMARY KEY,
-      user_id ${userPK.type} NOT NULL
-        REFERENCES ${q(userTable)}(${q(userPK.name)})
-        ON DELETE CASCADE,
-      expires_at TIMESTAMP NOT NULL,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-  `);
-}
-
+// Ensure magic link table exists
 export async function ensureMagicLinkTable(
   pool: Pool,
   table: string,

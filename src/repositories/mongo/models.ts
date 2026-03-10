@@ -1,6 +1,5 @@
 import { Schema, model, Types } from "mongoose";
 
-/* -------------------- USER -------------------- */
 const UserSchema = new Schema(
   {
     email: {
@@ -29,26 +28,6 @@ const UserSchema = new Schema(
   { timestamps: true }
 );
 
-/* -------------------- SESSION -------------------- */
-const SessionSchema = new Schema(
-  {
-    userId: {
-      type: Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true
-    },
-
-    expiresAt: {
-      type: Date,
-      required: true,
-      index: { expires: 0 } // TTL index
-    }
-  },
-  { timestamps: true }
-);
-
-/* -------------------- MAGIC LINK -------------------- */
 const MagicLinkSchema = new Schema(
   {
     userId: {
@@ -78,7 +57,5 @@ const MagicLinkSchema = new Schema(
   { timestamps: true }
 );
 
-/* -------------------- MODELS -------------------- */
 export const UserModel = model("User", UserSchema);
-export const SessionModel = model("Session", SessionSchema);
 export const MagicLinkModel = model("MagicLink", MagicLinkSchema);

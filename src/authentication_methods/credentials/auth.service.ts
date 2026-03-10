@@ -1,24 +1,14 @@
-// src/authentication_methods/credentials/auth.service.ts
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { hashPassword, verifyPassword } from "../../infra/crypto/crypto";
 import { isBreachedPassword } from "../../infra/security/pwned-passwords";
-import { CreateUserInput, UserRepository } from "../../repositories/contracts";
+import { AuthenticatedRequest } from "../../interfaces";
+import { UserRepository, CreateUserInput } from "../../repositories/contracts";
 import { AuthResult } from "../../types";
 import { containsBlockedPasswords } from "../../utils/check-blocked-passwords";
 
-/* -------------------------------------------------------------------------- */
-/*                       TYPED AUTHENTICATED REQUEST                         */
-export interface AuthenticatedRequest {
-  user?: { id: string };
-  session?: { sessionToken?: string };
-}
+export class AuthService {
+  constructor(private readonly users: UserRepository) {}
 
-/* -------------------------------------------------------------------------- */
-/*                               AUTH SERVICE                                  */
-export const AuthService = {
-  /**
-   * Sign up a new user
-   */
   async signup(
     email: string,
     username: string,
@@ -82,7 +72,64 @@ export const AuthService = {
       const message = err instanceof Error ? err.message : "Unknown error";
       return { success: false, data: null, message: "Signup failed: " + message, httpCode: 500 };
     }
-  },
+  }
+
+  async login(email: string, password: string): Promise<AuthResult> {
+    try {
+      // -------------------- Input Validation --------------------
+      if (!email || !password) {
+        return {
+          success: false,
+          data: null,
+          message: "Email and password are required.",
+          httpCode: 400
+        };
+      }
+
+      // -------------------- Find User --------------------
+      const user = await this.users.findByEmail(email);
+      if (!user) {
+        return {
+          success: false,
+          data: null,
+          message: "Invalid credentials.",
+          httpCode: 401
+        };
+      }
+
+      // -------------------- Verify Password --------------------
+      const valid = await verifyPassword(password, user.password);
+      if (!valid) {
+        return {
+          success: false,
+          data: null,
+          message: "Invalid credentials.",
+          httpCode: 401
+        };
+      }
+
+      // -------------------- Return Safe Response --------------------
+      return {
+        success: true,
+        data: {
+          user: {
+            id: user.id,
+            email: user.email,
+            username: user.username
+          }
+        },
+        message: "User logged in",
+        httpCode: 200
+      };
+    } catch (err) {
+      return {
+        success: false,
+        data: null,
+        message: "Login failed : Unknown error",
+        httpCode: 500
+      };
+    }
+  }
 
   /**
    * Change password for an authenticated user
@@ -94,12 +141,15 @@ export const AuthService = {
     UserRepo: UserRepository,
     blockedPasswords?: string[]
   ): Promise<AuthResult> {
-    // Get user and session token
-    const sessionToken = req.session?.sessionToken;
     const userId = req.user?.id;
 
-    if (!sessionToken || !userId) {
-      return { success: false, data: null, message: "No valid session", httpCode: 401 };
+    if (userId === undefined) {
+      return {
+        success: false,
+        data: null,
+        message: "Unauthorized",
+        httpCode: 401
+      };
     }
 
     // Fetch user
@@ -137,9 +187,9 @@ export const AuthService = {
 
     return {
       success: true,
-      data: { sessionToken },
       message: "Password updated successfully",
+      data: null,
       httpCode: 200
     };
   }
-};
+}

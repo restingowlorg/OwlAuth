@@ -1,6 +1,6 @@
 // src/repositories/contracts.ts
 
-import { Session, User, UserId, MagicLinkRow, MagicLinkToken } from "../types";
+import { User, MagicLinkRow, MagicLinkToken } from "../types";
 
 /* ---------------------- USER REPOSITORY ---------------------- */
 export interface CreateUserInput {
@@ -14,15 +14,7 @@ export interface UserRepository {
   findByEmail(email: string): Promise<User | null>;
   findById(id: string): Promise<User | null>;
   findByUsername?(username: string): Promise<User | null>;
-  updatePassword(userId: string, passwordHash: string): Promise<void>;
-}
-
-/* ---------------------- SESSION REPOSITORY ---------------------- */
-
-export interface SessionRepository {
-  create(userId: UserId, expiresAt: Date): Promise<Session>;
-  findById(id: string | number): Promise<Session | null>;
-  delete(id: string): Promise<void>;
+  updatePassword(userId: string | number, passwordHash: string): Promise<void>;
 }
 
 /* ---------------------- MAGIC LINK REPOSITORY ---------------------- */

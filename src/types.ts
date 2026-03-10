@@ -1,14 +1,17 @@
 import { Request, Response, NextFunction } from "express";
 import { MagicLinkService } from "./authentication_methods/magic-links/magic-link.service";
-import {
-  UserRepository,
-  SessionRepository,
-  MagicLinkRepository as MLRepoContract
-} from "./repositories/contracts";
+import { MagicLinkRepository, UserRepository } from "./repositories/contracts";
 
 /* ------------------------------------------------ */
 /* AUTH USER / REQUEST TYPES */
 /* ------------------------------------------------ */
+
+export interface User {
+  id: string;
+  email: string;
+  username: string;
+  password: string;
+}
 
 export interface AuthUser {
   id: string;
@@ -33,12 +36,6 @@ export interface CookieOptions {
 /* DATABASE REPOSITORIES */
 /* ------------------------------------------------ */
 
-export interface AuthDB {
-  userRepo: UserRepository;
-  sessionRepo: SessionRepository;
-  magicLinkRepo?: MLRepoContract;
-}
-
 export type TableColumn = {
   column_name: string;
   is_nullable?: "YES" | "NO";
@@ -55,9 +52,6 @@ export type AuthOptions = {
   postgresUrl?: string;
   postgresUserTable?: InitPostgresOptions;
   authTypes?: AuthType[];
-  sessionTtlSeconds?: number;
-  idleTtlSeconds?: number;
-  maxSessionsPerUser?: number;
   blockedPasswords?: string[];
   cookieName?: string;
   cookieOptions?: CookieOptions;
@@ -102,13 +96,9 @@ export interface FrameworkAdapter {
 /* USER / SESSION TYPES */
 /* ------------------------------------------------ */
 
-export interface User {
-  id: string;
-  email: string;
-  username: string;
-  password: string;
-  createdAt?: Date;
-  updatedAt?: Date;
+export interface AuthDB {
+  userRepo: UserRepository;
+  magicLinkRepo?: MagicLinkRepository;
 }
 
 export interface SessionRow {
@@ -177,14 +167,6 @@ export interface CreateMagicLinkInput {
   tokenHash: string;
   expiresAt: Date;
   usedAt?: Date;
-}
-
-// Repository contract
-export interface MagicLinkRepository {
-  create(token: CreateMagicLinkInput): Promise<MagicLinkToken>;
-  findByTokenHash(tokenHash: string): Promise<MagicLinkToken | null>;
-  markUsed(id: string): Promise<void>;
-  findAll(): Promise<MagicLinkToken[]>;
 }
 
 export type UserId = string | number;

@@ -1,16 +1,8 @@
 import { Pool } from "pg";
-import { AuthDB, InitPostgresOptions } from "../../types";
-
-import {
-  ensureUserTable,
-  getUserPrimaryKey,
-  ensureMagicLinkTable,
-  ensureSessionTable
-} from "./helpers";
-
-import { PostgresUserRepository } from "../../repositories/postgresql/user.repo";
-import { PostgresSessionRepository } from "../../repositories/postgresql/sessions.repo";
 import { PostgresMagicLinkRepository } from "../../repositories/postgresql/magic.link.repo";
+import { PostgresUserRepository } from "../../repositories/postgresql/user.repo";
+import { InitPostgresOptions, AuthDB } from "../../types";
+import { ensureUserTable, getUserPrimaryKey, ensureMagicLinkTable } from "./helpers";
 
 let pool: Pool | null = null;
 
@@ -30,7 +22,6 @@ export async function initPostgres(
 
     const tables = {
       users: options?.userTableName ?? "users",
-      sessions: "sessions",
       magicLinks: "magic_links"
     };
 
@@ -38,13 +29,10 @@ export async function initPostgres(
 
     const userPK = await getUserPrimaryKey(pool, tables.users);
 
-    await ensureSessionTable(pool, tables.sessions, tables.users, userPK);
-
     await ensureMagicLinkTable(pool, tables.magicLinks, tables.users, userPK);
 
     return {
       userRepo: new PostgresUserRepository(tables.users),
-      sessionRepo: new PostgresSessionRepository(tables.sessions),
       magicLinkRepo: new PostgresMagicLinkRepository(tables.magicLinks)
     };
   }
