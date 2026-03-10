@@ -1,5 +1,4 @@
 import { AuthDB, AuthOptions, AuthResult } from "./types";
-
 import { DEFAULTS } from "./config/defaults";
 import { AuthService } from "./authentication_methods/credentials/auth.service";
 import { SessionService } from "./authentication_methods/credentials/session.service";
@@ -43,24 +42,11 @@ export class AuthManager {
     /* -------------------------------------------------------------------------- */
 
     if (authTypes.includes("credentials")) {
-      manager.signup = (email: string, username: string, password: string) => {
-        return AuthService.signup(email, username, password, manager.db.userRepo);
-      };
+      manager.signup = (email: string, username: string, password: string): Promise<AuthResult> =>
+        AuthService.signup(email, username, password, manager.db.userRepo);
 
-      manager.login = (email: string, password: string) =>
-        AuthService.login(
-          email,
-          password,
-          manager.db.userRepo,
-          manager.db.sessionRepo,
-          manager.sessionTtl
-        );
-
-      manager.logout = (sessionId: string) =>
+      manager.logout = (sessionId: string): Promise<AuthResult> =>
         SessionService.destroy(sessionId, manager.db.sessionRepo);
-
-      manager.me = (sessionId: number) =>
-        SessionService.validate(sessionId, manager.db.sessionRepo);
     }
 
     /* -------------------------------------------------------------------------- */

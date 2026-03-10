@@ -14,6 +14,7 @@ export interface UserRepository {
   findByEmail(email: string): Promise<User | null>;
   findById(id: string): Promise<User | null>;
   findByUsername?(username: string): Promise<User | null>;
+  updatePassword(userId: string, passwordHash: string): Promise<void>;
 }
 
 /* ---------------------- SESSION REPOSITORY ---------------------- */
