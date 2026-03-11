@@ -1,7 +1,7 @@
-import { UserRepository, MagicLinkRepository } from "../../repositories/contracts";
-import { hashToken, verifyToken, generateToken } from "../../infra/crypto/crypto";
-import { AuthResult } from "../../types/index";
-import { MagicLinkRow } from "../../types";
+import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
+import { hashToken, verifyToken, generateToken } from "../infra/crypto/crypto";
+import { AuthResult } from "../types/index";
+import { MagicLinkRow } from "../types";
 
 export class MagicLinkService {
   constructor(

@@ -8,6 +8,10 @@ export class PostgresUserRepository implements UserRepository {
   constructor(private readonly table: string) {}
 
   private getTable() {
+    if (this.table.includes(".")) {
+      const [schema, table] = this.table.split(".");
+      return `"${schema}"."${table}"`;
+    }
     return `"${this.table}"`;
   }
 

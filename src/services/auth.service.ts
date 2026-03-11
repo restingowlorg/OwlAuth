@@ -1,10 +1,10 @@
 import { zxcvbn } from "@zxcvbn-ts/core";
-import { hashPassword, verifyPassword } from "../../infra/crypto/crypto";
-import { isBreachedPassword } from "../../infra/security/pwned-passwords";
-import { UserRepository } from "../../repositories/contracts";
-import { containsBlockedPasswords } from "../../utils/check-blocked-passwords";
-import { AuthResult } from "../../types/index";
-import { CreateUserInput } from "../../interfaces/index";
+import { hashPassword, verifyPassword } from "../infra/crypto/crypto";
+import { isBreachedPassword } from "../infra/security/pwned-passwords";
+import { UserRepository } from "../repositories/contracts";
+import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
+import { AuthResult, LoginResponse, SignupResponse } from "../types/index";
+import { CreateUserInput } from "../interfaces/index";
 
 export class AuthService {
   constructor(private readonly users: UserRepository) {}
@@ -15,26 +15,31 @@ export class AuthService {
     password: string,
     UserRepo: UserRepository,
     blockedPasswords?: string[]
-  ): Promise<AuthResult> {
+  ): Promise<AuthResult<SignupResponse>> {
     try {
       // Basic validation
       if (!email || !username || !password) {
         return {
           success: false,
-          data: null,
+          data: undefined,
           message: "Email, username, and password are required.",
           httpCode: 400
         };
       }
 
       if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
-        return { success: false, data: null, message: "Invalid username format.", httpCode: 400 };
+        return {
+          success: false,
+          data: undefined,
+          message: "Invalid username format.",
+          httpCode: 400
+        };
       }
 
       if (containsBlockedPasswords(password, email, username, blockedPasswords)) {
         return {
           success: false,
-          data: null,
+          data: undefined,
           message: "Password cannot contain username, email, or blocked words",
           httpCode: 400
         };
@@ -42,25 +47,40 @@ export class AuthService {
 
       // Password strength
       if (zxcvbn(password).score < 3) {
-        return { success: false, data: null, message: "Password too weak.", httpCode: 400 };
+        return { success: false, data: undefined, message: "Password too weak.", httpCode: 400 };
       }
 
       // Breached password check
       if (await isBreachedPassword(password)) {
-        return { success: false, data: null, message: "Password found in breach.", httpCode: 400 };
+        return {
+          success: false,
+          data: undefined,
+          message: "Password found in breach.",
+          httpCode: 400
+        };
       }
 
       // Username uniqueness
       if (UserRepo.findByUsername) {
         const existingUser = await UserRepo.findByUsername(username);
         if (existingUser)
-          return { success: false, data: null, message: "Username already taken.", httpCode: 400 };
+          return {
+            success: false,
+            data: undefined,
+            message: "Username already taken.",
+            httpCode: 400
+          };
       }
 
       // Email uniqueness
       const existingEmail = await UserRepo.findByEmail(email);
       if (existingEmail)
-        return { success: false, data: null, message: "Email already registered.", httpCode: 400 };
+        return {
+          success: false,
+          data: undefined,
+          message: "Email already registered.",
+          httpCode: 400
+        };
 
       // Hash password and create user
       const passwordHash = await hashPassword(password);
@@ -70,17 +90,22 @@ export class AuthService {
       return { success: true, data: { user }, message: "User signed up", httpCode: 201 };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
-      return { success: false, data: null, message: "Signup failed: " + message, httpCode: 500 };
+      return {
+        success: false,
+        data: undefined,
+        message: "Signup failed: " + message,
+        httpCode: 500
+      };
     }
   }
 
-  async login(email: string, password: string): Promise<AuthResult> {
+  async login(email: string, password: string): Promise<AuthResult<LoginResponse>> {
     try {
       // -------------------- Input Validation --------------------
       if (!email || !password) {
         return {
           success: false,
-          data: null,
+          data: undefined,
           message: "Email and password are required.",
           httpCode: 400
         };
@@ -91,7 +116,7 @@ export class AuthService {
       if (!user) {
         return {
           success: false,
-          data: null,
+          data: undefined,
           message: "Invalid credentials.",
           httpCode: 401
         };
@@ -102,7 +127,7 @@ export class AuthService {
       if (!valid) {
         return {
           success: false,
-          data: null,
+          data: undefined,
           message: "Invalid credentials.",
           httpCode: 401
         };
@@ -124,16 +149,13 @@ export class AuthService {
     } catch (err) {
       return {
         success: false,
-        data: null,
+        data: undefined,
         message: "Login failed : Unknown error",
         httpCode: 500
       };
     }
   }
 
-  /**
-   * Change password for an authenticated user
-   */
   async changePassword(
     userId: string | number,
     currentPassword: string,

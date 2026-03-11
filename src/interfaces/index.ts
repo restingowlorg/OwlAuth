@@ -3,6 +3,7 @@
 
 import { ObjectId } from "mongodb";
 import { MagicLinkRepository, UserRepository } from "../repositories/contracts";
+import { SignupResponse, LoginResponse } from "../types/index";
 
 // ------------------------------
 export interface AuthUser {
@@ -47,8 +48,6 @@ export interface CreateUserInput {
 }
 
 export interface IAuthManager {
-  signup: (email: string, username: string, password: string) => Promise<AuthResult>;
-  login: (email: string, password: string) => Promise<AuthResult>;
   changePassword: (
     userId: string | number,
     currentPassword: string,
@@ -56,6 +55,9 @@ export interface IAuthManager {
   ) => Promise<AuthResult>;
   requestMagicLink?: (email: string) => Promise<AuthResult>;
   consumeMagicLink?: (token: string) => Promise<AuthResult>;
+  signup(email: string, username: string, password: string): Promise<AuthResult<SignupResponse>>;
+
+  login(email: string, password: string): Promise<AuthResult<LoginResponse>>;
 }
 
 export interface MongoUserDoc {

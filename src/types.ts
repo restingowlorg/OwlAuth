@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { MagicLinkService } from "./authentication_methods/magic-links/magic-link.service";
+import { MagicLinkService } from "./services/magic-link.service";
 import { MagicLinkRepository, UserRepository } from "./repositories/contracts";
 
 /* ------------------------------------------------ */
