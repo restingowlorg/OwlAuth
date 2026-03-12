@@ -1,4 +1,4 @@
-import { MagicLinkService } from "../authentication_methods/magic-links/magic-link.service";
+import { MagicLinkService } from "../services/magic-link.service";
 import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
 
 // ------------------------------
@@ -35,7 +35,7 @@ export type BaseAuthOptions = {
 
 export type AuthResult<T = unknown> = {
   success: boolean;
-  data?: T;
+  data?: T | undefined;
   httpCode: number;
   message: string;
 };
@@ -145,3 +145,17 @@ export type CreateMagicLinkInput = {
 };
 
 export type UserId = string | number;
+
+export type LoginResponse = {
+  user: SafeUser;
+};
+
+export type SignupResponse = {
+  user: SafeUser;
+};
+
+export type SafeUser = {
+  id: string;
+  email: string;
+  username: string;
+};
