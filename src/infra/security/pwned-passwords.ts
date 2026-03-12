@@ -1,7 +1,7 @@
-import * as sha1 from "js-sha1";
+import { sha1 } from "js-sha1";
 
 export async function isBreachedPassword(password: string): Promise<boolean> {
-  const hash = sha1.sha1(password).toUpperCase();
+  const hash = sha1(password).toUpperCase();
   const prefix = hash.slice(0, 5);
   const suffix = hash.slice(5);
 
