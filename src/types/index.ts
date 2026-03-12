@@ -1,5 +1,6 @@
 import { MagicLinkService } from "../services/magic-link.service";
 import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
+import { PostgresUserSchema } from "../infra/postgresql/schema";
 
 // ------------------------------
 export type AuthType = "credentials" | "magic-link";
@@ -154,8 +155,16 @@ export type SignupResponse = {
   user: SafeUser;
 };
 
+export type ChangePasswordResponse = undefined;
+export type RequestMagicLinkResponse = string;
+export type ConsumeMagicLinkResponse = {
+  userId: string;
+};
+
 export type SafeUser = {
   id: string;
   email: string;
   username: string;
 };
+
+export type UserColumn = (typeof PostgresUserSchema.requiredColumns)[number];

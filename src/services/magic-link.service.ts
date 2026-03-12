@@ -1,6 +1,6 @@
 import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
 import { hashToken, verifyToken, generateToken } from "../infra/crypto/crypto";
-import { AuthResult } from "../types/index";
+import { AuthResult, RequestMagicLinkResponse, ConsumeMagicLinkResponse } from "../types/index";
 import { MagicLinkRow } from "../types";
 
 export class MagicLinkService {
@@ -10,14 +10,14 @@ export class MagicLinkService {
   ) {}
 
   /** Request a magic link (passwordless login) */
-  async request(email: string): Promise<AuthResult> {
+  async request(email: string): Promise<AuthResult<RequestMagicLinkResponse>> {
     try {
       const user = await this.users.findByEmail(email);
 
       if (!user) {
         return {
           success: false,
-          data: null,
+          data: undefined,
           message: "User not found",
           httpCode: 404
         };
@@ -43,7 +43,7 @@ export class MagicLinkService {
 
       return {
         success: false,
-        data: null,
+        data: undefined,
         message: "Failed to request magic link: " + message,
         httpCode: 500
       };
@@ -51,7 +51,7 @@ export class MagicLinkService {
   }
 
   /** Consume a magic link token */
-  async consume(token: string): Promise<AuthResult> {
+  async consume(token: string): Promise<AuthResult<ConsumeMagicLinkResponse>> {
     try {
       const records = await this.magicLinks.findAll();
 
@@ -71,7 +71,7 @@ export class MagicLinkService {
       if (!record) {
         return {
           success: false,
-          data: null,
+          data: undefined,
           message: "Invalid or expired magic link",
           httpCode: 401
         };
@@ -80,7 +80,7 @@ export class MagicLinkService {
       if (record.expires_at.getTime() < Date.now()) {
         return {
           success: false,
-          data: null,
+          data: undefined,
           message: "Magic link expired",
           httpCode: 401
         };
@@ -99,7 +99,7 @@ export class MagicLinkService {
 
       return {
         success: false,
-        data: null,
+        data: undefined,
         message: "Failed to consume magic link: " + message,
         httpCode: 500
       };

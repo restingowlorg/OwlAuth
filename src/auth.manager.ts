@@ -25,3 +25,11 @@ export class AuthManager implements IAuthManager {
     return manager;
   }
 }
+
+/**
+ * Creates and initializes an instance of the AuthManager.
+ * Returns the IAuthManager interface to consumers.
+ */
+export async function createAuthManager(options: AuthOptions): Promise<IAuthManager> {
+  return await AuthManager.init(options);
+}

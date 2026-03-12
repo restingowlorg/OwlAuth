@@ -2,36 +2,13 @@ import { Pool, QueryResult } from "pg";
 import { PostgresUserSchema } from "./schema";
 import { authLog } from "../../utils/logger";
 import { ColumnRow } from "../../types";
-
-/* ------------------------------------------------ */
-/* UTILITY FUNCTIONS */
-/* ------------------------------------------------ */
+import { TableExistsRow, ColumnInfoRow, PrimaryKeyRow } from "../../interfaces";
+import { UserColumn } from "../../types/index";
 
 // Quote identifier safely
 export function q(identifier: string) {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
-
-/* ------------------------------------------------ */
-/* QUERY RESULT TYPES */
-/* ------------------------------------------------ */
-
-interface TableExistsRow {
-  exists: boolean;
-}
-
-interface ColumnInfoRow {
-  column_name: string;
-  is_nullable: "YES" | "NO";
-}
-
-interface PrimaryKeyRow {
-  column_name: string;
-  data_type: string;
-}
-
-/* Type for user table columns based on PostgresUserSchema */
-type UserColumn = (typeof PostgresUserSchema.requiredColumns)[number];
 
 /* ------------------------------------------------ */
 /* TABLE CHECKS / VALIDATION */
