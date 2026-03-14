@@ -147,17 +147,17 @@ export type CreateMagicLinkInput = {
 
 export type UserId = string | number;
 
-export type LoginResponse = {
+export type LoginResult = {
   user: SafeUser;
 };
 
-export type SignupResponse = {
+export type SignupResult = {
   user: SafeUser;
 };
 
-export type ChangePasswordResponse = undefined;
-export type RequestMagicLinkResponse = string;
-export type ConsumeMagicLinkResponse = {
+export type ChangePasswordResult = undefined;
+export type RequestMagicLinkResult = string;
+export type ConsumeMagicLinkResult = {
   userId: string;
 };
 

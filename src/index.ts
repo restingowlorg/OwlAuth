@@ -3,9 +3,9 @@ export { IAuthManager } from "./interfaces/index";
 export {
   AuthOptions,
   AuthResult,
-  SignupResponse,
-  LoginResponse,
-  ChangePasswordResponse,
-  RequestMagicLinkResponse,
-  ConsumeMagicLinkResponse
+  SignupResult,
+  LoginResult,
+  ChangePasswordResult,
+  RequestMagicLinkResult,
+  ConsumeMagicLinkResult
 } from "./types/index";

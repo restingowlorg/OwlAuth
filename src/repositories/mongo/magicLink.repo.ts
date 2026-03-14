@@ -61,6 +61,28 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
     };
   }
 
+  /** Find token by its ID */
+  async findById(id: string | number): Promise<MagicLinkToken | null> {
+    let objectId: ObjectId;
+    try {
+      objectId = new ObjectId(id.toString());
+    } catch {
+      return null;
+    }
+
+    const doc = await this.collection.findOne({ _id: objectId });
+    if (!doc) return null;
+
+    return {
+      id: doc._id.toString(),
+      userId: doc.userId.toString(),
+      tokenHash: doc.tokenHash,
+      expiresAt: doc.expiresAt,
+      usedAt: doc.usedAt ?? null,
+      createdAt: doc.createdAt
+    };
+  }
+
   /** Mark a token as used */
   async markUsed(id: string | number): Promise<void> {
     await this.collection.updateOne(

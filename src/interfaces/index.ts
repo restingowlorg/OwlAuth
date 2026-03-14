@@ -4,12 +4,12 @@
 import { ObjectId } from "mongodb";
 import { MagicLinkRepository, UserRepository } from "../repositories/contracts";
 import {
-  SignupResponse,
-  LoginResponse,
+  SignupResult,
+  LoginResult,
   AuthResult,
-  ChangePasswordResponse,
-  RequestMagicLinkResponse,
-  ConsumeMagicLinkResponse
+  ChangePasswordResult,
+  RequestMagicLinkResult,
+  ConsumeMagicLinkResult
 } from "../types/index";
 
 // ------------------------------
@@ -49,11 +49,11 @@ export interface IAuthManager {
     userId: string | number,
     currentPassword: string,
     newPassword: string
-  ) => Promise<AuthResult<ChangePasswordResponse>>;
-  requestMagicLink?: (email: string) => Promise<AuthResult<RequestMagicLinkResponse>>;
-  consumeMagicLink?: (token: string) => Promise<AuthResult<ConsumeMagicLinkResponse>>;
-  signup(email: string, username: string, password: string): Promise<AuthResult<SignupResponse>>;
-  login(email: string, password: string): Promise<AuthResult<LoginResponse>>;
+  ) => Promise<AuthResult<ChangePasswordResult>>;
+  requestMagicLink?: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
+  consumeMagicLink?: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
+  signup(email: string, username: string, password: string): Promise<AuthResult<SignupResult>>;
+  login(email: string, password: string): Promise<AuthResult<LoginResult>>;
 }
 
 export interface MongoUserDoc {

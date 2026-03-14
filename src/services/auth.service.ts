@@ -3,7 +3,7 @@ import { hashPassword, verifyPassword } from "../infra/crypto/crypto";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
 import { UserRepository } from "../repositories/contracts";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
-import { AuthResult, LoginResponse, SignupResponse, ChangePasswordResponse } from "../types/index";
+import { AuthResult, LoginResult, SignupResult, ChangePasswordResult } from "../types/index";
 import { CreateUserInput } from "../interfaces/index";
 
 export class AuthService {
@@ -15,7 +15,7 @@ export class AuthService {
     password: string,
     UserRepo: UserRepository,
     blockedPasswords?: string[]
-  ): Promise<AuthResult<SignupResponse>> {
+  ): Promise<AuthResult<LoginResult>> {
     try {
       // Basic validation
       if (!email || !username || !password) {
@@ -99,7 +99,7 @@ export class AuthService {
     }
   }
 
-  async login(email: string, password: string): Promise<AuthResult<LoginResponse>> {
+  async login(email: string, password: string): Promise<AuthResult<SignupResult>> {
     try {
       // -------------------- Input Validation --------------------
       if (!email || !password) {
@@ -162,7 +162,7 @@ export class AuthService {
     newPassword: string,
     UserRepo: UserRepository,
     blockedPasswords?: string[]
-  ): Promise<AuthResult<ChangePasswordResponse>> {
+  ): Promise<AuthResult<ChangePasswordResult>> {
     // Fetch user
     const user = await UserRepo.findById(userId);
     if (!user) return { success: false, data: undefined, message: "User not found", httpCode: 404 };

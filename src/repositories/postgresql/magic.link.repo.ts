@@ -59,6 +59,27 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
     };
   }
 
+  async findById(id: string | number): Promise<MagicLinkToken | null> {
+    const pool = getPostgresPool();
+
+    const result = await pool.query<MagicLinkRow>(
+      `SELECT * FROM ${this.getTable()} WHERE id = $1`,
+      [id]
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      userId: row.user_id,
+      tokenHash: row.token,
+      expiresAt: row.expires_at,
+      usedAt: row.used_at,
+      createdAt: row.created_at
+    };
+  }
+
   async markUsed(id: string): Promise<void> {
     const pool = getPostgresPool();
     await pool.query(`UPDATE ${this.getTable()} SET used_at = NOW() WHERE id = $1`, [id]);

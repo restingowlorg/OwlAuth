@@ -1,7 +1,6 @@
 import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
 import { hashToken, verifyToken, generateToken } from "../infra/crypto/crypto";
-import { AuthResult, RequestMagicLinkResponse, ConsumeMagicLinkResponse } from "../types/index";
-import { MagicLinkRow } from "../types";
+import { AuthResult, RequestMagicLinkResult, ConsumeMagicLinkResult } from "../types/index";
 
 export class MagicLinkService {
   constructor(
@@ -10,7 +9,7 @@ export class MagicLinkService {
   ) {}
 
   /** Request a magic link (passwordless login) */
-  async request(email: string): Promise<AuthResult<RequestMagicLinkResponse>> {
+  async request(email: string): Promise<AuthResult<RequestMagicLinkResult>> {
     try {
       const user = await this.users.findByEmail(email);
 
@@ -26,7 +25,7 @@ export class MagicLinkService {
       const token = generateToken();
       const tokenHash = await hashToken(token);
 
-      await this.magicLinks.create({
+      const record = await this.magicLinks.create({
         userId: user.id,
         tokenHash,
         expiresAt: new Date(Date.now() + 15 * 60 * 1000)
@@ -34,7 +33,7 @@ export class MagicLinkService {
 
       return {
         success: true,
-        data: token,
+        data: `${record.id}.${token}`,
         message: "Magic link created",
         httpCode: 200
       };
@@ -51,24 +50,22 @@ export class MagicLinkService {
   }
 
   /** Consume a magic link token */
-  async consume(token: string): Promise<AuthResult<ConsumeMagicLinkResponse>> {
+  async consume(token: string): Promise<AuthResult<ConsumeMagicLinkResult>> {
     try {
-      const records = await this.magicLinks.findAll();
-
-      let record: MagicLinkRow | null = null;
-
-      for (const r of records) {
-        if (r.used_at) continue;
-
-        const match = await verifyToken(token, r.token);
-
-        if (match) {
-          record = r;
-          break;
-        }
+      const parts = token.split(".");
+      if (parts.length !== 2) {
+        return {
+          success: false,
+          data: undefined,
+          message: "Invalid or malformed magic link token",
+          httpCode: 400
+        };
       }
 
-      if (!record) {
+      const [tokenId, tokenValue] = parts;
+      const record = await this.magicLinks.findById(tokenId);
+
+      if (!record || record.usedAt) {
         return {
           success: false,
           data: undefined,
@@ -77,7 +74,18 @@ export class MagicLinkService {
         };
       }
 
-      if (record.expires_at.getTime() < Date.now()) {
+      const match = await verifyToken(tokenValue, record.tokenHash);
+
+      if (!match) {
+        return {
+          success: false,
+          data: undefined,
+          message: "Invalid or expired magic link",
+          httpCode: 401
+        };
+      }
+
+      if (record.expiresAt.getTime() < Date.now()) {
         return {
           success: false,
           data: undefined,
@@ -90,7 +98,7 @@ export class MagicLinkService {
 
       return {
         success: true,
-        data: { userId: String(record.user_id) },
+        data: { userId: String(record.userId) },
         message: "Magic link consumed",
         httpCode: 200
       };
