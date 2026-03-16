@@ -85,6 +85,11 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
     await pool.query(`UPDATE ${this.getTable()} SET used_at = NOW() WHERE id = $1`, [id]);
   }
 
+  async deleteByUserId(userId: string | number): Promise<void> {
+    const pool = getPostgresPool();
+    await pool.query(`DELETE FROM ${this.getTable()} WHERE user_id = $1`, [userId]);
+  }
+
   async findAll(): Promise<MagicLinkRow[]> {
     const pool = getPostgresPool();
 

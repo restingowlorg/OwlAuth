@@ -25,6 +25,9 @@ export class MagicLinkService {
       const token = generateToken();
       const tokenHash = await hashToken(token);
 
+      // delete existing tokens for this user
+      await this.magicLinks.deleteByUserId(user.id);
+
       const record = await this.magicLinks.create({
         userId: user.id,
         tokenHash,
@@ -74,6 +77,15 @@ export class MagicLinkService {
         };
       }
 
+      if (record.expiresAt.getTime() < Date.now()) {
+        return {
+          success: false,
+          data: undefined,
+          message: "Magic link expired",
+          httpCode: 401
+        };
+      }
+
       const match = await verifyToken(tokenValue, record.tokenHash);
 
       if (!match) {
@@ -81,15 +93,6 @@ export class MagicLinkService {
           success: false,
           data: undefined,
           message: "Invalid or expired magic link",
-          httpCode: 401
-        };
-      }
-
-      if (record.expiresAt.getTime() < Date.now()) {
-        return {
-          success: false,
-          data: undefined,
-          message: "Magic link expired",
           httpCode: 401
         };
       }

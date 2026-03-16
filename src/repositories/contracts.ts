@@ -26,4 +26,5 @@ export interface MagicLinkRepository {
   findByTokenHash(tokenHash: string): Promise<MagicLinkToken | null>;
   findById(id: string | number): Promise<MagicLinkToken | null>;
   markUsed(id: string | number): Promise<void>;
+  deleteByUserId(userId: string | number): Promise<void>;
 }

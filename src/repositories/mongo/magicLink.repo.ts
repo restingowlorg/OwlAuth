@@ -91,6 +91,11 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
     );
   }
 
+  /** Delete existing tokens for a user */
+  async deleteByUserId(userId: string | number): Promise<void> {
+    await this.collection.deleteMany({ userId: new ObjectId(userId.toString()) });
+  }
+
   /** Return all active tokens as MagicLinkRow (for contracts) */
   async findAll(): Promise<MagicLinkRow[]> {
     const now = new Date();
