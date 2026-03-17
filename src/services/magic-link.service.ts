@@ -1,6 +1,11 @@
 import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
 import { hashToken, verifyToken, generateToken } from "../infra/crypto/crypto";
-import { AuthResult, RequestMagicLinkResult, ConsumeMagicLinkResult } from "../types/index";
+import {
+  AuthResult,
+  RequestMagicLinkResult,
+  VerifyMagicLinkResult,
+  ConsumeMagicLinkResult
+} from "../types/index";
 
 export class MagicLinkService {
   constructor(
@@ -25,8 +30,8 @@ export class MagicLinkService {
       const token = generateToken();
       const tokenHash = await hashToken(token);
 
-      // delete existing tokens for this user
-      await this.magicLinks.deleteByUserId(user.id);
+      // invalidate existing tokens for this user
+      await this.magicLinks.invalidateByUserId(user.id);
 
       // create new token
       const record = await this.magicLinks.create({
@@ -53,53 +58,82 @@ export class MagicLinkService {
     }
   }
 
-  /** Consume a magic link token */
-  async consume(token: string): Promise<AuthResult<ConsumeMagicLinkResult>> {
+  /** Verify a magic link token without consuming it */
+  async verify(token: string): Promise<AuthResult<VerifyMagicLinkResult>> {
     try {
-      // split token into id and value
       const parts = token.split(".");
-
-      // check if token is valid
       if (parts.length !== 2) {
         return {
           success: false,
-          data: undefined,
+          data: { isValid: false },
           message: "Invalid or malformed magic link token",
           httpCode: 400
         };
       }
 
-      // get token from database
       const [tokenId, tokenValue] = parts;
       const record = await this.magicLinks.findById(tokenId);
 
-      // check if token is used or not exists
       if (!record || record.usedAt || record.expiresAt.getTime() < Date.now()) {
         return {
           success: false,
-          data: undefined,
+          data: { isValid: false },
           message: "Invalid or expired magic link",
           httpCode: 401
         };
       }
 
-      // verify token
       const match = await verifyToken(tokenValue, record.tokenHash);
-
       if (!match) {
         return {
           success: false,
-          data: undefined,
+          data: { isValid: false },
           message: "Invalid or expired magic link",
           httpCode: 401
         };
       }
 
-      await this.magicLinks.markUsed(record.id);
+      return {
+        success: true,
+        data: { isValid: true, userId: String(record.userId), tokenId: String(record.id) },
+        message: "Magic link is valid",
+        httpCode: 200
+      };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return {
+        success: false,
+        data: { isValid: false },
+        message: "Failed to verify magic link: " + message,
+        httpCode: 500
+      };
+    }
+  }
+
+  /** Consume a magic link token */
+  async consume(token: string): Promise<AuthResult<ConsumeMagicLinkResult>> {
+    try {
+      const verifyResult = await this.verify(token);
+
+      if (
+        !verifyResult.success ||
+        !verifyResult.data?.isValid ||
+        !verifyResult.data.tokenId ||
+        !verifyResult.data.userId
+      ) {
+        return {
+          success: false,
+          data: undefined,
+          message: verifyResult.message,
+          httpCode: verifyResult.httpCode
+        };
+      }
+
+      await this.magicLinks.markUsed(verifyResult.data.tokenId);
 
       return {
         success: true,
-        data: { userId: String(record.userId) },
+        data: { userId: verifyResult.data.userId },
         message: "Magic link consumed",
         httpCode: 200
       };

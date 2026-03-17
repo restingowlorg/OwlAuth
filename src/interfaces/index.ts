@@ -9,6 +9,7 @@ import {
   AuthResult,
   ChangePasswordResult,
   RequestMagicLinkResult,
+  VerifyMagicLinkResult,
   ConsumeMagicLinkResult
 } from "../types/index";
 
@@ -51,6 +52,7 @@ export interface IAuthManager {
     newPassword: string
   ) => Promise<AuthResult<ChangePasswordResult>>;
   requestMagicLink?: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
+  verifyMagicLink?: (token: string) => Promise<AuthResult<VerifyMagicLinkResult>>;
   consumeMagicLink?: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
   signup(email: string, username: string, password: string): Promise<AuthResult<SignupResult>>;
   login(email: string, password: string): Promise<AuthResult<LoginResult>>;

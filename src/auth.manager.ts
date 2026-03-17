@@ -8,6 +8,7 @@ export class AuthManager implements IAuthManager {
   public login!: IAuthManager["login"];
   public changePassword!: IAuthManager["changePassword"];
   public requestMagicLink?: IAuthManager["requestMagicLink"];
+  public verifyMagicLink?: IAuthManager["verifyMagicLink"];
   public consumeMagicLink?: IAuthManager["consumeMagicLink"];
 
   private constructor() {}

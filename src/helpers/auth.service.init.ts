@@ -36,7 +36,7 @@ export function initAuthServices(db: AuthDB, options: AuthOptions): Partial<IAut
       options.magicLinkService ?? new MagicLinkService(db.userRepo, db.magicLinkRepo);
 
     result.requestMagicLink = (email: string) => magicLinkService.request(email);
-
+    result.verifyMagicLink = (token: string) => magicLinkService.verify(token);
     result.consumeMagicLink = (token: string) => magicLinkService.consume(token);
   }
 

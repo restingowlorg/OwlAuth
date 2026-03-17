@@ -157,6 +157,11 @@ export type SignupResult = {
 
 export type ChangePasswordResult = undefined;
 export type RequestMagicLinkResult = string;
+export type VerifyMagicLinkResult = {
+  isValid: boolean;
+  userId?: string;
+  tokenId?: string;
+};
 export type ConsumeMagicLinkResult = {
   userId: string;
 };
