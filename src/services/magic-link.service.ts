@@ -28,6 +28,7 @@ export class MagicLinkService {
       // delete existing tokens for this user
       await this.magicLinks.deleteByUserId(user.id);
 
+      // create new token
       const record = await this.magicLinks.create({
         userId: user.id,
         tokenHash,
@@ -55,7 +56,10 @@ export class MagicLinkService {
   /** Consume a magic link token */
   async consume(token: string): Promise<AuthResult<ConsumeMagicLinkResult>> {
     try {
+      // split token into id and value
       const parts = token.split(".");
+
+      // check if token is valid
       if (parts.length !== 2) {
         return {
           success: false,
@@ -65,10 +69,12 @@ export class MagicLinkService {
         };
       }
 
+      // get token from database
       const [tokenId, tokenValue] = parts;
       const record = await this.magicLinks.findById(tokenId);
 
-      if (!record || record.usedAt) {
+      // check if token is used or not exists
+      if (!record || record.usedAt || record.expiresAt.getTime() < Date.now()) {
         return {
           success: false,
           data: undefined,
@@ -77,15 +83,7 @@ export class MagicLinkService {
         };
       }
 
-      if (record.expiresAt.getTime() < Date.now()) {
-        return {
-          success: false,
-          data: undefined,
-          message: "Magic link expired",
-          httpCode: 401
-        };
-      }
-
+      // verify token
       const match = await verifyToken(tokenValue, record.tokenHash);
 
       if (!match) {
