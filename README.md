@@ -148,24 +148,28 @@ dbOptions: {
 import {
   IAuthManager,
   AuthResult,
-  SignupResponse,
-  LoginResponse,
-  ChangePasswordResponse,
-  RequestMagicLinkResponse,
-  ConsumeMagicLinkResponse
+  SignupResult,
+  LoginResult,
+  ChangePasswordResult,
+  RequestMagicLinkResult,
+  ConsumeMagicLinkResult
 } from "@restingowlorg/mvp-auth";
 
-interface IAuthManager {
-  signup(email: string, username: string, password: string): Promise<AuthResult<SignupResponse>>;
-  login(email: string, password: string): Promise<AuthResult<LoginResponse>>;
-  changePassword(
+export interface IAuthManager {
+  readonly signup: (
+    email: string,
+    username: string,
+    password: string
+  ) => Promise<AuthResult<SignupResult>>;
+  readonly login: (email: string, password: string) => Promise<AuthResult<LoginResult>>;
+  readonly changePassword: (
     userId: string | number,
     currentPassword: string,
     newPassword: string
-  ): Promise<AuthResult<ChangePasswordResponse>>;
+  ) => Promise<AuthResult<ChangePasswordResult>>;
 
-  requestMagicLink?(email: string): Promise<AuthResult<RequestMagicLinkResponse>>;
-  consumeMagicLink?(token: string): Promise<AuthResult<ConsumeMagicLinkResponse>>;
+  readonly requestMagicLink?: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
+  readonly consumeMagicLink?: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
 }
 ```
 
@@ -174,9 +178,9 @@ interface IAuthManager {
 ### Signup
 
 ```ts
-import { SignupResponse, AuthResult } from "@restingowlorg/mvp-auth";
+import { SignupResult, AuthResult } from "@restingowlorg/mvp-auth";
 
-const result: AuthResult<SignupResponse> = await auth.signup(
+const result: AuthResult<SignupResult> = await auth.signup(
   "user@example.com",
   "username",
   "StrongPassword123!"
@@ -186,12 +190,9 @@ const result: AuthResult<SignupResponse> = await auth.signup(
 ### Login
 
 ```ts
-import { LoginResponse, AuthResult } from "@restingowlorg/mvp-auth";
+import { LoginResult, AuthResult } from "@restingowlorg/mvp-auth";
 
-const result: AuthResult<LoginResponse> = await auth.login(
-  "user@example.com",
-  "StrongPassword123!"
-);
+const result: AuthResult<LoginResult> = await auth.login("user@example.com", "StrongPassword123!");
 
 if (result.success) {
   const { user } = result.data!;
@@ -202,9 +203,9 @@ if (result.success) {
 ### Change Password
 
 ```ts
-import { ChangePasswordResponse, AuthResult } from "@restingowlorg/mvp-auth";
+import { ChangePasswordResult, AuthResult } from "@restingowlorg/mvp-auth";
 
-const result: AuthResult<ChangePasswordResponse> = await auth.changePassword(
+const result: AuthResult<ChangePasswordResult> = await auth.changePassword(
   userId,
   "CurrentPassword123!",
   "NewStrongPassword456!"
@@ -215,18 +216,18 @@ const result: AuthResult<ChangePasswordResponse> = await auth.changePassword(
 
 ```ts
 import {
-  RequestMagicLinkResponse,
-  ConsumeMagicLinkResponse,
+  RequestMagicLinkResult,
+  ConsumeMagicLinkResult,
   AuthResult
 } from "@restingowlorg/mvp-auth";
 
-const request: AuthResult<RequestMagicLinkResponse> | undefined =
+const request: AuthResult<RequestMagicLinkResult> | undefined =
   await auth.requestMagicLink?.("user@example.com");
 if (request?.success) {
   const token = request.data; // token string
 }
 
-const consume: AuthResult<ConsumeMagicLinkResponse> | undefined =
+const consume: AuthResult<ConsumeMagicLinkResult> | undefined =
   await auth.consumeMagicLink?.("token-from-email");
 if (consume?.success) {
   const { userId } = consume.data!;
@@ -248,11 +249,11 @@ type AuthResult<T = unknown> = {
 
 Available specific data types:
 
-- `SignupResponse`: `{ user: SafeUser }`
-- `LoginResponse`: `{ user: SafeUser }`
-- `ChangePasswordResponse`: `undefined`
-- `RequestMagicLinkResponse`: `string`
-- `ConsumeMagicLinkResponse`: `{ userId: string }`
+- `SignupResult`: `{ user: SafeUser }`
+- `LoginResult`: `{ user: SafeUser }`
+- `ChangePasswordResult`: `undefined`
+- `RequestMagicLinkResult`: `string`
+- `ConsumeMagicLinkResult`: `{ userId: string }`
 
 ## Development
 
