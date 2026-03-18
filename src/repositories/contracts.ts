@@ -10,7 +10,7 @@ export interface UserRepository {
   findByEmail(email: string): Promise<User | null>;
   findById(id: string | number): Promise<User | null>;
   findByUsername?(username: string): Promise<User | null>;
-  updatePassword(userId: string | number, passwordHash: string): Promise<void>;
+  updatePassword(userId: string | number, passwordHash: string): Promise<boolean>;
 }
 
 /* ---------------------- MAGIC LINK REPOSITORY ---------------------- */
@@ -25,7 +25,7 @@ export interface MagicLinkRepository {
   findAll(): Promise<MagicLinkRow[]>;
   findByTokenHash(tokenHash: string): Promise<MagicLinkToken | null>;
   findById(id: string | number): Promise<MagicLinkToken | null>;
-  markUsed(id: string | number): Promise<void>;
-  invalidateByUserId(userId: string | number): Promise<void>;
-  deleteByUserId(userId: string | number): Promise<void>;
+  consume(id: string | number): Promise<boolean>;
+  invalidateByUserId(userId: string | number): Promise<boolean>;
+  deleteByUserId(userId: string | number): Promise<boolean>;
 }

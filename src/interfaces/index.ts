@@ -46,16 +46,20 @@ export interface CreateUserInput {
 }
 
 export interface IAuthManager {
-  changePassword: (
+  readonly changePassword: (
     userId: string | number,
     currentPassword: string,
     newPassword: string
   ) => Promise<AuthResult<ChangePasswordResult>>;
-  requestMagicLink?: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
-  verifyMagicLink?: (token: string) => Promise<AuthResult<VerifyMagicLinkResult>>;
-  consumeMagicLink?: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
-  signup(email: string, username: string, password: string): Promise<AuthResult<SignupResult>>;
-  login(email: string, password: string): Promise<AuthResult<LoginResult>>;
+  readonly requestMagicLink?: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
+  readonly verifyMagicLink?: (token: string) => Promise<AuthResult<VerifyMagicLinkResult>>;
+  readonly consumeMagicLink?: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
+  readonly signup: (
+    email: string,
+    username: string,
+    password: string
+  ) => Promise<AuthResult<SignupResult>>;
+  readonly login: (email: string, password: string) => Promise<AuthResult<LoginResult>>;
 }
 
 export interface MongoUserDoc {

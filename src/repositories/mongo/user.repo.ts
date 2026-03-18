@@ -66,10 +66,11 @@ export class MongoUserRepo implements UserRepository {
     };
   }
 
-  async updatePassword(userId: string, passwordHash: string): Promise<void> {
-    await this.collection.updateOne(
-      { _id: new ObjectId(userId) },
+  async updatePassword(userId: string | number, passwordHash: string): Promise<boolean> {
+    const result = await this.collection.updateOne(
+      { _id: new ObjectId(userId.toString()) },
       { $set: { password: passwordHash } }
     );
+    return result.modifiedCount > 0;
   }
 }

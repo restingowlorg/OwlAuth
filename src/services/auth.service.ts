@@ -87,6 +87,15 @@ export class AuthService {
       const input: CreateUserInput = { email, username, passwordHash };
       const user = await UserRepo.create(input);
 
+      if (!user) {
+        return {
+          success: false,
+          data: undefined,
+          message: "Failed to create user",
+          httpCode: 500
+        };
+      }
+
       return { success: true, data: { user }, message: "User signed up", httpCode: 201 };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -199,7 +208,16 @@ export class AuthService {
 
     // Hash new password and update
     const newHash = await hashPassword(newPassword);
-    await UserRepo.updatePassword(userId, newHash);
+    const updated = await UserRepo.updatePassword(userId, newHash);
+
+    if (!updated) {
+      return {
+        success: false,
+        data: undefined,
+        message: "Failed to update password",
+        httpCode: 500
+      };
+    }
 
     return {
       success: true,

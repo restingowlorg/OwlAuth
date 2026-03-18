@@ -80,22 +80,27 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
     };
   }
 
-  async markUsed(id: string): Promise<void> {
+  async consume(id: string | number): Promise<boolean> {
     const pool = getPostgresPool();
-    await pool.query(`UPDATE ${this.getTable()} SET used_at = NOW() WHERE id = $1`, [id]);
+    const result = await pool.query(`UPDATE ${this.getTable()} SET used_at = NOW() WHERE id = $1`, [
+      id
+    ]);
+    return (result.rowCount ?? 0) > 0;
   }
 
-  async deleteByUserId(userId: string | number): Promise<void> {
+  async deleteByUserId(userId: string | number): Promise<boolean> {
     const pool = getPostgresPool();
-    await pool.query(`DELETE FROM ${this.getTable()} WHERE user_id = $1`, [userId]);
+    const result = await pool.query(`DELETE FROM ${this.getTable()} WHERE user_id = $1`, [userId]);
+    return (result.rowCount ?? 0) > 0;
   }
 
-  async invalidateByUserId(userId: string | number): Promise<void> {
+  async invalidateByUserId(userId: string | number): Promise<boolean> {
     const pool = getPostgresPool();
-    await pool.query(
+    const result = await pool.query(
       `UPDATE ${this.getTable()} SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`,
       [userId]
     );
+    return (result.rowCount ?? 0) > 0;
   }
 
   async findAll(): Promise<MagicLinkRow[]> {

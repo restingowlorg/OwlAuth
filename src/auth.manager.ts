@@ -4,12 +4,12 @@ import { initAuthServices } from "./helpers/auth.service.init";
 import { AuthOptions } from "./types/index";
 
 export class AuthManager implements IAuthManager {
-  public signup!: IAuthManager["signup"];
-  public login!: IAuthManager["login"];
-  public changePassword!: IAuthManager["changePassword"];
-  public requestMagicLink?: IAuthManager["requestMagicLink"];
-  public verifyMagicLink?: IAuthManager["verifyMagicLink"];
-  public consumeMagicLink?: IAuthManager["consumeMagicLink"];
+  public readonly signup!: IAuthManager["signup"];
+  public readonly login!: IAuthManager["login"];
+  public readonly changePassword!: IAuthManager["changePassword"];
+  public readonly requestMagicLink?: IAuthManager["requestMagicLink"];
+  public readonly verifyMagicLink?: IAuthManager["verifyMagicLink"];
+  public readonly consumeMagicLink?: IAuthManager["consumeMagicLink"];
 
   private constructor() {}
 
@@ -23,7 +23,7 @@ export class AuthManager implements IAuthManager {
     const services = initAuthServices(db, options);
     Object.assign(manager, services);
 
-    return manager;
+    return Object.freeze(manager);
   }
 }
 

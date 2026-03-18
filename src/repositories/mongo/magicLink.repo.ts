@@ -84,24 +84,27 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
   }
 
   /** Mark a token as used */
-  async markUsed(id: string | number): Promise<void> {
-    await this.collection.updateOne(
+  async consume(id: string | number): Promise<boolean> {
+    const result = await this.collection.updateOne(
       { _id: new ObjectId(id.toString()) },
       { $set: { usedAt: new Date(), updatedAt: new Date() } }
     );
+    return result.modifiedCount > 0;
   }
 
   /** Delete existing tokens for a user */
-  async deleteByUserId(userId: string | number): Promise<void> {
-    await this.collection.deleteMany({ userId: new ObjectId(userId.toString()) });
+  async deleteByUserId(userId: string | number): Promise<boolean> {
+    const result = await this.collection.deleteMany({ userId: new ObjectId(userId.toString()) });
+    return result.deletedCount > 0;
   }
 
   /** Invalidate existing tokens for a user */
-  async invalidateByUserId(userId: string | number): Promise<void> {
-    await this.collection.updateMany(
+  async invalidateByUserId(userId: string | number): Promise<boolean> {
+    const result = await this.collection.updateMany(
       { userId: new ObjectId(userId.toString()), usedAt: null },
       { $set: { usedAt: new Date(), updatedAt: new Date() } }
     );
+    return result.modifiedCount > 0;
   }
 
   /** Return all active tokens as MagicLinkRow (for contracts) */

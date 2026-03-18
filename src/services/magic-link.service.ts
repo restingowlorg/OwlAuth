@@ -31,7 +31,16 @@ export class MagicLinkService {
       const tokenHash = await hashToken(token);
 
       // invalidate existing tokens for this user
-      await this.magicLinks.invalidateByUserId(user.id);
+      const result = await this.magicLinks.invalidateByUserId(user.id);
+
+      if (!result) {
+        return {
+          success: false,
+          data: undefined,
+          message: "Failed to invalidate existing tokens",
+          httpCode: 500
+        };
+      }
 
       // create new token
       const record = await this.magicLinks.create({
@@ -39,6 +48,15 @@ export class MagicLinkService {
         tokenHash,
         expiresAt: new Date(Date.now() + 15 * 60 * 1000)
       });
+
+      if (!record) {
+        return {
+          success: false,
+          data: undefined,
+          message: "Failed to create magic link",
+          httpCode: 500
+        };
+      }
 
       return {
         success: true,
@@ -129,7 +147,15 @@ export class MagicLinkService {
         };
       }
 
-      await this.magicLinks.markUsed(verifyResult.data.tokenId);
+      const consumed = await this.magicLinks.consume(verifyResult.data.tokenId);
+
+      if (!consumed) {
+        return {
+          success: false,
+          message: "Magic link already used",
+          httpCode: 401
+        };
+      }
 
       return {
         success: true,
