@@ -1,5 +1,6 @@
 import { MagicLinkService } from "../services/magic-link.service";
 import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
+import { PostgresUserSchema } from "../infra/postgresql/schema";
 
 // ------------------------------
 export type AuthType = "credentials" | "magic-link";
@@ -146,12 +147,23 @@ export type CreateMagicLinkInput = {
 
 export type UserId = string | number;
 
-export type LoginResponse = {
+export type LoginResult = {
   user: SafeUser;
 };
 
-export type SignupResponse = {
+export type SignupResult = {
   user: SafeUser;
+};
+
+export type ChangePasswordResult = undefined;
+export type RequestMagicLinkResult = string;
+export type VerifyMagicLinkResult = {
+  isValid: boolean;
+  userId?: string;
+  tokenId?: string;
+};
+export type ConsumeMagicLinkResult = {
+  userId: string;
 };
 
 export type SafeUser = {
@@ -159,3 +171,5 @@ export type SafeUser = {
   email: string;
   username: string;
 };
+
+export type UserColumn = (typeof PostgresUserSchema.requiredColumns)[number];

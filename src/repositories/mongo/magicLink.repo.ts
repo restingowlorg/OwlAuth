@@ -61,12 +61,50 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
     };
   }
 
+  /** Find token by its ID */
+  async findById(id: string | number): Promise<MagicLinkToken | null> {
+    let objectId: ObjectId;
+    try {
+      objectId = new ObjectId(id.toString());
+    } catch {
+      return null;
+    }
+
+    const doc = await this.collection.findOne({ _id: objectId });
+    if (!doc) return null;
+
+    return {
+      id: doc._id.toString(),
+      userId: doc.userId.toString(),
+      tokenHash: doc.tokenHash,
+      expiresAt: doc.expiresAt,
+      usedAt: doc.usedAt ?? null,
+      createdAt: doc.createdAt
+    };
+  }
+
   /** Mark a token as used */
-  async markUsed(id: string | number): Promise<void> {
-    await this.collection.updateOne(
+  async consume(id: string | number): Promise<boolean> {
+    const result = await this.collection.updateOne(
       { _id: new ObjectId(id.toString()) },
       { $set: { usedAt: new Date(), updatedAt: new Date() } }
     );
+    return result.modifiedCount > 0;
+  }
+
+  /** Delete existing tokens for a user */
+  async deleteByUserId(userId: string | number): Promise<boolean> {
+    const result = await this.collection.deleteMany({ userId: new ObjectId(userId.toString()) });
+    return result.deletedCount > 0;
+  }
+
+  /** Invalidate existing tokens for a user */
+  async invalidateByUserId(userId: string | number): Promise<boolean> {
+    const result = await this.collection.updateMany(
+      { userId: new ObjectId(userId.toString()), usedAt: null },
+      { $set: { usedAt: new Date(), updatedAt: new Date() } }
+    );
+    return result.modifiedCount > 0;
   }
 
   /** Return all active tokens as MagicLinkRow (for contracts) */

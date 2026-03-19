@@ -3,7 +3,15 @@
 
 import { ObjectId } from "mongodb";
 import { MagicLinkRepository, UserRepository } from "../repositories/contracts";
-import { SignupResponse, LoginResponse } from "../types/index";
+import {
+  SignupResult,
+  LoginResult,
+  AuthResult,
+  ChangePasswordResult,
+  RequestMagicLinkResult,
+  VerifyMagicLinkResult,
+  ConsumeMagicLinkResult
+} from "../types/index";
 
 // ------------------------------
 export interface AuthUser {
@@ -31,16 +39,6 @@ export interface MagicLinkToken {
   usedAt?: Date;
 }
 
-// ------------------------------
-// Standard Auth Result
-// ------------------------------
-export interface AuthResult<T = unknown> {
-  success: boolean;
-  data?: T;
-  httpCode: number;
-  message: string;
-}
-
 export interface CreateUserInput {
   email: string;
   passwordHash: string;
@@ -48,16 +46,20 @@ export interface CreateUserInput {
 }
 
 export interface IAuthManager {
-  changePassword: (
+  readonly changePassword: (
     userId: string | number,
     currentPassword: string,
     newPassword: string
-  ) => Promise<AuthResult>;
-  requestMagicLink?: (email: string) => Promise<AuthResult>;
-  consumeMagicLink?: (token: string) => Promise<AuthResult>;
-  signup(email: string, username: string, password: string): Promise<AuthResult<SignupResponse>>;
-
-  login(email: string, password: string): Promise<AuthResult<LoginResponse>>;
+  ) => Promise<AuthResult<ChangePasswordResult>>;
+  readonly requestMagicLink?: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
+  readonly verifyMagicLink?: (token: string) => Promise<AuthResult<VerifyMagicLinkResult>>;
+  readonly consumeMagicLink?: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
+  readonly signup: (
+    email: string,
+    username: string,
+    password: string
+  ) => Promise<AuthResult<SignupResult>>;
+  readonly login: (email: string, password: string) => Promise<AuthResult<LoginResult>>;
 }
 
 export interface MongoUserDoc {
@@ -65,10 +67,6 @@ export interface MongoUserDoc {
   email: string;
   username: string;
   password: string;
-}
-
-export interface TableExistsRow {
-  table_exists: string | null;
 }
 
 export interface ColumnRow {
@@ -100,6 +98,16 @@ export interface MongoUserDoc {
   updatedAt?: Date;
 }
 
-/**
- * Document structure for the MongoDB magic_links collection
- */
+export interface TableExistsRow {
+  exists: boolean;
+}
+
+export interface ColumnInfoRow {
+  column_name: string;
+  is_nullable: "YES" | "NO";
+}
+
+export interface PrimaryKeyRow {
+  column_name: string;
+  data_type: string;
+}

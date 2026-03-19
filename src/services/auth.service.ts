@@ -3,7 +3,7 @@ import { hashPassword, verifyPassword } from "../infra/crypto/crypto";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
 import { UserRepository } from "../repositories/contracts";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
-import { AuthResult, LoginResponse, SignupResponse } from "../types/index";
+import { AuthResult, LoginResult, SignupResult, ChangePasswordResult } from "../types/index";
 import { CreateUserInput } from "../interfaces/index";
 
 export class AuthService {
@@ -15,7 +15,7 @@ export class AuthService {
     password: string,
     UserRepo: UserRepository,
     blockedPasswords?: string[]
-  ): Promise<AuthResult<SignupResponse>> {
+  ): Promise<AuthResult<LoginResult>> {
     try {
       // Basic validation
       if (!email || !username || !password) {
@@ -87,6 +87,15 @@ export class AuthService {
       const input: CreateUserInput = { email, username, passwordHash };
       const user = await UserRepo.create(input);
 
+      if (!user) {
+        return {
+          success: false,
+          data: undefined,
+          message: "Failed to create user",
+          httpCode: 500
+        };
+      }
+
       return { success: true, data: { user }, message: "User signed up", httpCode: 201 };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -99,7 +108,7 @@ export class AuthService {
     }
   }
 
-  async login(email: string, password: string): Promise<AuthResult<LoginResponse>> {
+  async login(email: string, password: string): Promise<AuthResult<SignupResult>> {
     try {
       // -------------------- Input Validation --------------------
       if (!email || !password) {
@@ -162,21 +171,26 @@ export class AuthService {
     newPassword: string,
     UserRepo: UserRepository,
     blockedPasswords?: string[]
-  ): Promise<AuthResult> {
+  ): Promise<AuthResult<ChangePasswordResult>> {
     // Fetch user
     const user = await UserRepo.findById(userId);
-    if (!user) return { success: false, data: null, message: "User not found", httpCode: 404 };
+    if (!user) return { success: false, data: undefined, message: "User not found", httpCode: 404 };
 
     // Verify current password
     const valid = await verifyPassword(currentPassword, user.password);
     if (!valid)
-      return { success: false, data: null, message: "Current password incorrect", httpCode: 401 };
+      return {
+        success: false,
+        data: undefined,
+        message: "Current password incorrect",
+        httpCode: 401
+      };
 
     // Check blocked passwords
     if (containsBlockedPasswords(newPassword, user.email, user.username, blockedPasswords)) {
       return {
         success: false,
-        data: null,
+        data: undefined,
         message: "New password cannot contain username, email, or blocked words",
         httpCode: 400
       };
@@ -184,22 +198,31 @@ export class AuthService {
 
     // Password strength
     if (zxcvbn(newPassword).score < 3) {
-      return { success: false, data: null, message: "New password too weak", httpCode: 400 };
+      return { success: false, data: undefined, message: "New password too weak", httpCode: 400 };
     }
 
     // Breach check
     if (await isBreachedPassword(newPassword)) {
-      return { success: false, data: null, message: "New password breached", httpCode: 400 };
+      return { success: false, data: undefined, message: "New password breached", httpCode: 400 };
     }
 
     // Hash new password and update
     const newHash = await hashPassword(newPassword);
-    await UserRepo.updatePassword(userId, newHash);
+    const updated = await UserRepo.updatePassword(userId, newHash);
+
+    if (!updated) {
+      return {
+        success: false,
+        data: undefined,
+        message: "Failed to update password",
+        httpCode: 500
+      };
+    }
 
     return {
       success: true,
       message: "Password updated successfully",
-      data: null,
+      data: undefined,
       httpCode: 200
     };
   }

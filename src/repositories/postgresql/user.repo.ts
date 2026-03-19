@@ -65,9 +65,9 @@ export class PostgresUserRepository implements UserRepository {
   }
 
   //Update password
-  async updatePassword(userId: string, passwordHash: string) {
+  async updatePassword(userId: string | number, passwordHash: string): Promise<boolean> {
     const pool = getPostgresPool();
-    await pool.query(
+    const result = await pool.query(
       `
       UPDATE ${this.getTable()}
       SET password = $1
@@ -75,5 +75,6 @@ export class PostgresUserRepository implements UserRepository {
       `,
       [passwordHash, userId]
     );
+    return (result.rowCount ?? 0) > 0;
   }
 }
