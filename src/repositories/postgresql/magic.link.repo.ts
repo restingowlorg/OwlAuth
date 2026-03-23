@@ -6,6 +6,10 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
   constructor(private readonly table: string) {}
 
   private getTable() {
+    if (this.table.includes(".")) {
+      const [schema, table] = this.table.split(".");
+      return `"${schema}"."${table}"`;
+    }
     return `"${this.table}"`;
   }
 
@@ -96,11 +100,20 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
 
   async invalidateByUserId(userId: string | number): Promise<boolean> {
     const pool = getPostgresPool();
-    const result = await pool.query(
+    await pool.query(
       `UPDATE ${this.getTable()} SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`,
       [userId]
     );
-    return (result.rowCount ?? 0) > 0;
+
+    // Confirm that no active tokens remain for this user
+    const checkResult = await pool.query<{ count: string | number }>(
+      `SELECT count(*) as count FROM ${this.getTable()} WHERE user_id = $1 AND used_at IS NULL`,
+      [userId]
+    );
+
+    const row = checkResult.rows[0];
+    const activeCount = parseInt(row?.count?.toString() ?? "0", 10);
+    return activeCount === 0;
   }
 
   async findAll(): Promise<MagicLinkRow[]> {

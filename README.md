@@ -10,6 +10,7 @@ A framework-agnostic and database-agnostic authentication library for Node.js.
   - change password
 - Magic link authentication:
   - request magic link
+  - verify magic link
   - consume magic link
 - OWASP-aligned password protections:
   - strength checks with `@zxcvbn-ts/core`
@@ -152,6 +153,7 @@ import {
   LoginResult,
   ChangePasswordResult,
   RequestMagicLinkResult,
+  VerifyMagicLinkResult,
   ConsumeMagicLinkResult
 } from "@restingowlorg/mvp-auth";
 
@@ -169,6 +171,7 @@ export interface IAuthManager {
   ) => Promise<AuthResult<ChangePasswordResult>>;
 
   readonly requestMagicLink?: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
+  readonly verifyMagicLink?: (token: string) => Promise<AuthResult<VerifyMagicLinkResult>>;
   readonly consumeMagicLink?: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
 }
 ```
@@ -217,6 +220,7 @@ const result: AuthResult<ChangePasswordResult> = await auth.changePassword(
 ```ts
 import {
   RequestMagicLinkResult,
+  VerifyMagicLinkResult,
   ConsumeMagicLinkResult,
   AuthResult
 } from "@restingowlorg/mvp-auth";
@@ -225,6 +229,13 @@ const request: AuthResult<RequestMagicLinkResult> | undefined =
   await auth.requestMagicLink?.("user@example.com");
 if (request?.success) {
   const token = request.data; // token string
+}
+
+const verify: AuthResult<VerifyMagicLinkResult> | undefined =
+  await auth.verifyMagicLink?.("token-from-email");
+if (verify?.success) {
+  const { isValid, userId } = verify.data!;
+  console.log(`Token is ${isValid ? "valid" : "invalid"} for user ${userId}`);
 }
 
 const consume: AuthResult<ConsumeMagicLinkResult> | undefined =
@@ -253,6 +264,7 @@ Available specific data types:
 - `LoginResult`: `{ user: SafeUser }`
 - `ChangePasswordResult`: `undefined`
 - `RequestMagicLinkResult`: `string`
+- `VerifyMagicLinkResult`: `{ isValid: boolean; userId: string; tokenId: string }`
 - `ConsumeMagicLinkResult`: `{ userId: string }`
 
 ## Development

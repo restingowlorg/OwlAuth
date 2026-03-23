@@ -3,8 +3,13 @@ import { hashPassword, verifyPassword } from "../infra/crypto/crypto";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
 import { UserRepository } from "../repositories/contracts";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
-import { AuthResult, LoginResult, SignupResult, ChangePasswordResult } from "../types/index";
-import { CreateUserInput } from "../interfaces/index";
+import {
+  AuthResult,
+  LoginResult,
+  SignupResult,
+  ChangePasswordResult,
+  CreateUserInput
+} from "../types/index";
 
 export class AuthService {
   constructor(private readonly users: UserRepository) {}

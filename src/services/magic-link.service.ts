@@ -31,13 +31,12 @@ export class MagicLinkService {
       const tokenHash = await hashToken(token);
 
       // invalidate existing tokens for this user
-      const result = await this.magicLinks.invalidateByUserId(user.id);
-
-      if (!result) {
+      const invalidated = await this.magicLinks.invalidateByUserId(user.id);
+      if (!invalidated) {
         return {
           success: false,
           data: undefined,
-          message: "Failed to invalidate existing tokens",
+          message: "Failed to invalidate existing magic links",
           httpCode: 500
         };
       }

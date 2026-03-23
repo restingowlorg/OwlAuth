@@ -4,7 +4,7 @@ import { MongoMagicLinkRepo } from "../../repositories/mongo/magicLink.repo";
 import { MongoUserRepo } from "../../repositories/mongo/user.repo";
 import { InitMongoOptions, BaseAuthOptions, AuthDB } from "../../types/index";
 import { authLog } from "../../utils/logger";
-import { MongoMagicLinkDoc, MongoUserDoc } from "../../interfaces";
+import { MongoMagicLinkDoc, MongoUserDoc } from "../../types";
 
 /**
  * Connect to MongoDB and initialize repositories
@@ -15,9 +15,7 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
   if (!mongoUri) throw new Error("mongoUri is required");
   if (!userCollectionName) throw new Error("userCollectionName is required");
 
-  // ---------------------------
   // Connect to MongoDB
-  // ---------------------------
   const connection = await mongoose.connect(mongoUri);
   const db = connection.connection.db;
 
@@ -50,9 +48,7 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
     }
   }
 
-  // ---------------------------
-  // Optional: Magic link collection
-  // ---------------------------
+  // Magic link collection
   let magicColl: Collection<MongoMagicLinkDoc> | undefined;
   if (authTypes?.includes("magic-link")) {
     if (!magicLinkCollectionName) {
@@ -68,10 +64,11 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
 
     const requiredMagicFields: (keyof MongoMagicLinkDoc)[] = [
       "_id",
-      "userId",
-      "tokenHash",
-      "expiresAt",
-      "usedAt"
+      "user_id",
+      "token",
+      "expires_at",
+      "used_at",
+      "created_at"
     ];
     const magicSample = await magicColl.findOne({});
     if (magicSample) {
@@ -85,9 +82,7 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
     }
   }
 
-  // ---------------------------
   // Initialize repositories
-  // ---------------------------
   return {
     userRepo: new MongoUserRepo(userColl),
     magicLinkRepo: magicColl ? new MongoMagicLinkRepo(magicColl) : undefined

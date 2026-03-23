@@ -1,6 +1,7 @@
 import { MagicLinkService } from "../services/magic-link.service";
 import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
 import { PostgresUserSchema } from "../infra/postgresql/schema";
+import { ObjectId } from "mongodb";
 
 // ------------------------------
 export type AuthType = "credentials" | "magic-link";
@@ -144,6 +145,67 @@ export type CreateMagicLinkInput = {
   expiresAt: Date;
   usedAt?: Date;
 };
+
+export interface CreateUserInput {
+  email: string;
+  passwordHash: string;
+  username: string;
+}
+
+export interface IAuthManager {
+  readonly changePassword: (
+    userId: string | number,
+    currentPassword: string,
+    newPassword: string
+  ) => Promise<AuthResult<ChangePasswordResult>>;
+  readonly requestMagicLink?: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
+  readonly verifyMagicLink?: (token: string) => Promise<AuthResult<VerifyMagicLinkResult>>;
+  readonly consumeMagicLink?: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
+  readonly signup: (
+    email: string,
+    username: string,
+    password: string
+  ) => Promise<AuthResult<SignupResult>>;
+  readonly login: (email: string, password: string) => Promise<AuthResult<LoginResult>>;
+}
+
+export interface MongoMagicLinkDoc {
+  _id?: ObjectId;
+  user_id: ObjectId;
+  token: string;
+  expires_at: Date;
+  used_at: Date | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface MongoUserDoc {
+  _id?: ObjectId; // MongoDB ObjectId (optional when inserting)
+  email: string;
+  username: string;
+  password: string;
+  created_at?: Date; // optional timestamps
+  updated_at?: Date;
+}
+
+export interface FKRow {
+  referenced_table: string;
+  referenced_column: string;
+}
+
+export interface TableExistsRow {
+  exists: boolean;
+}
+
+export interface ColumnInfoRow {
+  column_name: string;
+  is_nullable: "YES" | "NO";
+}
+
+export interface PrimaryKeyRow {
+  column_name: string;
+  data_type: string;
+}
 
 export type UserId = string | number;
 

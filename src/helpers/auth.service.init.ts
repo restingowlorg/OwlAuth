@@ -1,6 +1,6 @@
 import { AuthService } from "../services/auth.service";
 import { MagicLinkService } from "../services/magic-link.service";
-import { IAuthManager } from "../interfaces";
+import { IAuthManager } from "../types";
 import { AuthDB, AuthOptions } from "../types/index";
 import { authLog } from "../utils/logger";
 

@@ -1,7 +1,5 @@
 // src/repositories/contracts.ts
-
-import { CreateUserInput } from "../interfaces/index";
-import { User, MagicLinkRow, MagicLinkToken } from "../types";
+import { User, MagicLinkRow, MagicLinkToken, CreateUserInput } from "../types";
 
 /* ---------------------- USER REPOSITORY ---------------------- */
 

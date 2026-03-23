@@ -3,8 +3,12 @@
   "version": "1.0.1",
   "description": "A framework-agnostic, database-agnostic authentication library for Node.js",
   "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./mongo": "./dist/infra/mongo/mongo.js",
+    "./postgres": "./dist/infra/postgresql/postgres.js"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc --declaration",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --ext .ts,.js src/",
@@ -61,12 +65,10 @@
     "@typescript-eslint/parser": "^7.18.0",
     "eslint": "^8.57.1",
     "husky": "^9.1.7",
-    "lint-staged": "^15.5.2",
     "prettier": "^3.5.3",
     "secretlint": "^8.4.0",
     "typescript": "^5.8.2"
   },
-  "types": "dist/index.d.ts",
   "files": [
     "dist"
   ]

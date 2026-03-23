@@ -1,8 +1,8 @@
 import { Pool } from "pg";
 import { PostgresUserRepository } from "../../repositories/postgresql/user.repo";
 import { PostgresMagicLinkRepository } from "../../repositories/postgresql/magic.link.repo";
-import { AuthDB } from "../../interfaces/index";
-import { InitPostgresOptions, BaseAuthOptions } from "../../types/index";
+import { PostgresMagicLinkSchema, PostgresUserSchema } from "./schema";
+import { InitPostgresOptions, BaseAuthOptions, AuthDB } from "../../types/index";
 
 let pool: Pool | null = null;
 
@@ -33,9 +33,7 @@ export async function initPostgres(
   pool = new Pool({ connectionString: postgresUrl });
   await pool.query("SELECT 1"); // Test connection
 
-  // ---------------------------
-  // 1️⃣ Validate schema exists
-  // ---------------------------
+  // Validate schema exists
   const schemaCheck = await pool.query<{ schema_name: string }>(
     `SELECT schema_name FROM information_schema.schemata WHERE schema_name = $1`,
     [userSchema]
@@ -43,9 +41,7 @@ export async function initPostgres(
 
   if (!schemaCheck.rowCount) throw new Error(`Schema '${userSchema}' does not exist`);
 
-  // ---------------------------
-  // 2️⃣ Validate user table exists
-  // ---------------------------
+  // Validate user table exists
   const qualifiedUserTable = `${userSchema}.${userTableName}`;
   const userTableCheck = await pool.query<{ table_exists: string | null }>(
     `SELECT to_regclass($1) AS table_exists`,
@@ -65,7 +61,7 @@ export async function initPostgres(
     [userTableName, userSchema]
   );
 
-  const requiredUserColumns = ["id", "email", "username", "password"];
+  const requiredUserColumns = PostgresUserSchema.requiredColumns;
   const existingUserColumns = userColumnsRes.rows.map((r) => r.column_name);
 
   for (const col of requiredUserColumns) {
@@ -73,9 +69,7 @@ export async function initPostgres(
       throw new Error(`User table '${qualifiedUserTable}' missing required column '${col}'`);
   }
 
-  // ---------------------------
-  // 3️⃣ Optional: Magic link table
-  // ---------------------------
+  // Magic link table
   let magicRepo: PostgresMagicLinkRepository | undefined;
 
   if (authTypes?.includes("magic-link")) {
@@ -107,7 +101,7 @@ export async function initPostgres(
       [magicTable, magicLinkSchema]
     );
 
-    const requiredMagicColumns = ["id", "user_id", "token_hash", "expires_at", "used_at"];
+    const requiredMagicColumns = PostgresMagicLinkSchema.requiredColumns;
     const existingMagicColumns = magicColumnsRes.rows.map((r) => r.column_name);
 
     for (const col of requiredMagicColumns) {
@@ -156,9 +150,7 @@ export async function initPostgres(
     magicRepo = new PostgresMagicLinkRepository(qualifiedMagicTable);
   }
 
-  // ---------------------------
-  // 4️⃣ Return repositories
-  // ---------------------------
+  // Return repositories
   return {
     userRepo: new PostgresUserRepository(qualifiedUserTable),
     magicLinkRepo: magicRepo
