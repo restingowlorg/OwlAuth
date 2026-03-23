@@ -15,9 +15,11 @@ A framework-agnostic and database-agnostic authentication library for Node.js.
 - OWASP-aligned password protections:
   - strength checks with `@zxcvbn-ts/core`
   - breached password checks via Have I Been Pwned k-anonymity API
-  - blocked password word checks (email, username, and custom values)
+  - blocked password word checks
 - PostgreSQL and MongoDB support
 - Consistent typed `AuthResult` responses
+- Explicit, named public API to prevent drift
+- Subpath exports for modular database support (`/mongo`, `/postgres`)
 - Clean layered architecture
 
 ## Support Matrix
@@ -139,8 +141,20 @@ When using `dbType: "mongo"`, provide the connection URI and collection names.
 dbOptions: {
   mongoUri: "mongodb://localhost:27017/auth_db",
   userCollectionName: "users",           // Collection for user data
-  magicLinkCollectionName: "magic_tokens" // Optional: Default is "magic_links"
+  magicLinkCollectionName: "magic_links" // Optional: Default is "magic_links"
 }
+```
+
+## Subpath Exports
+
+For modularity and better tree-shaking, you can import database-specific repositories and connection helpers directly:
+
+```ts
+// MongoDB specialized exports
+import { connectMongo, MongoUserRepo } from "@restingowlorg/mvp-auth/mongo";
+
+// PostgreSQL specialized exports
+import { initPostgres, PostgresUserRepository } from "@restingowlorg/mvp-auth/postgres";
 ```
 
 ## Core API
@@ -154,7 +168,10 @@ import {
   ChangePasswordResult,
   RequestMagicLinkResult,
   VerifyMagicLinkResult,
-  ConsumeMagicLinkResult
+  ConsumeMagicLinkResult,
+  AuthUser,
+  SafeUser,
+  MagicLinkToken
 } from "@restingowlorg/mvp-auth";
 
 export interface IAuthManager {
