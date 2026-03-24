@@ -1,7 +1,4 @@
-// src/repositories/contracts.ts
 import { User, MagicLinkRow, MagicLinkToken, CreateUserInput } from "../types";
-
-/* ---------------------- USER REPOSITORY ---------------------- */
 
 export interface UserRepository {
   create(input: CreateUserInput): Promise<User>;

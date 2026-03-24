@@ -1,4 +1,4 @@
-import { CreateUserInput, MongoUserDoc } from "../../types";
+import { CreateUserInput, IMongoUserDoc } from "../../types";
 import { User } from "../../types/index";
 import { UserRepository } from "../contracts";
 import { Collection, ObjectId, InsertOneResult } from "mongodb";
@@ -7,9 +7,9 @@ import { Collection, ObjectId, InsertOneResult } from "mongodb";
  * MongoDB implementation of UserRepository
  */
 export class MongoUserRepo implements UserRepository {
-  private collection: Collection<MongoUserDoc>;
+  private collection: Collection<IMongoUserDoc>;
 
-  constructor(collection: Collection<MongoUserDoc>) {
+  constructor(collection: Collection<IMongoUserDoc>) {
     this.collection = collection;
   }
 
@@ -17,7 +17,7 @@ export class MongoUserRepo implements UserRepository {
     const { email, username, passwordHash } = input;
 
     const now = new Date();
-    const result: InsertOneResult<MongoUserDoc> = await this.collection.insertOne({
+    const result: InsertOneResult<IMongoUserDoc> = await this.collection.insertOne({
       email,
       username,
       password: passwordHash,

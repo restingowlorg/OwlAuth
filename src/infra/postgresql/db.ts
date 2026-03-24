@@ -4,13 +4,6 @@ import { PostgresMagicLinkRepository } from "../../repositories/postgresql/magic
 import { PostgresMagicLinkSchema, PostgresUserSchema } from "./schema";
 import { InitPostgresOptions, BaseAuthOptions, AuthDB } from "../../types/index";
 
-let pool: Pool | null = null;
-
-export function getPostgresPool(): Pool {
-  if (!pool) throw new Error("PostgreSQL not initialized. Call initPostgres first.");
-  return pool;
-}
-
 /**
  * Initialize PostgreSQL connection and repositories
  */
@@ -28,9 +21,7 @@ export async function initPostgres(
 
   if (!postgresUrl) throw new Error("postgresUrl is required");
   if (!userTableName) throw new Error("userTableName is required");
-  if (pool) throw new Error("PostgreSQL already initialized");
-
-  pool = new Pool({ connectionString: postgresUrl });
+  const pool = new Pool({ connectionString: postgresUrl });
   await pool.query("SELECT 1"); // Test connection
 
   // Validate schema exists
@@ -147,12 +138,12 @@ export async function initPostgres(
         `Magic link table '${qualifiedMagicTable}' must have a foreign key 'user_id' referencing '${qualifiedUserTable}.id'`
       );
 
-    magicRepo = new PostgresMagicLinkRepository(qualifiedMagicTable);
+    magicRepo = new PostgresMagicLinkRepository(qualifiedMagicTable, pool);
   }
 
   // Return repositories
   return {
-    userRepo: new PostgresUserRepository(qualifiedUserTable),
+    userRepo: new PostgresUserRepository(qualifiedUserTable, pool),
     magicLinkRepo: magicRepo
   };
 }

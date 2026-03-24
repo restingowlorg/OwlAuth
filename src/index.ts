@@ -1,13 +1,14 @@
-export { AuthManager, createAuthManager } from "./auth.manager";
+export { createAuthManager } from "./auth.manager";
 export {
   // Types
   AuthType,
-  DatabaseType,
   AuthLogLevel,
   UserId,
 
   // Interfaces & Managers
   IAuthManager,
+  IDatabaseAdapter,
+  ICryptoAdapter,
   AuthDB,
 
   // Options
@@ -15,7 +16,6 @@ export {
   BaseAuthOptions,
   InitPostgresOptions,
   InitMongoOptions,
-  CookieOptions,
 
   // Input Types
   SignupInput,
@@ -32,3 +32,5 @@ export {
   VerifyMagicLinkResult,
   ConsumeMagicLinkResult
 } from "./types/index";
+
+export { BcryptAdapter } from "./adapters/BcryptAdapter";

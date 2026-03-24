@@ -1,14 +1,11 @@
 import { Collection, ObjectId, InsertOneResult } from "mongodb";
-import { MagicLinkToken, MagicLinkRow, MongoMagicLinkDoc } from "../../types";
+import { MagicLinkToken, MagicLinkRow, IMongoMagicLinkDoc } from "../../types";
 import { MagicLinkRepository } from "../contracts";
 
-/**
- * MongoDB implementation of MagicLinkRepository
- */
 export class MongoMagicLinkRepo implements MagicLinkRepository {
-  private collection: Collection<MongoMagicLinkDoc>;
+  private collection: Collection<IMongoMagicLinkDoc>;
 
-  constructor(collection: Collection<MongoMagicLinkDoc>) {
+  constructor(collection: Collection<IMongoMagicLinkDoc>) {
     this.collection = collection;
   }
 
@@ -21,8 +18,8 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
   }): Promise<MagicLinkToken> {
     const now = new Date();
 
-    // Build the doc without _id (MongoDB will generate it)
-    const doc: Omit<MongoMagicLinkDoc, "_id"> = {
+    // Build the doc
+    const doc: Omit<IMongoMagicLinkDoc, "_id"> = {
       user_id: new ObjectId(token.userId.toString()),
       token: token.tokenHash,
       expires_at: token.expiresAt,
@@ -31,8 +28,8 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
       updated_at: now
     };
 
-    const result: InsertOneResult<MongoMagicLinkDoc> = await this.collection.insertOne(
-      doc as unknown as MongoMagicLinkDoc // type assertion for TS
+    const result: InsertOneResult<IMongoMagicLinkDoc> = await this.collection.insertOne(
+      doc as unknown as IMongoMagicLinkDoc
     );
 
     return {

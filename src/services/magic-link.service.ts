@@ -1,5 +1,5 @@
 import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
-import { hashToken, verifyToken, generateToken } from "../infra/crypto/crypto";
+import { ICryptoAdapter } from "../types";
 import {
   AuthResult,
   RequestMagicLinkResult,
@@ -10,7 +10,8 @@ import {
 export class MagicLinkService {
   constructor(
     private users: UserRepository,
-    private magicLinks: MagicLinkRepository
+    private magicLinks: MagicLinkRepository,
+    private crypto: ICryptoAdapter
   ) {}
 
   /** Request a magic link (passwordless login) */
@@ -27,8 +28,8 @@ export class MagicLinkService {
         };
       }
 
-      const token = generateToken();
-      const tokenHash = await hashToken(token);
+      const token = this.crypto.generateToken();
+      const tokenHash = await this.crypto.hashToken(token);
 
       // invalidate existing tokens for this user
       const invalidated = await this.magicLinks.invalidateByUserId(user.id);
@@ -100,7 +101,7 @@ export class MagicLinkService {
         };
       }
 
-      const match = await verifyToken(tokenValue, record.tokenHash);
+      const match = await this.crypto.verifyToken(tokenValue, record.tokenHash);
       if (!match) {
         return {
           success: false,

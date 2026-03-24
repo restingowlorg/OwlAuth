@@ -1,22 +1,16 @@
-import { MagicLinkService } from "../services/magic-link.service";
 import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
 import { PostgresUserSchema } from "../infra/postgresql/schema";
 import { ObjectId } from "mongodb";
 
-// ------------------------------
 export type AuthType = "credentials" | "magic-link";
 
-// ------------------------------
 // PostgreSQL & MongoDB DB options
-// ------------------------------
 export interface InitPostgresOptions {
   postgresUrl: string;
-
   userTableName: string;
-  userSchema?: string; // NEW (default: public)
-
+  userSchema?: string;
   magicLinkTableName?: string;
-  magicLinkSchema?: string; // NEW (default: public)
+  magicLinkSchema?: string;
 }
 
 export type InitMongoOptions = {
@@ -25,15 +19,32 @@ export type InitMongoOptions = {
   userCollectionName: string;
 };
 
-// ------------------------------
-// Type-safe options for AuthManager.init()
-// ------------------------------
+export interface IDatabaseAdapter {
+  connect(options: BaseAuthOptions): Promise<AuthDB>;
+}
+
+export interface ICryptoAdapter {
+  hashPassword(password: string): Promise<string>;
+  verifyPassword(password: string, hash: string): Promise<boolean>;
+  generateToken(length?: number): string;
+  hashToken(token: string): Promise<string>;
+  verifyToken(token: string, hash: string): Promise<boolean>;
+}
+
 export type BaseAuthOptions = {
   authTypes?: AuthType[];
   blockedPasswords?: string[];
-  magicLinkService?: MagicLinkService;
   magicLinkBaseUrl?: string;
+  cryptoAdapter?: ICryptoAdapter;
 };
+
+export type Mutable<T> = {
+  -readonly [P in keyof T]: T[P];
+};
+
+export interface IAuthStrategy {
+  register(target: Mutable<Partial<IAuthManager>>, db: AuthDB, options: AuthOptions): void;
+}
 
 export type AuthResult<T = unknown> = {
   success: boolean;
@@ -42,15 +53,9 @@ export type AuthResult<T = unknown> = {
   message: string;
 };
 
-export type AuthOptions =
-  | (BaseAuthOptions & {
-      dbType: "postgres";
-      dbOptions: InitPostgresOptions;
-    })
-  | (BaseAuthOptions & {
-      dbType: "mongo";
-      dbOptions: InitMongoOptions;
-    });
+export type AuthOptions = BaseAuthOptions & {
+  adapter: IDatabaseAdapter;
+};
 
 export type AuthLogLevel = "info" | "warn" | "error";
 
@@ -61,9 +66,6 @@ export type User = {
   password: string;
 };
 
-// ------------------------------
-// Authenticated User Interface
-// ------------------------------
 export type AuthUser = {
   id: string;
   email: string;
@@ -71,21 +73,6 @@ export type AuthUser = {
 };
 
 export type AuthRequest = Request & { user?: AuthUser };
-export type DatabaseType = "mongo" | "postgres";
-
-/* ------------------------------------------------ */
-/* COOKIE OPTIONS */
-/* ------------------------------------------------ */
-
-export type CookieOptions = {
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: "lax" | "strict" | "none";
-};
-
-/* ------------------------------------------------ */
-/* DATABASE REPOSITORIES */
-/* ------------------------------------------------ */
 
 export type TableColumn = {
   column_name: string;
@@ -97,15 +84,11 @@ export type ColumnRow = {
   column_name: string;
 };
 
-// Repository Interface
+// Repository
 export type AuthDB = {
   userRepo: UserRepository;
   magicLinkRepo?: MagicLinkRepository;
 };
-
-/* ------------------------------------------------ */
-/* AUTH INPUT / RESULT TYPES */
-/* ------------------------------------------------ */
 
 export type SignupInput = {
   email: string;
@@ -152,24 +135,32 @@ export interface CreateUserInput {
   username: string;
 }
 
-export interface IAuthManager {
-  readonly changePassword: (
-    userId: string | number,
-    currentPassword: string,
-    newPassword: string
-  ) => Promise<AuthResult<ChangePasswordResult>>;
-  readonly requestMagicLink?: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
-  readonly verifyMagicLink?: (token: string) => Promise<AuthResult<VerifyMagicLinkResult>>;
-  readonly consumeMagicLink?: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
+export interface ICredentialsMethods {
   readonly signup: (
     email: string,
     username: string,
     password: string
   ) => Promise<AuthResult<SignupResult>>;
   readonly login: (email: string, password: string) => Promise<AuthResult<LoginResult>>;
+  readonly changePassword: (
+    userId: string | number,
+    currentPassword: string,
+    newPassword: string
+  ) => Promise<AuthResult<ChangePasswordResult>>;
 }
 
-export interface MongoMagicLinkDoc {
+export interface IMagicLinkMethods {
+  readonly request: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
+  readonly verify: (token: string) => Promise<AuthResult<VerifyMagicLinkResult>>;
+  readonly consume: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
+}
+
+export interface IAuthManager {
+  readonly credentials?: ICredentialsMethods;
+  readonly magicLink?: IMagicLinkMethods;
+}
+
+export interface IMongoMagicLinkDoc {
   _id?: ObjectId;
   user_id: ObjectId;
   token: string;
@@ -179,7 +170,7 @@ export interface MongoMagicLinkDoc {
   updated_at: Date;
 }
 
-export interface MongoUserDoc {
+export interface IMongoUserDoc {
   _id?: ObjectId; // MongoDB ObjectId (optional when inserting)
   email: string;
   username: string;

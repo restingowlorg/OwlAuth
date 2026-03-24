@@ -41,16 +41,16 @@ npm install @restingowlorg/mvp-auth
 
 ```ts
 import { createAuthManager } from "@restingowlorg/mvp-auth";
+import { PostgresAdapter } from "@restingowlorg/mvp-auth/postgres";
 
 const auth = await createAuthManager({
-  dbType: "postgres",
-  dbOptions: {
+  adapter: new PostgresAdapter({
     postgresUrl: process.env.POSTGRES_URL!,
     userTableName: "users",
     userSchema: "public",
     magicLinkTableName: "magic_links",
     magicLinkSchema: "public"
-  },
+  }),
   authTypes: ["credentials", "magic-link"],
   blockedPasswords: ["company", "admin"]
 });
@@ -61,13 +61,15 @@ const auth = await createAuthManager({
 ### MongoDB
 
 ```ts
+import { createAuthManager } from "@restingowlorg/mvp-auth";
+import { MongoAdapter } from "@restingowlorg/mvp-auth/mongo";
+
 const auth = await createAuthManager({
-  dbType: "mongo",
-  dbOptions: {
+  adapter: new MongoAdapter({
     mongoUri: process.env.MONGO_URI!,
     userCollectionName: "users",
     magicLinkCollectionName: "magic_links"
-  },
+  }),
   authTypes: ["credentials", "magic-link"]
 });
 ```
@@ -75,12 +77,14 @@ const auth = await createAuthManager({
 ### PostgreSQL
 
 ```ts
+import { createAuthManager } from "@restingowlorg/mvp-auth";
+import { PostgresAdapter } from "@restingowlorg/mvp-auth/postgres";
+
 const auth = await createAuthManager({
-  dbType: "postgres",
-  dbOptions: {
+  adapter: new PostgresAdapter({
     postgresUrl: process.env.POSTGRES_URL!,
     userTableName: "users"
-  },
+  }),
   authTypes: ["credentials"]
 });
 ```
@@ -121,28 +125,32 @@ magicLinkBaseUrl: "https://auth.example.com/verify";
 
 #### PostgreSQL Configuration
 
-When using `dbType: "postgres"`, provide the connection details and table names.
+When using `PostgresAdapter`, provide the connection details and table names.
 
 ```ts
-dbOptions: {
+import { PostgresAdapter } from "@restingowlorg/mvp-auth/postgres";
+
+adapter: new PostgresAdapter({
   postgresUrl: "postgresql://user:pass@localhost:5432/db",
-  userTableName: "users",      // Table for user data
-  userSchema: "auth",          // Optional: Database schema (default: "public")
+  userTableName: "users", // Table for user data
+  userSchema: "auth", // Optional: Database schema (default: "public")
   magicLinkTableName: "links", // Optional: Table for magic tokens
-  magicLinkSchema: "auth"      // Optional: Schema for links (default: "public")
-}
+  magicLinkSchema: "auth" // Optional: Schema for links (default: "public")
+});
 ```
 
 #### MongoDB Configuration
 
-When using `dbType: "mongo"`, provide the connection URI and collection names.
+When using `MongoAdapter`, provide the connection URI and collection names.
 
 ```ts
-dbOptions: {
+import { MongoAdapter } from "@restingowlorg/mvp-auth/mongo";
+
+adapter: new MongoAdapter({
   mongoUri: "mongodb://localhost:27017/auth_db",
-  userCollectionName: "users",           // Collection for user data
+  userCollectionName: "users", // Collection for user data
   magicLinkCollectionName: "magic_links" // Optional: Default is "magic_links"
-}
+});
 ```
 
 ## Subpath Exports
@@ -151,10 +159,14 @@ For modularity and better tree-shaking, you can import database-specific reposit
 
 ```ts
 // MongoDB specialized exports
-import { connectMongo, MongoUserRepo } from "@restingowlorg/mvp-auth/mongo";
+import { MongoAdapter, connectMongo, MongoUserRepo } from "@restingowlorg/mvp-auth/mongo";
 
 // PostgreSQL specialized exports
-import { initPostgres, PostgresUserRepository } from "@restingowlorg/mvp-auth/postgres";
+import {
+  PostgresAdapter,
+  initPostgres,
+  PostgresUserRepository
+} from "@restingowlorg/mvp-auth/postgres";
 ```
 
 ## Core API
@@ -175,6 +187,11 @@ import {
 } from "@restingowlorg/mvp-auth";
 
 export interface IAuthManager {
+  readonly credentials?: ICredentialsMethods;
+  readonly magicLink?: IMagicLinkMethods;
+}
+
+export interface ICredentialsMethods {
   readonly signup: (
     email: string,
     username: string,
@@ -186,10 +203,12 @@ export interface IAuthManager {
     currentPassword: string,
     newPassword: string
   ) => Promise<AuthResult<ChangePasswordResult>>;
+}
 
-  readonly requestMagicLink?: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
-  readonly verifyMagicLink?: (token: string) => Promise<AuthResult<VerifyMagicLinkResult>>;
-  readonly consumeMagicLink?: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
+export interface IMagicLinkMethods {
+  readonly request: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
+  readonly verify: (token: string) => Promise<AuthResult<VerifyMagicLinkResult>>;
+  readonly consume: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
 }
 ```
 
@@ -200,7 +219,7 @@ export interface IAuthManager {
 ```ts
 import { SignupResult, AuthResult } from "@restingowlorg/mvp-auth";
 
-const result: AuthResult<SignupResult> = await auth.signup(
+const result: AuthResult<SignupResult> = await auth.credentials.signup(
   "user@example.com",
   "username",
   "StrongPassword123!"
@@ -212,7 +231,10 @@ const result: AuthResult<SignupResult> = await auth.signup(
 ```ts
 import { LoginResult, AuthResult } from "@restingowlorg/mvp-auth";
 
-const result: AuthResult<LoginResult> = await auth.login("user@example.com", "StrongPassword123!");
+const result: AuthResult<LoginResult> = await auth.credentials.login(
+  "user@example.com",
+  "StrongPassword123!"
+);
 
 if (result.success) {
   const { user } = result.data!;
@@ -225,7 +247,7 @@ if (result.success) {
 ```ts
 import { ChangePasswordResult, AuthResult } from "@restingowlorg/mvp-auth";
 
-const result: AuthResult<ChangePasswordResult> = await auth.changePassword(
+const result: AuthResult<ChangePasswordResult> = await auth.credentials.changePassword(
   userId,
   "CurrentPassword123!",
   "NewStrongPassword456!"
@@ -243,20 +265,20 @@ import {
 } from "@restingowlorg/mvp-auth";
 
 const request: AuthResult<RequestMagicLinkResult> | undefined =
-  await auth.requestMagicLink?.("user@example.com");
+  await auth.magicLink?.request("user@example.com");
 if (request?.success) {
   const token = request.data; // token string
 }
 
 const verify: AuthResult<VerifyMagicLinkResult> | undefined =
-  await auth.verifyMagicLink?.("token-from-email");
+  await auth.magicLink?.verify("token-from-email");
 if (verify?.success) {
   const { isValid, userId } = verify.data!;
   console.log(`Token is ${isValid ? "valid" : "invalid"} for user ${userId}`);
 }
 
 const consume: AuthResult<ConsumeMagicLinkResult> | undefined =
-  await auth.consumeMagicLink?.("token-from-email");
+  await auth.magicLink?.consume("token-from-email");
 if (consume?.success) {
   const { userId } = consume.data!;
 }

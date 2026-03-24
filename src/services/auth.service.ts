@@ -1,5 +1,5 @@
 import { zxcvbn } from "@zxcvbn-ts/core";
-import { hashPassword, verifyPassword } from "../infra/crypto/crypto";
+import { ICryptoAdapter } from "../types";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
 import { UserRepository } from "../repositories/contracts";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
@@ -12,13 +12,15 @@ import {
 } from "../types/index";
 
 export class AuthService {
-  constructor(private readonly users: UserRepository) {}
+  constructor(
+    private readonly users: UserRepository,
+    private readonly crypto: ICryptoAdapter
+  ) {}
 
   async signup(
     email: string,
     username: string,
     password: string,
-    UserRepo: UserRepository,
     blockedPasswords?: string[]
   ): Promise<AuthResult<LoginResult>> {
     try {
@@ -66,8 +68,8 @@ export class AuthService {
       }
 
       // Username uniqueness
-      if (UserRepo.findByUsername) {
-        const existingUser = await UserRepo.findByUsername(username);
+      if (this.users.findByUsername) {
+        const existingUser = await this.users.findByUsername(username);
         if (existingUser)
           return {
             success: false,
@@ -78,7 +80,7 @@ export class AuthService {
       }
 
       // Email uniqueness
-      const existingEmail = await UserRepo.findByEmail(email);
+      const existingEmail = await this.users.findByEmail(email);
       if (existingEmail)
         return {
           success: false,
@@ -88,9 +90,9 @@ export class AuthService {
         };
 
       // Hash password and create user
-      const passwordHash = await hashPassword(password);
+      const passwordHash = await this.crypto.hashPassword(password);
       const input: CreateUserInput = { email, username, passwordHash };
-      const user = await UserRepo.create(input);
+      const user = await this.users.create(input);
 
       if (!user) {
         return {
@@ -137,7 +139,7 @@ export class AuthService {
       }
 
       // -------------------- Verify Password --------------------
-      const valid = await verifyPassword(password, user.password);
+      const valid = await this.crypto.verifyPassword(password, user.password);
       if (!valid) {
         return {
           success: false,
@@ -174,15 +176,14 @@ export class AuthService {
     userId: string | number,
     currentPassword: string,
     newPassword: string,
-    UserRepo: UserRepository,
     blockedPasswords?: string[]
   ): Promise<AuthResult<ChangePasswordResult>> {
     // Fetch user
-    const user = await UserRepo.findById(userId);
+    const user = await this.users.findById(userId);
     if (!user) return { success: false, data: undefined, message: "User not found", httpCode: 404 };
 
     // Verify current password
-    const valid = await verifyPassword(currentPassword, user.password);
+    const valid = await this.crypto.verifyPassword(currentPassword, user.password);
     if (!valid)
       return {
         success: false,
@@ -212,8 +213,8 @@ export class AuthService {
     }
 
     // Hash new password and update
-    const newHash = await hashPassword(newPassword);
-    const updated = await UserRepo.updatePassword(userId, newHash);
+    const newHash = await this.crypto.hashPassword(newPassword);
+    const updated = await this.users.updatePassword(userId, newHash);
 
     if (!updated) {
       return {
