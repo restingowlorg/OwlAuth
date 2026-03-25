@@ -1,4 +1,4 @@
-export { createAuthManager } from "./auth.manager";
+export { createAuthManager } from "./core/auth.manager";
 export {
   // Types
   AuthType,
@@ -33,4 +33,6 @@ export {
   ConsumeMagicLinkResult
 } from "./types/index";
 
-export { BcryptAdapter } from "./adapters/BcryptAdapter";
+export { BcryptAdapter } from "./infra/security/bcrypt.adapter";
+export { MongoAdapter } from "./infra/databases/mongo/adapter";
+export { PostgresAdapter } from "./infra/databases/postgresql/adapter";

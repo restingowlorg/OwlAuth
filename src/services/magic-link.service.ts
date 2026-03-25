@@ -83,7 +83,7 @@ export class MagicLinkService {
       if (parts.length !== 2) {
         return {
           success: false,
-          data: { isValid: false },
+          data: undefined,
           message: "Invalid or malformed magic link token",
           httpCode: 400
         };
@@ -95,7 +95,7 @@ export class MagicLinkService {
       if (!record || record.usedAt || record.expiresAt.getTime() < Date.now()) {
         return {
           success: false,
-          data: { isValid: false },
+          data: undefined,
           message: "Invalid or expired magic link",
           httpCode: 401
         };
@@ -105,7 +105,7 @@ export class MagicLinkService {
       if (!match) {
         return {
           success: false,
-          data: { isValid: false },
+          data: undefined,
           message: "Invalid or expired magic link",
           httpCode: 401
         };
@@ -121,7 +121,7 @@ export class MagicLinkService {
       const message = err instanceof Error ? err.message : "Unknown error";
       return {
         success: false,
-        data: { isValid: false },
+        data: undefined,
         message: "Failed to verify magic link: " + message,
         httpCode: 500
       };
@@ -133,12 +133,7 @@ export class MagicLinkService {
     try {
       const verifyResult = await this.verify(token);
 
-      if (
-        !verifyResult.success ||
-        !verifyResult.data?.isValid ||
-        !verifyResult.data.tokenId ||
-        !verifyResult.data.userId
-      ) {
+      if (!verifyResult.success) {
         return {
           success: false,
           data: undefined,

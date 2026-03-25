@@ -1,9 +1,9 @@
 import { MongoClient, Collection } from "mongodb";
-import { MongoMagicLinkRepo } from "../../repositories/mongo/magicLink.repo";
-import { MongoUserRepo } from "../../repositories/mongo/user.repo";
-import { InitMongoOptions, BaseAuthOptions, AuthDB } from "../../types/index";
-import { authLog } from "../../utils/logger";
-import { IMongoMagicLinkDoc, IMongoUserDoc } from "../../types";
+import { MongoMagicLinkRepo } from "../../../repositories/mongo/magicLink.repo";
+import { MongoUserRepo } from "../../../repositories/mongo/user.repo";
+import { InitMongoOptions, BaseAuthOptions, AuthDB } from "../../../types/index";
+import { authLog } from "../../../utils/logger";
+import { IMongoMagicLinkDoc, IMongoUserDoc } from "../../../types";
 
 /**
  * Connect to MongoDB and initialize repositories
@@ -11,8 +11,8 @@ import { IMongoMagicLinkDoc, IMongoUserDoc } from "../../types";
 export async function connectMongo(options: InitMongoOptions & BaseAuthOptions): Promise<AuthDB> {
   const { mongoUri, userCollectionName, magicLinkCollectionName, authTypes } = options;
 
-  if (!mongoUri) throw new Error("mongoUri is required");
-  if (!userCollectionName) throw new Error("userCollectionName is required");
+  if (!mongoUri) throw new Error("[Auth:connectMongo] mongoUri is required");
+  if (!userCollectionName) throw new Error("[Auth:connectMongo] userCollectionName is required");
 
   // Connect to MongoDB
   const client = new MongoClient(mongoUri);
@@ -21,7 +21,7 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
 
   if (!db) {
     authLog("error", "Failed to connect to MongoDB - no database instance found");
-    throw new Error("Failed to connect to MongoDB");
+    throw new Error("[Auth:connectMongo] Failed to connect to MongoDB");
   }
 
   // Use generic to type collection correctly
@@ -29,9 +29,11 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
 
   // Magic link collection
   let magicColl: Collection<IMongoMagicLinkDoc> | undefined;
-  if (authTypes?.includes("magic-link")) {
+  if (authTypes?.includes("magicLink")) {
     if (!magicLinkCollectionName) {
-      throw new Error(`Magic link auth requested but 'magicLinkCollectionName' is not provided`);
+      throw new Error(
+        `[Auth:connectMongo] Magic link auth requested but 'magicLinkCollectionName' is not provided`
+      );
     }
 
     magicColl = db.collection<IMongoMagicLinkDoc>(magicLinkCollectionName);
@@ -40,6 +42,9 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
   // Initialize repositories
   return {
     userRepo: new MongoUserRepo(userColl),
-    magicLinkRepo: magicColl ? new MongoMagicLinkRepo(magicColl) : undefined
+    magicLinkRepo: magicColl ? new MongoMagicLinkRepo(magicColl) : undefined,
+    close: async () => {
+      await client.close();
+    }
   };
 }

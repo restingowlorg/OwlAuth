@@ -2,7 +2,7 @@ import {
   AuthDB,
   AuthOptions,
   AuthType,
-  IAuthManager,
+  IAuthMethods,
   IAuthStrategy,
   Mutable
 } from "../types/index";
@@ -12,11 +12,14 @@ import { MagicLinkAuthStrategy } from "../strategies/MagicLinkStrategy";
 
 const authStrategies: Record<AuthType, IAuthStrategy> = {
   credentials: new CredentialsAuthStrategy(),
-  "magic-link": new MagicLinkAuthStrategy()
+  magicLink: new MagicLinkAuthStrategy()
 };
 
-export function initAuthServices(db: AuthDB, options: AuthOptions): Partial<IAuthManager> {
-  const result: Mutable<Partial<IAuthManager>> = {};
+export function initAuthServices(
+  db: AuthDB,
+  options: AuthOptions<AuthType>
+): Partial<IAuthMethods> {
+  const result: Mutable<Partial<IAuthMethods>> = {};
 
   const authTypes = options.authTypes ?? ["credentials"];
 

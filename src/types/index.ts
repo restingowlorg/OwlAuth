@@ -1,8 +1,8 @@
 import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
-import { PostgresUserSchema } from "../infra/postgresql/schema";
+import { PostgresUserSchema } from "../infra/databases/postgresql/schema";
 import { ObjectId } from "mongodb";
 
-export type AuthType = "credentials" | "magic-link";
+export type AuthType = "credentials" | "magicLink";
 
 // PostgreSQL & MongoDB DB options
 export interface InitPostgresOptions {
@@ -31,8 +31,8 @@ export interface ICryptoAdapter {
   verifyToken(token: string, hash: string): Promise<boolean>;
 }
 
-export type BaseAuthOptions = {
-  authTypes?: AuthType[];
+export type BaseAuthOptions<T extends AuthType = AuthType> = {
+  authTypes?: T[];
   blockedPasswords?: string[];
   magicLinkBaseUrl?: string;
   cryptoAdapter?: ICryptoAdapter;
@@ -43,17 +43,18 @@ export type Mutable<T> = {
 };
 
 export interface IAuthStrategy {
-  register(target: Mutable<Partial<IAuthManager>>, db: AuthDB, options: AuthOptions): void;
+  register(
+    target: Mutable<Partial<IAuthMethods>>,
+    db: AuthDB,
+    options: AuthOptions<AuthType>
+  ): void;
 }
 
-export type AuthResult<T = unknown> = {
-  success: boolean;
-  data?: T | undefined;
-  httpCode: number;
-  message: string;
-};
+export type AuthResult<T = unknown> =
+  | { success: true; data: T; httpCode: number; message: string }
+  | { success: false; data?: undefined; httpCode: number; message: string };
 
-export type AuthOptions = BaseAuthOptions & {
+export type AuthOptions<T extends AuthType = AuthType> = BaseAuthOptions<T> & {
   adapter: IDatabaseAdapter;
 };
 
@@ -88,6 +89,7 @@ export type ColumnRow = {
 export type AuthDB = {
   userRepo: UserRepository;
   magicLinkRepo?: MagicLinkRepository;
+  close: () => Promise<void>;
 };
 
 export type SignupInput = {
@@ -155,10 +157,16 @@ export interface IMagicLinkMethods {
   readonly consume: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
 }
 
-export interface IAuthManager {
-  readonly credentials?: ICredentialsMethods;
-  readonly magicLink?: IMagicLinkMethods;
+export interface IAuthMethods {
+  credentials: ICredentialsMethods;
+  magicLink: IMagicLinkMethods;
 }
+
+export type IAuthManager<T extends AuthType = AuthType> = {
+  [K in T]: IAuthMethods[K];
+} & {
+  readonly disconnectDB: () => Promise<void>;
+};
 
 export interface IMongoMagicLinkDoc {
   _id?: ObjectId;
@@ -208,19 +216,20 @@ export type SignupResult = {
   user: SafeUser;
 };
 
-export type ChangePasswordResult = undefined;
+export type ChangePasswordResult = {
+  user: SafeUser;
+};
 export type RequestMagicLinkResult = string;
 export type VerifyMagicLinkResult = {
   isValid: boolean;
-  userId?: string;
-  tokenId?: string;
+  userId: string;
+  tokenId: string;
 };
 export type ConsumeMagicLinkResult = {
   userId: string;
 };
 
 export type SafeUser = {
-  id: string;
   email: string;
   username: string;
 };

@@ -1,9 +1,13 @@
-import { BcryptAdapter } from "../adapters/BcryptAdapter";
+import { BcryptAdapter } from "../infra/security/bcrypt.adapter";
 import { AuthService } from "../services/auth.service";
-import { AuthDB, AuthOptions, IAuthManager, IAuthStrategy, Mutable } from "../types";
+import { AuthDB, AuthOptions, AuthType, IAuthMethods, IAuthStrategy, Mutable } from "../types";
 
 export class CredentialsAuthStrategy implements IAuthStrategy {
-  register(target: Mutable<Partial<IAuthManager>>, db: AuthDB, options: AuthOptions): void {
+  register(
+    target: Mutable<Partial<IAuthMethods>>,
+    db: AuthDB,
+    options: AuthOptions<AuthType>
+  ): void {
     const cryptoAdapter = options.cryptoAdapter ?? new BcryptAdapter();
     const service = new AuthService(db.userRepo, cryptoAdapter);
 

@@ -1,6 +1,6 @@
 # MVP Auth
 
-A framework-agnostic and database-agnostic authentication library for Node.js.
+A robust, multi-platform authentication framework built on OWASP security standards.
 
 ## Features
 
@@ -12,15 +12,35 @@ A framework-agnostic and database-agnostic authentication library for Node.js.
   - request magic link
   - verify magic link
   - consume magic link
-- OWASP-aligned password protections:
-  - strength checks with `@zxcvbn-ts/core`
-  - breached password checks via Have I Been Pwned k-anonymity API
-  - blocked password word checks
 - PostgreSQL and MongoDB support
 - Consistent typed `AuthResult` responses
 - Explicit, named public API to prevent drift
 - Subpath exports for modular database support (`/mongo`, `/postgres`)
-- Clean layered architecture
+- Clean layered architecture (Core, Infra, Services, Strategies)
+
+## OWASP Authentication Alignment
+
+**MVP Auth** is designed with security as a first-class citizen, strictly aligning with the **OWASP Application Security Verification Standard (ASVS v4.0)** for authentication.
+
+### Core Security Strengths
+
+- **V6.2 Password Security**:
+  - **Entropy-Based Strength**: Leverages `@zxcvbn-ts/core` to enforce complex passwords based on entropy scores rather than simple character rules (ASVS 6.2.1, 6.2.5).
+  - **Breached Password Protection**: Real-time checks against over 600 million compromised credentials using the Have I Been Pwned k-anonymity API (ASVS 6.2.12).
+  - **Context-Aware Defense**: Automatically blocks passwords that contain the user's email, username, or custom-defined forbidden words (ASVS 6.2.11).
+  - **No Truncation**: Passwords of any length (64+ characters) are supported and verified exactly as received (ASVS 6.2.8, 6.2.9).
+- **V6.3 General Security**:
+  - **Enumeration Protection**: Consistent error messaging and response times prevent attackers from identifying valid user accounts via login attempts (ASVS 6.3.8).
+- **V6.5 MFA & Tokens**:
+  - **Standardized Magic Links**: Passwordless authentication uses single-use tokens with cryptographically secure generation and strict 15-minute expiration windows (ASVS 6.5.1, 6.5.3, 6.5.5).
+
+### Future Security Roadmap
+
+We are committed to continuous security improvements. Planned updates to further enhance OWASP alignment include:
+
+- **Rate Limiting & Anti-Brute Force**: Implementing adaptive delays and account lockout mechanisms (ASVS 6.3.1).
+- **Multi-factor Authentication (MFA)**: Adding support for TOTP (Time-based One-Time Passwords) for Level 2 authentication (ASVS 6.3.3).
+- **Security Notifications**: Real-time user alerts for password changes, account updates, and suspicious login activity (ASVS 6.3.5, 6.3.7).
 
 ## Support Matrix
 
@@ -40,8 +60,8 @@ npm install @restingowlorg/mvp-auth
 ## Quick Start
 
 ```ts
-import { createAuthManager } from "@restingowlorg/mvp-auth";
-import { PostgresAdapter } from "@restingowlorg/mvp-auth/postgres";
+import { createAuthManager, PostgresAdapter } from "@restingowlorg/mvp-auth";
+// OR import { PostgresAdapter } from "@restingowlorg/mvp-auth/postgres";
 
 const auth = await createAuthManager({
   adapter: new PostgresAdapter({
@@ -51,7 +71,7 @@ const auth = await createAuthManager({
     magicLinkTableName: "magic_links",
     magicLinkSchema: "public"
   }),
-  authTypes: ["credentials", "magic-link"],
+  authTypes: ["credentials", "magicLink"],
   blockedPasswords: ["company", "admin"]
 });
 ```
@@ -61,8 +81,7 @@ const auth = await createAuthManager({
 ### MongoDB
 
 ```ts
-import { createAuthManager } from "@restingowlorg/mvp-auth";
-import { MongoAdapter } from "@restingowlorg/mvp-auth/mongo";
+import { createAuthManager, MongoAdapter } from "@restingowlorg/mvp-auth";
 
 const auth = await createAuthManager({
   adapter: new MongoAdapter({
@@ -70,15 +89,14 @@ const auth = await createAuthManager({
     userCollectionName: "users",
     magicLinkCollectionName: "magic_links"
   }),
-  authTypes: ["credentials", "magic-link"]
+  authTypes: ["credentials", "magicLink"]
 });
 ```
 
 ### PostgreSQL
 
 ```ts
-import { createAuthManager } from "@restingowlorg/mvp-auth";
-import { PostgresAdapter } from "@restingowlorg/mvp-auth/postgres";
+import { createAuthManager, PostgresAdapter } from "@restingowlorg/mvp-auth";
 
 const auth = await createAuthManager({
   adapter: new PostgresAdapter({
@@ -102,7 +120,7 @@ These options apply regardless of the database type you Choose.
 Define which authentication flows are enabled for your instance.
 
 ```ts
-authTypes: ["credentials", "magic-link"]; // Defaults to credentials if omitted
+authTypes: ["credentials", "magicLink"]; // Defaults to credentials if omitted
 ```
 
 #### Password Protections
@@ -186,30 +204,16 @@ import {
   MagicLinkToken
 } from "@restingowlorg/mvp-auth";
 
-export interface IAuthManager {
-  readonly credentials?: ICredentialsMethods;
-  readonly magicLink?: IMagicLinkMethods;
+export interface IAuthMethods {
+  credentials: ICredentialsMethods;
+  magicLink: IMagicLinkMethods;
 }
 
-export interface ICredentialsMethods {
-  readonly signup: (
-    email: string,
-    username: string,
-    password: string
-  ) => Promise<AuthResult<SignupResult>>;
-  readonly login: (email: string, password: string) => Promise<AuthResult<LoginResult>>;
-  readonly changePassword: (
-    userId: string | number,
-    currentPassword: string,
-    newPassword: string
-  ) => Promise<AuthResult<ChangePasswordResult>>;
-}
-
-export interface IMagicLinkMethods {
-  readonly request: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
-  readonly verify: (token: string) => Promise<AuthResult<VerifyMagicLinkResult>>;
-  readonly consume: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
-}
+export type IAuthManager<T extends AuthType = AuthType> = {
+  [K in T]: IAuthMethods[K];
+} & {
+  readonly disconnectDB: () => Promise<void>;
+};
 ```
 
 ## Usage
@@ -237,8 +241,8 @@ const result: AuthResult<LoginResult> = await auth.credentials.login(
 );
 
 if (result.success) {
-  const { user } = result.data!;
-  console.log(`User ${user.username} logged in with ID ${user.id}`);
+  const { user } = result.data;
+  console.log(`User ${user.username} logged in (${user.email})`);
 }
 ```
 
@@ -264,23 +268,22 @@ import {
   AuthResult
 } from "@restingowlorg/mvp-auth";
 
-const request: AuthResult<RequestMagicLinkResult> | undefined =
-  await auth.magicLink?.request("user@example.com");
-if (request?.success) {
+const request: AuthResult<RequestMagicLinkResult> =
+  await auth.magicLink.request("user@example.com");
+if (request.success) {
   const token = request.data; // token string
 }
 
-const verify: AuthResult<VerifyMagicLinkResult> | undefined =
-  await auth.magicLink?.verify("token-from-email");
-if (verify?.success) {
-  const { isValid, userId } = verify.data!;
-  console.log(`Token is ${isValid ? "valid" : "invalid"} for user ${userId}`);
+const verify: AuthResult<VerifyMagicLinkResult> = await auth.magicLink.verify("token-from-email");
+if (verify.success) {
+  const { isValid } = verify.data;
+  console.log(`Token is ${isValid ? "valid" : "invalid"}`);
 }
 
-const consume: AuthResult<ConsumeMagicLinkResult> | undefined =
-  await auth.magicLink?.consume("token-from-email");
-if (consume?.success) {
-  const { userId } = consume.data!;
+const consume: AuthResult<ConsumeMagicLinkResult> =
+  await auth.magicLink.consume("token-from-email");
+if (consume.success) {
+  console.log("Magic link consumed");
 }
 ```
 
@@ -301,10 +304,10 @@ Available specific data types:
 
 - `SignupResult`: `{ user: SafeUser }`
 - `LoginResult`: `{ user: SafeUser }`
-- `ChangePasswordResult`: `undefined`
+- `ChangePasswordResult`: `{ user: SafeUser }`
 - `RequestMagicLinkResult`: `string`
-- `VerifyMagicLinkResult`: `{ isValid: boolean; userId: string; tokenId: string }`
-- `ConsumeMagicLinkResult`: `{ userId: string }`
+- `VerifyMagicLinkResult`: `{ isValid: boolean; tokenId: string }`
+- `ConsumeMagicLinkResult`: `undefined`
 
 ## Development
 

@@ -103,7 +103,17 @@ export class AuthService {
         };
       }
 
-      return { success: true, data: { user }, message: "User signed up", httpCode: 201 };
+      return {
+        success: true,
+        data: {
+          user: {
+            email: user.email,
+            username: user.username
+          }
+        },
+        message: "User signed up",
+        httpCode: 201
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       return {
@@ -154,7 +164,6 @@ export class AuthService {
         success: true,
         data: {
           user: {
-            id: user.id,
             email: user.email,
             username: user.username
           }
@@ -228,7 +237,12 @@ export class AuthService {
     return {
       success: true,
       message: "Password updated successfully",
-      data: undefined,
+      data: {
+        user: {
+          email: user.email,
+          username: user.username
+        }
+      },
       httpCode: 200
     };
   }

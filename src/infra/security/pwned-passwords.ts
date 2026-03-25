@@ -1,5 +1,6 @@
 import { sha1 } from "js-sha1";
 import { authLog } from "../../utils/logger";
+import { SECURITY_CONFIG } from "./config";
 
 export async function isBreachedPassword(password: string): Promise<boolean> {
   const hash = sha1(password).toUpperCase();
@@ -10,8 +11,7 @@ export async function isBreachedPassword(password: string): Promise<boolean> {
     // 3-second timeout fallback to prevent hanging requests
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
-
-    const response = await fetch(`https://api.pwnedpasswords.com/range/${prefix}`, {
+    const response = await fetch(`${SECURITY_CONFIG.PWNED_API_URL}/${prefix}`, {
       signal: controller.signal
     });
 

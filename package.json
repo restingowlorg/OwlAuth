@@ -1,12 +1,12 @@
 {
-  "name": "@restingowlorg/mvp-auth",
+  "name": "@restingowlorg/ossec-auth",
   "version": "1.0.1",
-  "description": "A framework-agnostic, database-agnostic authentication library for Node.js",
+  "description": "Multi-platform, OWASP-aligned authentication framework",
   "main": "dist/index.js",
   "exports": {
     ".": "./dist/index.js",
-    "./mongo": "./dist/infra/mongo/mongo.js",
-    "./postgres": "./dist/infra/postgresql/postgres.js"
+    "./mongo": "./dist/infra/databases/mongo/mongo.js",
+    "./postgres": "./dist/infra/databases/postgresql/postgres.js"
   },
   "scripts": {
     "build": "tsc --declaration",

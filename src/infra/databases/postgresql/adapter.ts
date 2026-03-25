@@ -1,5 +1,10 @@
-import { initPostgres } from "../infra/postgresql/db";
-import { AuthDB, BaseAuthOptions, IDatabaseAdapter, InitPostgresOptions } from "../types/index";
+import { initPostgres } from "./db";
+import {
+  AuthDB,
+  BaseAuthOptions,
+  IDatabaseAdapter,
+  InitPostgresOptions
+} from "../../../types/index";
 
 export class PostgresAdapter implements IDatabaseAdapter {
   constructor(private readonly config: InitPostgresOptions) {}
@@ -9,8 +14,10 @@ export class PostgresAdapter implements IDatabaseAdapter {
       this.config;
     const { authTypes } = options;
 
-    if (!postgresUrl) throw new Error("postgresUrl is required for PostgresAdapter");
-    if (!userTableName) throw new Error("userTableName is required for PostgresAdapter");
+    if (!postgresUrl)
+      throw new Error("[Auth:PostgresAdapter] postgresUrl is required for PostgresAdapter");
+    if (!userTableName)
+      throw new Error("[Auth:PostgresAdapter] userTableName is required for PostgresAdapter");
 
     return await initPostgres({
       postgresUrl,

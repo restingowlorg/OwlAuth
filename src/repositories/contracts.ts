@@ -1,7 +1,7 @@
-import { User, MagicLinkRow, MagicLinkToken, CreateUserInput } from "../types";
+import { User, MagicLinkRow, MagicLinkToken, CreateUserInput, SafeUser } from "../types";
 
 export interface UserRepository {
-  create(input: CreateUserInput): Promise<User>;
+  create(input: CreateUserInput): Promise<SafeUser>;
   findByEmail(email: string): Promise<User | null>;
   findById(id: string | number): Promise<User | null>;
   findByUsername?(username: string): Promise<User | null>;
