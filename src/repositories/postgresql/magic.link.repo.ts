@@ -1,11 +1,18 @@
-import { getPostgresPool } from "../../infra/postgresql/db";
+import { Pool } from "pg";
 import { MagicLinkToken, MagicLinkRow } from "../../types";
 import { MagicLinkRepository } from "../contracts";
 
 export class PostgresMagicLinkRepository implements MagicLinkRepository {
-  constructor(private readonly table: string) {}
+  constructor(
+    private readonly table: string,
+    private readonly pool: Pool
+  ) {}
 
   private getTable() {
+    if (this.table.includes(".")) {
+      const [schema, table] = this.table.split(".");
+      return `"${schema}"."${table}"`;
+    }
     return `"${this.table}"`;
   }
 
@@ -15,9 +22,7 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
     expiresAt: Date;
     usedAt?: Date;
   }): Promise<MagicLinkToken> {
-    const pool = getPostgresPool();
-
-    const result = await pool.query<MagicLinkRow>(
+    const result = await this.pool.query<MagicLinkRow>(
       `
       INSERT INTO ${this.getTable()} (user_id, token, expires_at, used_at)
       VALUES ($1, $2, $3, $4)
@@ -39,9 +44,7 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
   }
 
   async findByTokenHash(tokenHash: string): Promise<MagicLinkToken | null> {
-    const pool = getPostgresPool();
-
-    const result = await pool.query<MagicLinkRow>(
+    const result = await this.pool.query<MagicLinkRow>(
       `SELECT * FROM ${this.getTable()} WHERE token = $1`,
       [tokenHash]
     );
@@ -60,9 +63,7 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
   }
 
   async findById(id: string | number): Promise<MagicLinkToken | null> {
-    const pool = getPostgresPool();
-
-    const result = await pool.query<MagicLinkRow>(
+    const result = await this.pool.query<MagicLinkRow>(
       `SELECT * FROM ${this.getTable()} WHERE id = $1`,
       [id]
     );
@@ -81,32 +82,39 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
   }
 
   async consume(id: string | number): Promise<boolean> {
-    const pool = getPostgresPool();
-    const result = await pool.query(`UPDATE ${this.getTable()} SET used_at = NOW() WHERE id = $1`, [
-      id
-    ]);
-    return (result.rowCount ?? 0) > 0;
-  }
-
-  async deleteByUserId(userId: string | number): Promise<boolean> {
-    const pool = getPostgresPool();
-    const result = await pool.query(`DELETE FROM ${this.getTable()} WHERE user_id = $1`, [userId]);
-    return (result.rowCount ?? 0) > 0;
-  }
-
-  async invalidateByUserId(userId: string | number): Promise<boolean> {
-    const pool = getPostgresPool();
-    const result = await pool.query(
-      `UPDATE ${this.getTable()} SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`,
-      [userId]
+    const result = await this.pool.query(
+      `UPDATE ${this.getTable()} SET used_at = NOW() WHERE id = $1`,
+      [id]
     );
     return (result.rowCount ?? 0) > 0;
   }
 
-  async findAll(): Promise<MagicLinkRow[]> {
-    const pool = getPostgresPool();
+  async deleteByUserId(userId: string | number): Promise<boolean> {
+    const result = await this.pool.query(`DELETE FROM ${this.getTable()} WHERE user_id = $1`, [
+      userId
+    ]);
+    return (result.rowCount ?? 0) > 0;
+  }
 
-    const result = await pool.query<MagicLinkRow>(
+  async invalidateByUserId(userId: string | number): Promise<boolean> {
+    await this.pool.query(
+      `UPDATE ${this.getTable()} SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`,
+      [userId]
+    );
+
+    // Confirm that no active tokens remain for this user
+    const checkResult = await this.pool.query<{ count: string | number }>(
+      `SELECT count(*) as count FROM ${this.getTable()} WHERE user_id = $1 AND used_at IS NULL`,
+      [userId]
+    );
+
+    const row = checkResult.rows[0];
+    const activeCount = parseInt(row?.count?.toString() ?? "0", 10);
+    return activeCount === 0;
+  }
+
+  async findAll(): Promise<MagicLinkRow[]> {
+    const result = await this.pool.query<MagicLinkRow>(
       `
       SELECT * FROM ${this.getTable()}
       WHERE used_at IS NULL AND expires_at > NOW()

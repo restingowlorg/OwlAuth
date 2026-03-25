@@ -1,15 +1,11 @@
 import { Collection, ObjectId, InsertOneResult } from "mongodb";
-import { MagicLinkToken, MagicLinkRow } from "../../types";
+import { MagicLinkToken, MagicLinkRow, IMongoMagicLinkDoc } from "../../types";
 import { MagicLinkRepository } from "../contracts";
-import { MongoMagicLinkDoc } from "../../interfaces/index";
 
-/**
- * MongoDB implementation of MagicLinkRepository
- */
 export class MongoMagicLinkRepo implements MagicLinkRepository {
-  private collection: Collection<MongoMagicLinkDoc>;
+  private collection: Collection<IMongoMagicLinkDoc>;
 
-  constructor(collection: Collection<MongoMagicLinkDoc>) {
+  constructor(collection: Collection<IMongoMagicLinkDoc>) {
     this.collection = collection;
   }
 
@@ -22,18 +18,18 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
   }): Promise<MagicLinkToken> {
     const now = new Date();
 
-    // Build the doc without _id (MongoDB will generate it)
-    const doc: Omit<MongoMagicLinkDoc, "_id"> = {
-      userId: new ObjectId(token.userId.toString()),
-      tokenHash: token.tokenHash,
-      expiresAt: token.expiresAt,
-      usedAt: token.usedAt ?? null,
-      createdAt: now,
-      updatedAt: now
+    // Build the doc
+    const doc: Omit<IMongoMagicLinkDoc, "_id"> = {
+      user_id: new ObjectId(token.userId.toString()),
+      token: token.tokenHash,
+      expires_at: token.expiresAt,
+      used_at: token.usedAt ?? null,
+      created_at: now,
+      updated_at: now
     };
 
-    const result: InsertOneResult<MongoMagicLinkDoc> = await this.collection.insertOne(
-      doc as unknown as MongoMagicLinkDoc // type assertion for TS
+    const result: InsertOneResult<IMongoMagicLinkDoc> = await this.collection.insertOne(
+      doc as unknown as IMongoMagicLinkDoc
     );
 
     return {
@@ -48,16 +44,16 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
 
   /** Find token by its hash */
   async findByTokenHash(tokenHash: string): Promise<MagicLinkToken | null> {
-    const doc = await this.collection.findOne({ tokenHash });
+    const doc = await this.collection.findOne({ token: tokenHash });
     if (!doc) return null;
 
     return {
       id: doc._id.toString(),
-      userId: doc.userId.toString(),
-      tokenHash: doc.tokenHash,
-      expiresAt: doc.expiresAt,
-      usedAt: doc.usedAt ?? null,
-      createdAt: doc.createdAt
+      userId: doc.user_id.toString(),
+      tokenHash: doc.token,
+      expiresAt: doc.expires_at,
+      usedAt: doc.used_at ?? null,
+      createdAt: doc.created_at
     };
   }
 
@@ -75,11 +71,11 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
 
     return {
       id: doc._id.toString(),
-      userId: doc.userId.toString(),
-      tokenHash: doc.tokenHash,
-      expiresAt: doc.expiresAt,
-      usedAt: doc.usedAt ?? null,
-      createdAt: doc.createdAt
+      userId: doc.user_id.toString(),
+      tokenHash: doc.token,
+      expiresAt: doc.expires_at,
+      usedAt: doc.used_at ?? null,
+      createdAt: doc.created_at
     };
   }
 
@@ -87,38 +83,41 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
   async consume(id: string | number): Promise<boolean> {
     const result = await this.collection.updateOne(
       { _id: new ObjectId(id.toString()) },
-      { $set: { usedAt: new Date(), updatedAt: new Date() } }
+      { $set: { used_at: new Date(), updated_at: new Date() } }
     );
     return result.modifiedCount > 0;
   }
 
   /** Delete existing tokens for a user */
   async deleteByUserId(userId: string | number): Promise<boolean> {
-    const result = await this.collection.deleteMany({ userId: new ObjectId(userId.toString()) });
+    const result = await this.collection.deleteMany({ user_id: new ObjectId(userId.toString()) });
     return result.deletedCount > 0;
   }
 
   /** Invalidate existing tokens for a user */
   async invalidateByUserId(userId: string | number): Promise<boolean> {
-    const result = await this.collection.updateMany(
-      { userId: new ObjectId(userId.toString()), usedAt: null },
-      { $set: { usedAt: new Date(), updatedAt: new Date() } }
-    );
-    return result.modifiedCount > 0;
+    const filter = { user_id: new ObjectId(userId.toString()), used_at: null };
+    await this.collection.updateMany(filter, {
+      $set: { used_at: new Date(), updated_at: new Date() }
+    });
+
+    // Confirm no active tokens remain
+    const remainingCount = await this.collection.countDocuments(filter);
+    return remainingCount === 0;
   }
 
   /** Return all active tokens as MagicLinkRow (for contracts) */
   async findAll(): Promise<MagicLinkRow[]> {
     const now = new Date();
-    const docs = await this.collection.find({ expiresAt: { $gt: now }, usedAt: null }).toArray();
+    const docs = await this.collection.find({ expires_at: { $gt: now }, used_at: null }).toArray();
 
     return docs.map((doc) => ({
       id: doc._id.toString(),
-      user_id: doc.userId.toString(),
-      token: doc.tokenHash,
-      expires_at: doc.expiresAt,
-      used_at: doc.usedAt ?? null,
-      created_at: doc.createdAt
+      user_id: doc.user_id.toString(),
+      token: doc.token,
+      expires_at: doc.expires_at,
+      used_at: doc.used_at ?? null,
+      created_at: doc.created_at
     }));
   }
 }

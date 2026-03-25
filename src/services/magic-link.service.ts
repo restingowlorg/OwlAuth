@@ -1,5 +1,5 @@
 import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
-import { hashToken, verifyToken, generateToken } from "../infra/crypto/crypto";
+import { ICryptoAdapter } from "../types";
 import {
   AuthResult,
   RequestMagicLinkResult,
@@ -10,7 +10,8 @@ import {
 export class MagicLinkService {
   constructor(
     private users: UserRepository,
-    private magicLinks: MagicLinkRepository
+    private magicLinks: MagicLinkRepository,
+    private crypto: ICryptoAdapter
   ) {}
 
   /** Request a magic link (passwordless login) */
@@ -27,17 +28,16 @@ export class MagicLinkService {
         };
       }
 
-      const token = generateToken();
-      const tokenHash = await hashToken(token);
+      const token = this.crypto.generateToken();
+      const tokenHash = await this.crypto.hashToken(token);
 
       // invalidate existing tokens for this user
-      const result = await this.magicLinks.invalidateByUserId(user.id);
-
-      if (!result) {
+      const invalidated = await this.magicLinks.invalidateByUserId(user.id);
+      if (!invalidated) {
         return {
           success: false,
           data: undefined,
-          message: "Failed to invalidate existing tokens",
+          message: "Failed to invalidate existing magic links",
           httpCode: 500
         };
       }
@@ -83,7 +83,7 @@ export class MagicLinkService {
       if (parts.length !== 2) {
         return {
           success: false,
-          data: { isValid: false },
+          data: undefined,
           message: "Invalid or malformed magic link token",
           httpCode: 400
         };
@@ -95,17 +95,17 @@ export class MagicLinkService {
       if (!record || record.usedAt || record.expiresAt.getTime() < Date.now()) {
         return {
           success: false,
-          data: { isValid: false },
+          data: undefined,
           message: "Invalid or expired magic link",
           httpCode: 401
         };
       }
 
-      const match = await verifyToken(tokenValue, record.tokenHash);
+      const match = await this.crypto.verifyToken(tokenValue, record.tokenHash);
       if (!match) {
         return {
           success: false,
-          data: { isValid: false },
+          data: undefined,
           message: "Invalid or expired magic link",
           httpCode: 401
         };
@@ -121,7 +121,7 @@ export class MagicLinkService {
       const message = err instanceof Error ? err.message : "Unknown error";
       return {
         success: false,
-        data: { isValid: false },
+        data: undefined,
         message: "Failed to verify magic link: " + message,
         httpCode: 500
       };
@@ -133,12 +133,7 @@ export class MagicLinkService {
     try {
       const verifyResult = await this.verify(token);
 
-      if (
-        !verifyResult.success ||
-        !verifyResult.data?.isValid ||
-        !verifyResult.data.tokenId ||
-        !verifyResult.data.userId
-      ) {
+      if (!verifyResult.success) {
         return {
           success: false,
           data: undefined,

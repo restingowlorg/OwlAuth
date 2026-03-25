@@ -1,11 +1,12 @@
-import { QueryResult } from "pg";
-import { getPostgresPool } from "../../infra/postgresql/db";
-import { User } from "../../types";
+import { QueryResult, Pool } from "pg";
+import { User, CreateUserInput } from "../../types";
 import { UserRepository } from "../contracts";
-import { CreateUserInput } from "../../interfaces/index";
 
 export class PostgresUserRepository implements UserRepository {
-  constructor(private readonly table: string) {}
+  constructor(
+    private readonly table: string,
+    private readonly pool: Pool
+  ) {}
 
   private getTable() {
     if (this.table.includes(".")) {
@@ -17,9 +18,7 @@ export class PostgresUserRepository implements UserRepository {
 
   async create(input: CreateUserInput): Promise<User> {
     const { email, username, passwordHash } = input;
-    const pool = getPostgresPool();
-
-    const result: QueryResult<User> = await pool.query(
+    const result: QueryResult<User> = await this.pool.query(
       `
       INSERT INTO ${this.getTable()} (email, username, password)
       VALUES ($1, $2, $3)
@@ -32,9 +31,7 @@ export class PostgresUserRepository implements UserRepository {
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    const pool = getPostgresPool();
-
-    const result: QueryResult<User> = await pool.query(
+    const result: QueryResult<User> = await this.pool.query(
       `SELECT * FROM ${this.getTable()} WHERE email = $1`,
       [email]
     );
@@ -43,9 +40,7 @@ export class PostgresUserRepository implements UserRepository {
   }
 
   async findById(id: string): Promise<User | null> {
-    const pool = getPostgresPool();
-
-    const result: QueryResult<User> = await pool.query(
+    const result: QueryResult<User> = await this.pool.query(
       `SELECT * FROM ${this.getTable()} WHERE id = $1`,
       [id]
     );
@@ -54,9 +49,7 @@ export class PostgresUserRepository implements UserRepository {
   }
 
   async findByUsername(username: string): Promise<User | null> {
-    const pool = getPostgresPool();
-
-    const result: QueryResult<User> = await pool.query(
+    const result: QueryResult<User> = await this.pool.query(
       `SELECT * FROM ${this.getTable()} WHERE username = $1`,
       [username]
     );
@@ -64,10 +57,8 @@ export class PostgresUserRepository implements UserRepository {
     return result.rows[0] ?? null;
   }
 
-  //Update password
   async updatePassword(userId: string | number, passwordHash: string): Promise<boolean> {
-    const pool = getPostgresPool();
-    const result = await pool.query(
+    const result = await this.pool.query(
       `
       UPDATE ${this.getTable()}
       SET password = $1

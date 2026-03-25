@@ -1,21 +1,16 @@
-import { MagicLinkService } from "../services/magic-link.service";
 import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
-import { PostgresUserSchema } from "../infra/postgresql/schema";
+import { PostgresUserSchema } from "../infra/databases/postgresql/schema";
+import { ObjectId } from "mongodb";
 
-// ------------------------------
-export type AuthType = "credentials" | "magic-link";
+export type AuthType = "credentials" | "magicLink";
 
-// ------------------------------
 // PostgreSQL & MongoDB DB options
-// ------------------------------
 export interface InitPostgresOptions {
   postgresUrl: string;
-
   userTableName: string;
-  userSchema?: string; // NEW (default: public)
-
+  userSchema?: string;
   magicLinkTableName?: string;
-  magicLinkSchema?: string; // NEW (default: public)
+  magicLinkSchema?: string;
 }
 
 export type InitMongoOptions = {
@@ -24,32 +19,44 @@ export type InitMongoOptions = {
   userCollectionName: string;
 };
 
-// ------------------------------
-// Type-safe options for AuthManager.init()
-// ------------------------------
-export type BaseAuthOptions = {
-  authTypes?: AuthType[];
+export interface IDatabaseAdapter {
+  connect(options: BaseAuthOptions): Promise<AuthDB>;
+}
+
+export interface ICryptoAdapter {
+  hashPassword(password: string): Promise<string>;
+  verifyPassword(password: string, hash: string): Promise<boolean>;
+  generateToken(length?: number): string;
+  hashToken(token: string): Promise<string>;
+  verifyToken(token: string, hash: string): Promise<boolean>;
+}
+
+export type BaseAuthOptions<T extends AuthType = AuthType> = {
+  authTypes?: T[];
   blockedPasswords?: string[];
-  magicLinkService?: MagicLinkService;
   magicLinkBaseUrl?: string;
+  cryptoAdapter?: ICryptoAdapter;
 };
 
-export type AuthResult<T = unknown> = {
-  success: boolean;
-  data?: T | undefined;
-  httpCode: number;
-  message: string;
+export type Mutable<T> = {
+  -readonly [P in keyof T]: T[P];
 };
 
-export type AuthOptions =
-  | (BaseAuthOptions & {
-      dbType: "postgres";
-      dbOptions: InitPostgresOptions;
-    })
-  | (BaseAuthOptions & {
-      dbType: "mongo";
-      dbOptions: InitMongoOptions;
-    });
+export interface IAuthStrategy {
+  register(
+    target: Mutable<Partial<IAuthMethods>>,
+    db: AuthDB,
+    options: AuthOptions<AuthType>
+  ): void;
+}
+
+export type AuthResult<T = unknown> =
+  | { success: true; data: T; httpCode: number; message: string }
+  | { success: false; data?: undefined; httpCode: number; message: string };
+
+export type AuthOptions<T extends AuthType = AuthType> = BaseAuthOptions<T> & {
+  adapter: IDatabaseAdapter;
+};
 
 export type AuthLogLevel = "info" | "warn" | "error";
 
@@ -60,9 +67,6 @@ export type User = {
   password: string;
 };
 
-// ------------------------------
-// Authenticated User Interface
-// ------------------------------
 export type AuthUser = {
   id: string;
   email: string;
@@ -70,21 +74,6 @@ export type AuthUser = {
 };
 
 export type AuthRequest = Request & { user?: AuthUser };
-export type DatabaseType = "mongo" | "postgres";
-
-/* ------------------------------------------------ */
-/* COOKIE OPTIONS */
-/* ------------------------------------------------ */
-
-export type CookieOptions = {
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: "lax" | "strict" | "none";
-};
-
-/* ------------------------------------------------ */
-/* DATABASE REPOSITORIES */
-/* ------------------------------------------------ */
 
 export type TableColumn = {
   column_name: string;
@@ -96,15 +85,12 @@ export type ColumnRow = {
   column_name: string;
 };
 
-// Repository Interface
+// Repository
 export type AuthDB = {
   userRepo: UserRepository;
   magicLinkRepo?: MagicLinkRepository;
+  close: () => Promise<void>;
 };
-
-/* ------------------------------------------------ */
-/* AUTH INPUT / RESULT TYPES */
-/* ------------------------------------------------ */
 
 export type SignupInput = {
   email: string;
@@ -145,6 +131,81 @@ export type CreateMagicLinkInput = {
   usedAt?: Date;
 };
 
+export interface CreateUserInput {
+  email: string;
+  passwordHash: string;
+  username: string;
+}
+
+export interface ICredentialsMethods {
+  readonly signup: (
+    email: string,
+    username: string,
+    password: string
+  ) => Promise<AuthResult<SignupResult>>;
+  readonly login: (email: string, password: string) => Promise<AuthResult<LoginResult>>;
+  readonly changePassword: (
+    userId: string | number,
+    currentPassword: string,
+    newPassword: string
+  ) => Promise<AuthResult<ChangePasswordResult>>;
+}
+
+export interface IMagicLinkMethods {
+  readonly request: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
+  readonly verify: (token: string) => Promise<AuthResult<VerifyMagicLinkResult>>;
+  readonly consume: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
+}
+
+export interface IAuthMethods {
+  credentials: ICredentialsMethods;
+  magicLink: IMagicLinkMethods;
+}
+
+export type IAuthManager<T extends AuthType = AuthType> = {
+  [K in T]: IAuthMethods[K];
+} & {
+  readonly disconnectDB: () => Promise<void>;
+};
+
+export interface IMongoMagicLinkDoc {
+  _id?: ObjectId;
+  user_id: ObjectId;
+  token: string;
+  expires_at: Date;
+  used_at: Date | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface IMongoUserDoc {
+  _id?: ObjectId; // MongoDB ObjectId (optional when inserting)
+  email: string;
+  username: string;
+  password: string;
+  created_at?: Date; // optional timestamps
+  updated_at?: Date;
+}
+
+export interface FKRow {
+  referenced_table: string;
+  referenced_column: string;
+}
+
+export interface TableExistsRow {
+  exists: boolean;
+}
+
+export interface ColumnInfoRow {
+  column_name: string;
+  is_nullable: "YES" | "NO";
+}
+
+export interface PrimaryKeyRow {
+  column_name: string;
+  data_type: string;
+}
+
 export type UserId = string | number;
 
 export type LoginResult = {
@@ -155,19 +216,20 @@ export type SignupResult = {
   user: SafeUser;
 };
 
-export type ChangePasswordResult = undefined;
+export type ChangePasswordResult = {
+  user: SafeUser;
+};
 export type RequestMagicLinkResult = string;
 export type VerifyMagicLinkResult = {
   isValid: boolean;
-  userId?: string;
-  tokenId?: string;
+  userId: string;
+  tokenId: string;
 };
 export type ConsumeMagicLinkResult = {
   userId: string;
 };
 
 export type SafeUser = {
-  id: string;
   email: string;
   username: string;
 };

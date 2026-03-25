@@ -1,4 +1,4 @@
-import { CreateUserInput, MongoUserDoc } from "../../interfaces/index";
+import { CreateUserInput, IMongoUserDoc } from "../../types";
 import { User } from "../../types/index";
 import { UserRepository } from "../contracts";
 import { Collection, ObjectId, InsertOneResult } from "mongodb";
@@ -7,19 +7,22 @@ import { Collection, ObjectId, InsertOneResult } from "mongodb";
  * MongoDB implementation of UserRepository
  */
 export class MongoUserRepo implements UserRepository {
-  private collection: Collection<MongoUserDoc>;
+  private collection: Collection<IMongoUserDoc>;
 
-  constructor(collection: Collection<MongoUserDoc>) {
+  constructor(collection: Collection<IMongoUserDoc>) {
     this.collection = collection;
   }
 
   async create(input: CreateUserInput): Promise<User> {
     const { email, username, passwordHash } = input;
 
-    const result: InsertOneResult<MongoUserDoc> = await this.collection.insertOne({
+    const now = new Date();
+    const result: InsertOneResult<IMongoUserDoc> = await this.collection.insertOne({
       email,
       username,
-      password: passwordHash
+      password: passwordHash,
+      created_at: now,
+      updated_at: now
     });
 
     return {
@@ -69,7 +72,7 @@ export class MongoUserRepo implements UserRepository {
   async updatePassword(userId: string | number, passwordHash: string): Promise<boolean> {
     const result = await this.collection.updateOne(
       { _id: new ObjectId(userId.toString()) },
-      { $set: { password: passwordHash } }
+      { $set: { password: passwordHash, updated_at: new Date() } }
     );
     return result.modifiedCount > 0;
   }

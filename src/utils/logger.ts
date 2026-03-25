@@ -6,13 +6,13 @@ export function authLog(level: AuthLogLevel, message: string) {
 
   switch (level) {
     case "info":
-      console.info(`${prefix} ℹ️  ${message}`);
+      console.info(`${prefix} - ${message}`);
       break;
     case "warn":
-      console.warn(`${prefix} ⚠️  ${message}`);
+      console.warn(`${prefix} - ${message}`);
       break;
     case "error":
-      console.error(`${prefix} ❌  ${message}`);
+      console.error(`${prefix} - ${message}`);
       break;
   }
 }
