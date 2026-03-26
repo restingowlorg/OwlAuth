@@ -2,7 +2,7 @@ import { MongoClient, Collection } from "mongodb";
 import { MongoMagicLinkRepo } from "../../../repositories/mongo/magicLink.repo";
 import { MongoUserRepo } from "../../../repositories/mongo/user.repo";
 import { InitMongoOptions, BaseAuthOptions, AuthDB } from "../../../types/index";
-import { authLog } from "../../../utils/logger";
+import { auditLogger } from "../../security/security-audit-logger";
 import { IMongoMagicLinkDoc, IMongoUserDoc } from "../../../types";
 
 /**
@@ -20,7 +20,10 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
   const db = client.db();
 
   if (!db) {
-    authLog("error", "Failed to connect to MongoDB - no database instance found");
+    auditLogger.error(
+      "Failed to connect to MongoDB - no database instance found",
+      new Error("No DB instance")
+    );
     throw new Error("[Auth:connectMongo] Failed to connect to MongoDB");
   }
 

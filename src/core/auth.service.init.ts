@@ -6,7 +6,7 @@ import {
   IAuthStrategy,
   Mutable
 } from "../types/index";
-import { authLog } from "../utils/logger";
+import { auditLogger } from "../infra/security/security-audit-logger";
 import { CredentialsAuthStrategy } from "../strategies/CredentialsStrategy";
 import { MagicLinkAuthStrategy } from "../strategies/MagicLinkStrategy";
 
@@ -23,7 +23,7 @@ export function initAuthServices(
 
   const authTypes = options.authTypes ?? ["credentials"];
 
-  authLog("info", `Initializing auth services for types: ${authTypes.join(", ")}`);
+  auditLogger.info(`Initializing auth services for types: ${authTypes.join(", ")}`);
 
   for (const type of authTypes) {
     const strategy = authStrategies[type];

@@ -82,7 +82,7 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
   /** Mark a token as used */
   async consume(id: string | number): Promise<boolean> {
     const result = await this.collection.updateOne(
-      { _id: new ObjectId(id.toString()) },
+      { _id: new ObjectId(id.toString()), used_at: null },
       { $set: { used_at: new Date(), updated_at: new Date() } }
     );
     return result.modifiedCount > 0;

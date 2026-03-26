@@ -1,5 +1,5 @@
 import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
-import { ICryptoAdapter } from "../types";
+import { ICryptoAdapter, IAuditLogger } from "../types";
 import {
   AuthResult,
   RequestMagicLinkResult,
@@ -11,7 +11,8 @@ export class MagicLinkService {
   constructor(
     private users: UserRepository,
     private magicLinks: MagicLinkRepository,
-    private crypto: ICryptoAdapter
+    private crypto: ICryptoAdapter,
+    private logger: IAuditLogger
   ) {}
 
   /** Request a magic link (passwordless login) */
@@ -20,6 +21,11 @@ export class MagicLinkService {
       const user = await this.users.findByEmail(email);
 
       if (!user) {
+        this.logger.audit({
+          type: "MAGIC_LINK_FAILURE",
+          email,
+          metadata: { reason: "User not found" }
+        });
         return {
           success: false,
           data: undefined,
@@ -34,6 +40,9 @@ export class MagicLinkService {
       // invalidate existing tokens for this user
       const invalidated = await this.magicLinks.invalidateByUserId(user.id);
       if (!invalidated) {
+        this.logger.error("Failed to invalidate magic links", new Error("DB update failed"), {
+          userId: user.id
+        });
         return {
           success: false,
           data: undefined,
@@ -50,6 +59,9 @@ export class MagicLinkService {
       });
 
       if (!record) {
+        this.logger.error("Failed to create magic link", new Error("DB insert failed"), {
+          userId: user.id
+        });
         return {
           success: false,
           data: undefined,
@@ -57,6 +69,8 @@ export class MagicLinkService {
           httpCode: 500
         };
       }
+
+      this.logger.audit({ type: "MAGIC_LINK_REQUESTED", userId: user.id, email: user.email });
 
       return {
         success: true,
@@ -66,6 +80,7 @@ export class MagicLinkService {
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
+      this.logger.error("Magic link request exception", err, { email });
 
       return {
         success: false,
@@ -81,6 +96,7 @@ export class MagicLinkService {
     try {
       const parts = token.split(".");
       if (parts.length !== 2) {
+        this.logger.audit({ type: "MAGIC_LINK_FAILURE", metadata: { reason: "Malformed token" } });
         return {
           success: false,
           data: undefined,
@@ -93,6 +109,10 @@ export class MagicLinkService {
       const record = await this.magicLinks.findById(tokenId);
 
       if (!record || record.usedAt || record.expiresAt.getTime() < Date.now()) {
+        this.logger.audit({
+          type: "MAGIC_LINK_FAILURE",
+          metadata: { reason: "Invalid or expired token", tokenId }
+        });
         return {
           success: false,
           data: undefined,
@@ -103,6 +123,11 @@ export class MagicLinkService {
 
       const match = await this.crypto.verifyToken(tokenValue, record.tokenHash);
       if (!match) {
+        this.logger.audit({
+          type: "MAGIC_LINK_FAILURE",
+          userId: record.userId,
+          metadata: { reason: "Token mismatch", tokenId }
+        });
         return {
           success: false,
           data: undefined,
@@ -110,6 +135,8 @@ export class MagicLinkService {
           httpCode: 401
         };
       }
+
+      this.logger.audit({ type: "MAGIC_LINK_VERIFIED", userId: record.userId });
 
       return {
         success: true,
@@ -119,6 +146,7 @@ export class MagicLinkService {
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
+      this.logger.error("Magic link verify exception", err);
       return {
         success: false,
         data: undefined,
@@ -145,12 +173,27 @@ export class MagicLinkService {
       const consumed = await this.magicLinks.consume(verifyResult.data.tokenId);
 
       if (!consumed) {
+        this.logger.error("Failed to consume magic link", new Error("DB update failed"), {
+          tokenId: verifyResult.data.tokenId
+        });
+        this.logger.audit({
+          type: "MAGIC_LINK_FAILURE",
+          userId: verifyResult.data.userId,
+          metadata: { reason: "Token already used", tokenId: verifyResult.data.tokenId }
+        });
         return {
           success: false,
           message: "Magic link already used",
           httpCode: 401
         };
       }
+
+      this.logger.audit({ type: "MAGIC_LINK_CONSUMED", userId: verifyResult.data.userId });
+      this.logger.audit({
+        type: "LOGIN_SUCCESS",
+        userId: verifyResult.data.userId,
+        metadata: { method: "magic-link" }
+      });
 
       return {
         success: true,
@@ -160,6 +203,7 @@ export class MagicLinkService {
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
+      this.logger.error("Magic link consume exception", err);
 
       return {
         success: false,

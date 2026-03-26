@@ -1,3 +1,4 @@
+import { auditLogger } from "../infra/security/security-audit-logger";
 import { BcryptAdapter } from "../infra/security/bcrypt.adapter";
 import { AuthService } from "../services/auth.service";
 import { AuthDB, AuthOptions, AuthType, IAuthMethods, IAuthStrategy, Mutable } from "../types";
@@ -8,8 +9,8 @@ export class CredentialsAuthStrategy implements IAuthStrategy {
     db: AuthDB,
     options: AuthOptions<AuthType>
   ): void {
-    const cryptoAdapter = options.cryptoAdapter ?? new BcryptAdapter();
-    const service = new AuthService(db.userRepo, cryptoAdapter);
+    const cryptoAdapter = options.cryptoAdapter || new BcryptAdapter();
+    const service = new AuthService(db.userRepo, cryptoAdapter, auditLogger);
 
     target.credentials = {
       signup: (email: string, username: string, password: string) =>

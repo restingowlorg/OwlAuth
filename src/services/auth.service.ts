@@ -1,5 +1,5 @@
 import { zxcvbn } from "@zxcvbn-ts/core";
-import { ICryptoAdapter } from "../types";
+import { ICryptoAdapter, IAuditLogger } from "../types";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
 import { UserRepository } from "../repositories/contracts";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
@@ -14,7 +14,8 @@ import {
 export class AuthService {
   constructor(
     private readonly users: UserRepository,
-    private readonly crypto: ICryptoAdapter
+    private readonly crypto: ICryptoAdapter,
+    private readonly logger: IAuditLogger
   ) {}
 
   async signup(
@@ -26,6 +27,11 @@ export class AuthService {
     try {
       // Basic validation
       if (!email || !username || !password) {
+        this.logger.audit({
+          type: "SIGNUP_FAILURE",
+          email,
+          metadata: { reason: "Missing required fields" }
+        });
         return {
           success: false,
           data: undefined,
@@ -35,6 +41,11 @@ export class AuthService {
       }
 
       if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
+        this.logger.audit({
+          type: "SIGNUP_FAILURE",
+          email,
+          metadata: { username, reason: "Invalid username format" }
+        });
         return {
           success: false,
           data: undefined,
@@ -44,6 +55,11 @@ export class AuthService {
       }
 
       if (containsBlockedPasswords(password, email, username, blockedPasswords)) {
+        this.logger.audit({
+          type: "SIGNUP_FAILURE",
+          email,
+          metadata: { username, reason: "Password contains blocked keywords" }
+        });
         return {
           success: false,
           data: undefined,
@@ -54,15 +70,25 @@ export class AuthService {
 
       // Password strength
       if (zxcvbn(password).score < 3) {
+        this.logger.audit({
+          type: "SIGNUP_FAILURE",
+          email,
+          metadata: { username, reason: "Password too weak" }
+        });
         return { success: false, data: undefined, message: "Password too weak.", httpCode: 400 };
       }
 
       // Breached password check
       if (await isBreachedPassword(password)) {
+        this.logger.audit({
+          type: "SIGNUP_FAILURE",
+          email,
+          metadata: { username, reason: "Password found in data breach" }
+        });
         return {
           success: false,
           data: undefined,
-          message: "Password found in breach.",
+          message: "Password found in data breach.",
           httpCode: 400
         };
       }
@@ -70,24 +96,36 @@ export class AuthService {
       // Username uniqueness
       if (this.users.findByUsername) {
         const existingUser = await this.users.findByUsername(username);
-        if (existingUser)
+        if (existingUser) {
+          this.logger.audit({
+            type: "SIGNUP_FAILURE",
+            email,
+            metadata: { username, reason: "Username already taken" }
+          });
           return {
             success: false,
             data: undefined,
             message: "Username already taken.",
             httpCode: 400
           };
+        }
       }
 
       // Email uniqueness
       const existingEmail = await this.users.findByEmail(email);
-      if (existingEmail)
+      if (existingEmail) {
+        this.logger.audit({
+          type: "SIGNUP_FAILURE",
+          email,
+          metadata: { username, reason: "Email already registered" }
+        });
         return {
           success: false,
           data: undefined,
           message: "Email already registered.",
           httpCode: 400
         };
+      }
 
       // Hash password and create user
       const passwordHash = await this.crypto.hashPassword(password);
@@ -95,6 +133,7 @@ export class AuthService {
       const user = await this.users.create(input);
 
       if (!user) {
+        this.logger.error("Signup failed", new Error("User creation returned null"), { email });
         return {
           success: false,
           data: undefined,
@@ -103,10 +142,13 @@ export class AuthService {
         };
       }
 
+      this.logger.audit({ type: "SIGNUP", userId: user.id, email: user.email });
+
       return {
         success: true,
         data: {
           user: {
+            id: user.id,
             email: user.email,
             username: user.username
           }
@@ -116,6 +158,7 @@ export class AuthService {
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
+      this.logger.error("Signup exception", err, { email });
       return {
         success: false,
         data: undefined,
@@ -129,6 +172,11 @@ export class AuthService {
     try {
       // -------------------- Input Validation --------------------
       if (!email || !password) {
+        this.logger.audit({
+          type: "LOGIN_FAILURE",
+          email,
+          metadata: { reason: "Missing required fields" }
+        });
         return {
           success: false,
           data: undefined,
@@ -140,6 +188,7 @@ export class AuthService {
       // -------------------- Find User --------------------
       const user = await this.users.findByEmail(email);
       if (!user) {
+        this.logger.audit({ type: "LOGIN_FAILURE", email, metadata: { reason: "User not found" } });
         return {
           success: false,
           data: undefined,
@@ -151,6 +200,12 @@ export class AuthService {
       // -------------------- Verify Password --------------------
       const valid = await this.crypto.verifyPassword(password, user.password);
       if (!valid) {
+        this.logger.audit({
+          type: "LOGIN_FAILURE",
+          email,
+          userId: user.id,
+          metadata: { reason: "Invalid password" }
+        });
         return {
           success: false,
           data: undefined,
@@ -160,10 +215,13 @@ export class AuthService {
       }
 
       // -------------------- Return Safe Response --------------------
+      this.logger.audit({ type: "LOGIN_SUCCESS", email, userId: user.id });
+
       return {
         success: true,
         data: {
           user: {
+            id: user.id,
             email: user.email,
             username: user.username
           }
@@ -172,6 +230,7 @@ export class AuthService {
         httpCode: 200
       };
     } catch (err) {
+      this.logger.error("Login exception", err, { email });
       return {
         success: false,
         data: undefined,
@@ -187,63 +246,107 @@ export class AuthService {
     newPassword: string,
     blockedPasswords?: string[]
   ): Promise<AuthResult<ChangePasswordResult>> {
-    // Fetch user
-    const user = await this.users.findById(userId);
-    if (!user) return { success: false, data: undefined, message: "User not found", httpCode: 404 };
+    try {
+      // Fetch user
+      const user = await this.users.findById(userId);
+      if (!user) {
+        return { success: false, data: undefined, message: "User not found", httpCode: 404 };
+      }
 
-    // Verify current password
-    const valid = await this.crypto.verifyPassword(currentPassword, user.password);
-    if (!valid)
+      // Verify current password
+      const valid = await this.crypto.verifyPassword(currentPassword, user.password);
+      if (!valid) {
+        this.logger.audit({
+          type: "PASSWORD_CHANGE",
+          userId,
+          metadata: { success: false, reason: "Current password incorrect" }
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "Current password incorrect",
+          httpCode: 401
+        };
+      }
+
+      // Check blocked passwords
+      if (containsBlockedPasswords(newPassword, user.email, user.username, blockedPasswords)) {
+        this.logger.audit({
+          type: "PASSWORD_CHANGE",
+          userId,
+          metadata: { success: false, reason: "New password contains blocked keywords" }
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "New password cannot contain username, email, or blocked words",
+          httpCode: 400
+        };
+      }
+
+      // Password strength
+      if (zxcvbn(newPassword).score < 3) {
+        this.logger.audit({
+          type: "PASSWORD_CHANGE",
+          userId,
+          metadata: { success: false, reason: "New password too weak" }
+        });
+        return { success: false, data: undefined, message: "New password too weak", httpCode: 400 };
+      }
+
+      // Breach check
+      if (await isBreachedPassword(newPassword)) {
+        this.logger.audit({
+          type: "PASSWORD_CHANGE",
+          userId,
+          metadata: { success: false, reason: "New password found in data breach" }
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "New password found in data breach",
+          httpCode: 400
+        };
+      }
+
+      // Hash new password and update
+      const newHash = await this.crypto.hashPassword(newPassword);
+      const updated = await this.users.updatePassword(userId, newHash);
+
+      if (!updated) {
+        this.logger.error("Password update failed", new Error("Database update returned false"), {
+          userId
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "Failed to update password",
+          httpCode: 500
+        };
+      }
+
+      this.logger.audit({ type: "PASSWORD_CHANGE", userId, metadata: { success: true } });
+
       return {
-        success: false,
-        data: undefined,
-        message: "Current password incorrect",
-        httpCode: 401
+        success: true,
+        message: "Password updated successfully",
+        data: {
+          user: {
+            id: user.id,
+            email: user.email,
+            username: user.username
+          }
+        },
+        httpCode: 200
       };
-
-    // Check blocked passwords
-    if (containsBlockedPasswords(newPassword, user.email, user.username, blockedPasswords)) {
+    } catch (err) {
+      this.logger.error("Password change exception", err, { userId });
       return {
         success: false,
         data: undefined,
-        message: "New password cannot contain username, email, or blocked words",
-        httpCode: 400
-      };
-    }
-
-    // Password strength
-    if (zxcvbn(newPassword).score < 3) {
-      return { success: false, data: undefined, message: "New password too weak", httpCode: 400 };
-    }
-
-    // Breach check
-    if (await isBreachedPassword(newPassword)) {
-      return { success: false, data: undefined, message: "New password breached", httpCode: 400 };
-    }
-
-    // Hash new password and update
-    const newHash = await this.crypto.hashPassword(newPassword);
-    const updated = await this.users.updatePassword(userId, newHash);
-
-    if (!updated) {
-      return {
-        success: false,
-        data: undefined,
-        message: "Failed to update password",
+        message: "Password change failed",
         httpCode: 500
       };
     }
-
-    return {
-      success: true,
-      message: "Password updated successfully",
-      data: {
-        user: {
-          email: user.email,
-          username: user.username
-        }
-      },
-      httpCode: 200
-    };
   }
 }

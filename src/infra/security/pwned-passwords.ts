@@ -1,6 +1,6 @@
 import { sha1 } from "js-sha1";
-import { authLog } from "../../utils/logger";
-import { SECURITY_CONFIG } from "./config";
+import { auditLogger } from "./security-audit-logger";
+import { SECURITY_CONFIG } from "../../config";
 
 export async function isBreachedPassword(password: string): Promise<boolean> {
   const hash = sha1(password).toUpperCase();
@@ -18,7 +18,7 @@ export async function isBreachedPassword(password: string): Promise<boolean> {
     clearTimeout(timeout);
 
     if (!response.ok) {
-      authLog("warn", `PwnedPasswords API returned status ${response.status}. Fallback to false.`);
+      auditLogger.warn(`PwnedPasswords API returned status ${response.status}. Fallback to false.`);
       return false;
     }
 
@@ -26,8 +26,7 @@ export async function isBreachedPassword(password: string): Promise<boolean> {
     const lines = text.split("\n");
     return lines.some((line) => line.split(":")[0] === suffix);
   } catch (error) {
-    authLog(
-      "warn",
+    auditLogger.warn(
       `Failed to check breached password. Fallback to false. Error: ${
         error instanceof Error ? error.message : String(error)
       }`

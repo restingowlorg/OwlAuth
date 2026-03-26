@@ -83,7 +83,7 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
 
   async consume(id: string | number): Promise<boolean> {
     const result = await this.pool.query(
-      `UPDATE ${this.getTable()} SET used_at = NOW() WHERE id = $1`,
+      `UPDATE ${this.getTable()} SET used_at = NOW() WHERE id = $1 AND used_at IS NULL`,
       [id]
     );
     return (result.rowCount ?? 0) > 0;

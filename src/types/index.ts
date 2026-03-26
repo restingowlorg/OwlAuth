@@ -230,8 +230,34 @@ export type ConsumeMagicLinkResult = {
 };
 
 export type SafeUser = {
+  id: string | number;
   email: string;
   username: string;
 };
 
 export type UserColumn = (typeof PostgresUserSchema.requiredColumns)[number];
+
+export type SecurityEventType =
+  | "LOGIN_SUCCESS"
+  | "LOGIN_FAILURE"
+  | "SIGNUP"
+  | "SIGNUP_FAILURE"
+  | "PASSWORD_CHANGE"
+  | "MAGIC_LINK_REQUESTED"
+  | "MAGIC_LINK_VERIFIED"
+  | "MAGIC_LINK_CONSUMED"
+  | "MAGIC_LINK_FAILURE";
+
+export type SecurityEvent = {
+  type: SecurityEventType;
+  userId?: string | number;
+  email?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export interface IAuditLogger {
+  info(message: string, context?: unknown): void;
+  warn(message: string, context?: unknown): void;
+  error(message: string, error: unknown, context?: unknown): void;
+  audit(event: SecurityEvent): void;
+}
