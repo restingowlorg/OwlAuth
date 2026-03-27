@@ -135,7 +135,7 @@ success "Build passed"
 
 # Run tests if they exist
 echo ""
-if [ -d "test" ] || [ -d "tests" ] || [ -d "__tests__" ]; then
+if [ -d "test" ] || [ -d "tests" ] || [ -d "__tests__" ] || [ -d "src" ]; then
   if grep -q '"test"' package.json 2>/dev/null; then
     if ! echo '"echo \"Error: no test specified\" && exit 1"' | grep -qF "$(grep '"test"' package.json)"; then
       info "Running tests..."
