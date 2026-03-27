@@ -12,15 +12,16 @@ export async function isBreachedPassword(password: string): Promise<PwnedCheckRe
   const prefix = hash.slice(0, 5);
   const suffix = hash.slice(5);
 
+  let timeout: NodeJS.Timeout | undefined;
   try {
     // 3-second timeout fallback to prevent hanging requests
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
+    timeout = setTimeout(() => controller.abort(), 3000);
+    timeout.unref(); // Allow process to exit even if timer is active
+
     const response = await fetch(`${SECURITY_CONFIG.PWNED_API_URL}/${prefix}`, {
       signal: controller.signal
     });
-
-    clearTimeout(timeout);
 
     if (!response.ok) {
       const error = new Error(`PwnedPasswords API returned status ${response.status}`);
@@ -34,7 +35,15 @@ export async function isBreachedPassword(password: string): Promise<PwnedCheckRe
     return { detected };
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
-    auditLogger.warn(`Failed to check breached password. Error: ${err.message}`);
+    if (err.name === "AbortError") {
+      auditLogger.warn("PwnedPasswords check timed out. Fallback to caller handling.");
+    } else {
+      auditLogger.warn(`Failed to check breached password. Error: ${err.message}`);
+    }
     return { detected: false, error: err };
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
   }
 }

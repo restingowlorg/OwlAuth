@@ -1,0 +1,195 @@
+import { MagicLinkService } from "./magic-link.service";
+import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
+import { ICryptoAdapter, IAuditLogger, User, MagicLinkToken } from "../types";
+
+describe("MagicLinkService", () => {
+  let service: MagicLinkService;
+  let mockUserRepo: jest.Mocked<UserRepository>;
+  let mockMagicLinkRepo: jest.Mocked<MagicLinkRepository>;
+  let mockCrypto: jest.Mocked<ICryptoAdapter>;
+  let mockLogger: jest.Mocked<IAuditLogger>;
+
+  beforeEach(() => {
+    mockUserRepo = {
+      findById: jest.fn(),
+      findByEmail: jest.fn(),
+      findByUsername: jest.fn(),
+      create: jest.fn(),
+      updatePassword: jest.fn()
+    };
+
+    mockMagicLinkRepo = {
+      create: jest.fn(),
+      findAll: jest.fn(),
+      findByTokenHash: jest.fn(),
+      findById: jest.fn(),
+      consume: jest.fn(),
+      invalidateByUserId: jest.fn(),
+      deleteByUserId: jest.fn()
+    };
+
+    mockCrypto = {
+      hashPassword: jest.fn(),
+      verifyPassword: jest.fn(),
+      generateToken: jest.fn(),
+      hashToken: jest.fn(),
+      verifyToken: jest.fn()
+    };
+
+    mockLogger = {
+      audit: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn()
+    };
+
+    service = new MagicLinkService(mockUserRepo, mockMagicLinkRepo, mockCrypto, mockLogger);
+  });
+
+  describe("request", () => {
+    const email = "test@example.com";
+
+    it("should successfully request a magic link", async () => {
+      mockUserRepo.findByEmail.mockResolvedValue({ id: "1", email } as unknown as User);
+      mockMagicLinkRepo.invalidateByUserId.mockResolvedValue(true);
+      mockCrypto.generateToken.mockReturnValue("raw_token");
+      (mockCrypto.hashToken as jest.Mock).mockResolvedValue("hashed_token");
+      mockMagicLinkRepo.create.mockResolvedValue({ id: "link1" } as unknown as MagicLinkToken);
+
+      const result = await service.request(email);
+
+      expect(result.success).toBe(true);
+      if (result.success && result.data) {
+        expect(result.data).toBe("link1.raw_token");
+      }
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "MAGIC_LINK_REQUESTED" })
+      );
+    });
+
+    it("should fail if user not found", async () => {
+      mockUserRepo.findByEmail.mockResolvedValue(null);
+      const result = await service.request(email);
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(404);
+    });
+
+    it("should fail if invalidation fails", async () => {
+      mockUserRepo.findByEmail.mockResolvedValue({ id: "1", email } as unknown as User);
+      mockMagicLinkRepo.invalidateByUserId.mockResolvedValue(false);
+      const result = await service.request(email);
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(500);
+    });
+
+    it("should fail if creation fails", async () => {
+      mockUserRepo.findByEmail.mockResolvedValue({ id: "1", email } as unknown as User);
+      mockMagicLinkRepo.invalidateByUserId.mockResolvedValue(true);
+      mockCrypto.generateToken.mockReturnValue("t");
+      (mockCrypto.hashToken as jest.Mock).mockResolvedValue("ht");
+      (mockMagicLinkRepo.create as jest.Mock).mockResolvedValue(null);
+      const result = await service.request(email);
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(500);
+    });
+  });
+
+  describe("verify", () => {
+    it("should successfully verify a token", async () => {
+      const token = "link1.raw_token";
+      mockMagicLinkRepo.findById.mockResolvedValue({
+        id: "link1",
+        userId: "1",
+        tokenHash: "hashed_token",
+        expiresAt: new Date(Date.now() + 3600000),
+        usedAt: null
+      } as unknown as MagicLinkToken);
+      mockCrypto.verifyToken.mockResolvedValue(true);
+
+      const result = await service.verify(token);
+      expect(result.success).toBe(true);
+      if (result.success && result.data) {
+        expect(result.data.userId).toBe("1");
+      }
+    });
+
+    it("should fail if token is malformed", async () => {
+      const result = await service.verify("invalid_token");
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(400);
+    });
+
+    it("should fail if record not found", async () => {
+      mockMagicLinkRepo.findById.mockResolvedValue(null);
+      const result = await service.verify("link1.t");
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(401);
+    });
+
+    it("should fail if token expired", async () => {
+      mockMagicLinkRepo.findById.mockResolvedValue({
+        expiresAt: new Date(Date.now() - 1000),
+        usedAt: null
+      } as unknown as MagicLinkToken);
+      const result = await service.verify("link1.t");
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("expired");
+    });
+
+    it("should fail if token already used", async () => {
+      mockMagicLinkRepo.findById.mockResolvedValue({
+        expiresAt: new Date(Date.now() + 1000),
+        usedAt: new Date()
+      } as unknown as MagicLinkToken);
+      const result = await service.verify("link1.t");
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("expired"); // Service message is same for both
+    });
+  });
+
+  describe("consume", () => {
+    const token = "link1.raw_token";
+
+    it("should successfully consume a token", async () => {
+      mockMagicLinkRepo.findById.mockResolvedValue({
+        id: "link1",
+        userId: "123",
+        tokenHash: "ht",
+        expiresAt: new Date(Date.now() + 1000),
+        usedAt: null
+      } as unknown as MagicLinkToken);
+      mockCrypto.verifyToken.mockResolvedValue(true);
+      mockMagicLinkRepo.consume.mockResolvedValue(true);
+
+      const result = await service.consume(token);
+      expect(result.success).toBe(true);
+      if (result.success && result.data) {
+        expect(result.data.userId).toBe("123");
+      }
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockMagicLinkRepo.consume).toHaveBeenCalledWith("link1");
+    });
+
+    it("should fail if verification fails", async () => {
+      mockMagicLinkRepo.findById.mockResolvedValue(null);
+      const result = await service.consume(token);
+      expect(result.success).toBe(false);
+    });
+
+    it("should fail if consume fails", async () => {
+      mockMagicLinkRepo.findById.mockResolvedValue({
+        id: "link1",
+        userId: "123",
+        expiresAt: new Date(Date.now() + 1000),
+        usedAt: null
+      } as unknown as MagicLinkToken);
+      mockCrypto.verifyToken.mockResolvedValue(true);
+      mockMagicLinkRepo.consume.mockResolvedValue(false);
+
+      const result = await service.consume(token);
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(401);
+    });
+  });
+});
