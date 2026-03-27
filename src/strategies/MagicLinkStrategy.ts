@@ -16,9 +16,12 @@ export class MagicLinkAuthStrategy implements IAuthStrategy {
     const service = new MagicLinkService(db.userRepo, db.magicLinkRepo, cryptoAdapter, auditLogger);
 
     target.magicLink = {
-      request: (email: string) => service.request(email),
-      verify: (token: string) => service.verify(token),
-      consume: (token: string) => service.consume(token)
+      request: (email: string, optionsOverride?: { correlationId?: string }) =>
+        service.request(email, optionsOverride),
+      verify: (token: string, optionsOverride?: { correlationId?: string }) =>
+        service.verify(token, optionsOverride),
+      consume: (token: string, optionsOverride?: { correlationId?: string }) =>
+        service.consume(token, optionsOverride)
     };
   }
 }

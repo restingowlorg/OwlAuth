@@ -25,6 +25,7 @@ export class AuthService {
     options?: {
       blockedPasswords?: string[];
       pwnedPasswordFailClosed?: boolean;
+      correlationId?: string;
     }
   ): Promise<AuthResult<LoginResult>> {
     try {
@@ -33,7 +34,8 @@ export class AuthService {
         this.logger.audit({
           type: "SIGNUP_FAILURE",
           email,
-          metadata: { reason: "Missing required fields" }
+          metadata: { reason: "Missing required fields" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -47,7 +49,8 @@ export class AuthService {
         this.logger.audit({
           type: "SIGNUP_FAILURE",
           email,
-          metadata: { username, reason: "Invalid username format" }
+          metadata: { username, reason: "Invalid username format" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -61,7 +64,8 @@ export class AuthService {
         this.logger.audit({
           type: "SIGNUP_FAILURE",
           email,
-          metadata: { username, reason: "Password contains blocked keywords" }
+          metadata: { username, reason: "Password contains blocked keywords" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -76,7 +80,8 @@ export class AuthService {
         this.logger.audit({
           type: "SIGNUP_FAILURE",
           email,
-          metadata: { username, reason: "Password too weak" }
+          metadata: { username, reason: "Password too weak" },
+          correlationId: options?.correlationId
         });
         return { success: false, data: undefined, message: "Password too weak.", httpCode: 400 };
       }
@@ -87,7 +92,8 @@ export class AuthService {
         this.logger.audit({
           type: "SIGNUP_FAILURE",
           email,
-          metadata: { username, reason: "Password found in data breach" }
+          metadata: { username, reason: "Password found in data breach" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -101,7 +107,8 @@ export class AuthService {
         this.logger.audit({
           type: "SIGNUP_FAILURE",
           email,
-          metadata: { username, reason: "Breached password check failed (Fail-Closed)" }
+          metadata: { username, reason: "Breached password check failed (Fail-Closed)" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -118,7 +125,8 @@ export class AuthService {
           this.logger.audit({
             type: "SIGNUP_FAILURE",
             email,
-            metadata: { username, reason: "Username already taken" }
+            metadata: { username, reason: "Username already taken" },
+            correlationId: options?.correlationId
           });
           return {
             success: false,
@@ -135,7 +143,8 @@ export class AuthService {
         this.logger.audit({
           type: "SIGNUP_FAILURE",
           email,
-          metadata: { username, reason: "Email already registered" }
+          metadata: { username, reason: "Email already registered" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -151,7 +160,12 @@ export class AuthService {
       const user = await this.users.create(input);
 
       if (!user) {
-        this.logger.error("Signup failed", new Error("User creation returned null"), { email });
+        this.logger.error(
+          "Signup failed",
+          new Error("User creation returned null"),
+          { email },
+          options?.correlationId
+        );
         return {
           success: false,
           data: undefined,
@@ -160,7 +174,11 @@ export class AuthService {
         };
       }
 
-      this.logger.audit({ type: "SIGNUP", email: user.email });
+      this.logger.audit({
+        type: "SIGNUP",
+        email: user.email,
+        correlationId: options?.correlationId
+      });
 
       return {
         success: true,
@@ -176,7 +194,7 @@ export class AuthService {
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
-      this.logger.error("Signup exception", err, { email });
+      this.logger.error("Signup exception", err, { email }, options?.correlationId);
       return {
         success: false,
         data: undefined,
@@ -186,14 +204,19 @@ export class AuthService {
     }
   }
 
-  async login(email: string, password: string): Promise<AuthResult<SignupResult>> {
+  async login(
+    email: string,
+    password: string,
+    options?: { correlationId?: string }
+  ): Promise<AuthResult<SignupResult>> {
     try {
       // -------------------- Input Validation --------------------
       if (!email || !password) {
         this.logger.audit({
           type: "LOGIN_FAILURE",
           email,
-          metadata: { reason: "Missing required fields" }
+          metadata: { reason: "Missing required fields" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -206,7 +229,12 @@ export class AuthService {
       // -------------------- Find User --------------------
       const user = await this.users.findByEmail(email);
       if (!user) {
-        this.logger.audit({ type: "LOGIN_FAILURE", email, metadata: { reason: "User not found" } });
+        this.logger.audit({
+          type: "LOGIN_FAILURE",
+          email,
+          metadata: { reason: "User not found" },
+          correlationId: options?.correlationId
+        });
         return {
           success: false,
           data: undefined,
@@ -221,7 +249,8 @@ export class AuthService {
         this.logger.audit({
           type: "LOGIN_FAILURE",
           email,
-          metadata: { reason: "Invalid password" }
+          metadata: { reason: "Invalid password" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -232,7 +261,7 @@ export class AuthService {
       }
 
       // -------------------- Return Safe Response --------------------
-      this.logger.audit({ type: "LOGIN_SUCCESS", email });
+      this.logger.audit({ type: "LOGIN_SUCCESS", email, correlationId: options?.correlationId });
 
       return {
         success: true,
@@ -247,7 +276,7 @@ export class AuthService {
         httpCode: 200
       };
     } catch (err) {
-      this.logger.error("Login exception", err, { email });
+      this.logger.error("Login exception", err, { email }, options?.correlationId);
       return {
         success: false,
         data: undefined,
@@ -264,6 +293,7 @@ export class AuthService {
     options?: {
       blockedPasswords?: string[];
       pwnedPasswordFailClosed?: boolean;
+      correlationId?: string;
     }
   ): Promise<AuthResult<ChangePasswordResult>> {
     try {
@@ -278,7 +308,8 @@ export class AuthService {
       if (!valid) {
         this.logger.audit({
           type: "PASSWORD_CHANGE",
-          metadata: { success: false, reason: "Current password incorrect" }
+          metadata: { success: false, reason: "Current password incorrect" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -294,7 +325,8 @@ export class AuthService {
       ) {
         this.logger.audit({
           type: "PASSWORD_CHANGE",
-          metadata: { success: false, reason: "New password contains blocked keywords" }
+          metadata: { success: false, reason: "New password contains blocked keywords" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -308,7 +340,8 @@ export class AuthService {
       if (zxcvbn(newPassword).score < 3) {
         this.logger.audit({
           type: "PASSWORD_CHANGE",
-          metadata: { success: false, reason: "New password too weak" }
+          metadata: { success: false, reason: "New password too weak" },
+          correlationId: options?.correlationId
         });
         return { success: false, data: undefined, message: "New password too weak", httpCode: 400 };
       }
@@ -318,7 +351,8 @@ export class AuthService {
       if (breachCheck.detected) {
         this.logger.audit({
           type: "PASSWORD_CHANGE",
-          metadata: { success: false, reason: "New password found in data breach" }
+          metadata: { success: false, reason: "New password found in data breach" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -331,7 +365,8 @@ export class AuthService {
       if (breachCheck.error && options?.pwnedPasswordFailClosed) {
         this.logger.audit({
           type: "PASSWORD_CHANGE",
-          metadata: { success: false, reason: "Breached password check failed (Fail-Closed)" }
+          metadata: { success: false, reason: "Breached password check failed (Fail-Closed)" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -346,7 +381,12 @@ export class AuthService {
       const updated = await this.users.updatePassword(userId, newHash);
 
       if (!updated) {
-        this.logger.error("Password update failed", new Error("Database update returned false"));
+        this.logger.error(
+          "Password update failed",
+          new Error("Database update returned false"),
+          undefined,
+          options?.correlationId
+        );
         return {
           success: false,
           data: undefined,
@@ -355,7 +395,11 @@ export class AuthService {
         };
       }
 
-      this.logger.audit({ type: "PASSWORD_CHANGE", metadata: { success: true } });
+      this.logger.audit({
+        type: "PASSWORD_CHANGE",
+        metadata: { success: true },
+        correlationId: options?.correlationId
+      });
 
       return {
         success: true,
@@ -370,7 +414,7 @@ export class AuthService {
         httpCode: 200
       };
     } catch (err) {
-      this.logger.error("Password change exception", err);
+      this.logger.error("Password change exception", err, undefined, options?.correlationId);
       return {
         success: false,
         data: undefined,

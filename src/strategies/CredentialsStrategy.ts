@@ -13,18 +13,41 @@ export class CredentialsAuthStrategy implements IAuthStrategy {
     const service = new AuthService(db.userRepo, cryptoAdapter, auditLogger);
 
     target.credentials = {
-      signup: (email: string, username: string, password: string) =>
+      signup: (
+        email: string,
+        username: string,
+        password: string,
+        optionsOverride?: {
+          blockedPasswords?: string[];
+          pwnedPasswordFailClosed?: boolean;
+          correlationId?: string;
+        }
+      ) =>
         service.signup(email, username, password, {
-          blockedPasswords: options.blockedPasswords,
-          pwnedPasswordFailClosed: options.pwnedPasswordFailClosed
+          blockedPasswords: optionsOverride?.blockedPasswords ?? options.blockedPasswords,
+          pwnedPasswordFailClosed:
+            optionsOverride?.pwnedPasswordFailClosed ?? options.pwnedPasswordFailClosed,
+          correlationId: optionsOverride?.correlationId
         }),
 
-      login: (email: string, password: string) => service.login(email, password),
+      login: (email: string, password: string, optionsOverride?: { correlationId?: string }) =>
+        service.login(email, password, optionsOverride),
 
-      changePassword: (userId: string | number, currentPass: string, newPass: string) =>
+      changePassword: (
+        userId: string | number,
+        currentPass: string,
+        newPass: string,
+        optionsOverride?: {
+          blockedPasswords?: string[];
+          pwnedPasswordFailClosed?: boolean;
+          correlationId?: string;
+        }
+      ) =>
         service.changePassword(userId, currentPass, newPass, {
-          blockedPasswords: options.blockedPasswords,
-          pwnedPasswordFailClosed: options.pwnedPasswordFailClosed
+          blockedPasswords: optionsOverride?.blockedPasswords ?? options.blockedPasswords,
+          pwnedPasswordFailClosed:
+            optionsOverride?.pwnedPasswordFailClosed ?? options.pwnedPasswordFailClosed,
+          correlationId: optionsOverride?.correlationId
         })
     };
   }

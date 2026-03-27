@@ -20,6 +20,7 @@ A robust, multi-platform authentication framework built on OWASP security standa
 - Automatic masking of sensitive data (passwords, tokens) in logs.
 - Define your own sensitive keywords for the audit logger.
 - Configurable "fail-closed" mode for Have I Been Pwned API checks.
+- **Request Tracing**: Support for Correlation IDs to tie logs to specific requests.
 
 ## OWASP Authentication Alignment
 
@@ -161,6 +162,16 @@ By default, if the Have I Been Pwned API is down, the library allows the passwor
 
 ```ts
 pwnedPasswordFailClosed: true; // Block signup/change-password if API check fails
+```
+
+#### Correlation IDs (Request Tracing)
+
+You can pass a `correlationId` to any authentication method to tie library logs to your own request traces.
+
+```ts
+await auth.credentials.login(email, password, {
+  correlationId: "req_12345"
+});
 ```
 
 ### Database Specifics

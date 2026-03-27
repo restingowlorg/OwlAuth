@@ -16,7 +16,10 @@ export class MagicLinkService {
   ) {}
 
   /** Request a magic link (passwordless login) */
-  async request(email: string): Promise<AuthResult<RequestMagicLinkResult>> {
+  async request(
+    email: string,
+    options?: { correlationId?: string }
+  ): Promise<AuthResult<RequestMagicLinkResult>> {
     try {
       const user = await this.users.findByEmail(email);
 
@@ -24,7 +27,8 @@ export class MagicLinkService {
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
           email,
-          metadata: { reason: "User not found" }
+          metadata: { reason: "User not found" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -40,7 +44,12 @@ export class MagicLinkService {
       // invalidate existing tokens for this user
       const invalidated = await this.magicLinks.invalidateByUserId(user.id);
       if (!invalidated) {
-        this.logger.error("Failed to invalidate magic links", new Error("DB update failed"));
+        this.logger.error(
+          "Failed to invalidate magic links",
+          new Error("DB update failed"),
+          undefined,
+          options?.correlationId
+        );
         return {
           success: false,
           data: undefined,
@@ -57,7 +66,12 @@ export class MagicLinkService {
       });
 
       if (!record) {
-        this.logger.error("Failed to create magic link", new Error("DB insert failed"));
+        this.logger.error(
+          "Failed to create magic link",
+          new Error("DB insert failed"),
+          undefined,
+          options?.correlationId
+        );
         return {
           success: false,
           data: undefined,
@@ -66,7 +80,11 @@ export class MagicLinkService {
         };
       }
 
-      this.logger.audit({ type: "MAGIC_LINK_REQUESTED", email: user.email });
+      this.logger.audit({
+        type: "MAGIC_LINK_REQUESTED",
+        email: user.email,
+        correlationId: options?.correlationId
+      });
 
       return {
         success: true,
@@ -76,7 +94,7 @@ export class MagicLinkService {
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
-      this.logger.error("Magic link request exception", err, { email });
+      this.logger.error("Magic link request exception", err, { email }, options?.correlationId);
 
       return {
         success: false,
@@ -88,11 +106,18 @@ export class MagicLinkService {
   }
 
   /** Verify a magic link token without consuming it */
-  async verify(token: string): Promise<AuthResult<VerifyMagicLinkResult>> {
+  async verify(
+    token: string,
+    options?: { correlationId?: string }
+  ): Promise<AuthResult<VerifyMagicLinkResult>> {
     try {
       const parts = token.split(".");
       if (parts.length !== 2) {
-        this.logger.audit({ type: "MAGIC_LINK_FAILURE", metadata: { reason: "Malformed token" } });
+        this.logger.audit({
+          type: "MAGIC_LINK_FAILURE",
+          metadata: { reason: "Malformed token" },
+          correlationId: options?.correlationId
+        });
         return {
           success: false,
           data: undefined,
@@ -107,7 +132,8 @@ export class MagicLinkService {
       if (!record || record.usedAt || record.expiresAt.getTime() < Date.now()) {
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
-          metadata: { reason: "Invalid or expired token" }
+          metadata: { reason: "Invalid or expired token" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -121,7 +147,8 @@ export class MagicLinkService {
       if (!match) {
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
-          metadata: { reason: "Token mismatch" }
+          metadata: { reason: "Token mismatch" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -131,7 +158,7 @@ export class MagicLinkService {
         };
       }
 
-      this.logger.audit({ type: "MAGIC_LINK_VERIFIED" });
+      this.logger.audit({ type: "MAGIC_LINK_VERIFIED", correlationId: options?.correlationId });
 
       return {
         success: true,
@@ -141,7 +168,7 @@ export class MagicLinkService {
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
-      this.logger.error("Magic link verify exception", err);
+      this.logger.error("Magic link verify exception", err, undefined, options?.correlationId);
       return {
         success: false,
         data: undefined,
@@ -152,9 +179,12 @@ export class MagicLinkService {
   }
 
   /** Consume a magic link token */
-  async consume(token: string): Promise<AuthResult<ConsumeMagicLinkResult>> {
+  async consume(
+    token: string,
+    options?: { correlationId?: string }
+  ): Promise<AuthResult<ConsumeMagicLinkResult>> {
     try {
-      const verifyResult = await this.verify(token);
+      const verifyResult = await this.verify(token, options);
 
       if (!verifyResult.success) {
         return {
@@ -168,10 +198,16 @@ export class MagicLinkService {
       const consumed = await this.magicLinks.consume(verifyResult.data.tokenId);
 
       if (!consumed) {
-        this.logger.error("Failed to consume magic link", new Error("DB update failed"));
+        this.logger.error(
+          "Failed to consume magic link",
+          new Error("DB update failed"),
+          undefined,
+          options?.correlationId
+        );
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
-          metadata: { reason: "Token already used" }
+          metadata: { reason: "Token already used" },
+          correlationId: options?.correlationId
         });
         return {
           success: false,
@@ -180,10 +216,11 @@ export class MagicLinkService {
         };
       }
 
-      this.logger.audit({ type: "MAGIC_LINK_CONSUMED" });
+      this.logger.audit({ type: "MAGIC_LINK_CONSUMED", correlationId: options?.correlationId });
       this.logger.audit({
         type: "LOGIN_SUCCESS",
-        metadata: { method: "magic-link" }
+        metadata: { method: "magic-link" },
+        correlationId: options?.correlationId
       });
 
       return {
@@ -194,7 +231,7 @@ export class MagicLinkService {
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
-      this.logger.error("Magic link consume exception", err);
+      this.logger.error("Magic link consume exception", err, undefined, options?.correlationId);
 
       return {
         success: false,

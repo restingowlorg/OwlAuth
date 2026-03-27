@@ -76,35 +76,37 @@ export class SecurityAuditLogger implements IAuditLogger {
     this.customMaskingKeys = keys;
   }
 
-  info(message: string, context?: unknown) {
+  info(message: string, context?: unknown, correlationId?: string) {
     console.info(
-      `${this.prefix} [INFO] - ${message}`,
+      `${this.prefix} [INFO]${correlationId ? ` [${correlationId}]` : ""} - ${message}`,
       context ? maskSensitiveData(context, this.customMaskingKeys) : ""
     );
   }
 
-  warn(message: string, context?: unknown) {
+  warn(message: string, context?: unknown, correlationId?: string) {
     console.warn(
-      `${this.prefix} [WARN] - ${message}`,
+      `${this.prefix} [WARN]${correlationId ? ` [${correlationId}]` : ""} - ${message}`,
       context ? maskSensitiveData(context, this.customMaskingKeys) : ""
     );
   }
 
-  error(message: string, error: unknown, context?: unknown) {
+  error(message: string, error: unknown, context?: unknown, correlationId?: string) {
     console.error(
-      `${this.prefix} [ERROR] - ${message}`,
+      `${this.prefix} [ERROR]${correlationId ? ` [${correlationId}]` : ""} - ${message}`,
       maskSensitiveData(error, this.customMaskingKeys),
       context ? maskSensitiveData(context, this.customMaskingKeys) : ""
     );
   }
 
   audit(event: SecurityEvent) {
-    const { type, ...rest } = event;
+    const { type, userId, email, correlationId, ...rest } = event;
 
     console.log(
-      `${this.prefix} [AUDIT] - ${type}`,
+      `${this.prefix} [AUDIT]${correlationId ? ` [${correlationId}]` : ""} - ${type}`,
       maskSensitiveData(
         {
+          userId,
+          email,
           ...rest,
           timestamp: new Date().toISOString()
         },

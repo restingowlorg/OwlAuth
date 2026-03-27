@@ -143,20 +143,43 @@ export interface ICredentialsMethods {
   readonly signup: (
     email: string,
     username: string,
-    password: string
+    password: string,
+    options?: {
+      blockedPasswords?: string[];
+      pwnedPasswordFailClosed?: boolean;
+      correlationId?: string;
+    }
   ) => Promise<AuthResult<SignupResult>>;
-  readonly login: (email: string, password: string) => Promise<AuthResult<LoginResult>>;
+  readonly login: (
+    email: string,
+    password: string,
+    options?: { correlationId?: string }
+  ) => Promise<AuthResult<LoginResult>>;
   readonly changePassword: (
     userId: string | number,
     currentPassword: string,
-    newPassword: string
+    newPassword: string,
+    options?: {
+      blockedPasswords?: string[];
+      pwnedPasswordFailClosed?: boolean;
+      correlationId?: string;
+    }
   ) => Promise<AuthResult<ChangePasswordResult>>;
 }
 
 export interface IMagicLinkMethods {
-  readonly request: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
-  readonly verify: (token: string) => Promise<AuthResult<VerifyMagicLinkResult>>;
-  readonly consume: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
+  readonly request: (
+    email: string,
+    options?: { correlationId?: string }
+  ) => Promise<AuthResult<RequestMagicLinkResult>>;
+  readonly verify: (
+    token: string,
+    options?: { correlationId?: string }
+  ) => Promise<AuthResult<VerifyMagicLinkResult>>;
+  readonly consume: (
+    token: string,
+    options?: { correlationId?: string }
+  ) => Promise<AuthResult<ConsumeMagicLinkResult>>;
 }
 
 export interface IAuthMethods {
@@ -255,11 +278,12 @@ export type SecurityEvent = {
   userId?: string | number;
   email?: string;
   metadata?: Record<string, unknown>;
+  correlationId?: string;
 };
 
 export interface IAuditLogger {
-  info(message: string, context?: unknown): void;
-  warn(message: string, context?: unknown): void;
-  error(message: string, error: unknown, context?: unknown): void;
+  info(message: string, context?: unknown, correlationId?: string): void;
+  warn(message: string, context?: unknown, correlationId?: string): void;
+  error(message: string, error: unknown, context?: unknown, correlationId?: string): void;
   audit(event: SecurityEvent): void;
 }
