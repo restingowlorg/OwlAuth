@@ -179,9 +179,10 @@ describe("AuthService", () => {
       expect(result.httpCode).toBe(503);
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.audit).toHaveBeenCalledWith(
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         expect.objectContaining({
-          metadata: expect.objectContaining({ reason: expect.stringContaining("Fail-Closed") })
+          metadata: expect.objectContaining({
+            reason: expect.stringContaining("Fail-Closed") as unknown as string
+          }) as unknown as Record<string, unknown>
         })
       );
     });
