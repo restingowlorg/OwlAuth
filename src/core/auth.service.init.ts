@@ -23,6 +23,10 @@ export function initAuthServices(
 
   const authTypes = options.authTypes ?? ["credentials"];
 
+  if (options.customMaskingKeys) {
+    auditLogger.setCustomMaskingKeys(options.customMaskingKeys);
+  }
+
   auditLogger.info(`Initializing auth services for types: ${authTypes.join(", ")}`);
 
   for (const type of authTypes) {

@@ -17,6 +17,9 @@ A robust, multi-platform authentication framework built on OWASP security standa
 - Explicit, named public API to prevent drift
 - Subpath exports for modular database support (`/mongo`, `/postgres`)
 - Clean layered architecture (Core, Infra, Services, Strategies)
+- Automatic masking of sensitive data (passwords, tokens) in logs.
+- Define your own sensitive keywords for the audit logger.
+- Configurable "fail-closed" mode for Have I Been Pwned API checks.
 
 ## OWASP Authentication Alignment
 
@@ -142,6 +145,22 @@ If you use magic links, you can configure the base URL for the links sent to use
 
 ```ts
 magicLinkBaseUrl: "https://auth.example.com/verify";
+```
+
+#### Custom Masking Keywords
+
+Add your own sensitive keys to be masked in the audit logs (case-insensitive).
+
+```ts
+customMaskingKeys: ["ssn", "credit_card", "api_key"];
+```
+
+#### Fail-Safe Password Checks
+
+By default, if the Have I Been Pwned API is down, the library allows the password (fail-open). You can force it to block signups and password changes instead.
+
+```ts
+pwnedPasswordFailClosed: true; // Block signup/change-password if API check fails
 ```
 
 ### Database Specifics
@@ -303,10 +322,12 @@ The library provides consistent `AuthResult` responses for every operation. Belo
 | **Signup**      | User created & returned | Missing fields, Invalid username         | 400       |
 |                 |                         | Weak password, Breached password         | 400       |
 |                 |                         | Email/Username already taken             | 400       |
+|                 |                         | Security API failure (Fail-Closed)       | 503       |
 | **Login**       | User returned           | Missing fields                           | 400       |
 |                 |                         | Invalid credentials (User/Pass mismatch) | 401       |
 | **Change Pass** | Password updated        | Current password incorrect               | 401       |
 |                 |                         | New password weak/breached/blocked       | 400       |
+|                 |                         | Security API failure (Fail-Closed)       | 503       |
 
 ### Magic Link Service
 

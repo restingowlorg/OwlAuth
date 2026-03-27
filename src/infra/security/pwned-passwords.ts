@@ -2,7 +2,12 @@ import { sha1 } from "js-sha1";
 import { auditLogger } from "./security-audit-logger";
 import { SECURITY_CONFIG } from "../../config";
 
-export async function isBreachedPassword(password: string): Promise<boolean> {
+export type PwnedCheckResult = {
+  detected: boolean;
+  error?: Error;
+};
+
+export async function isBreachedPassword(password: string): Promise<PwnedCheckResult> {
   const hash = sha1(password).toUpperCase();
   const prefix = hash.slice(0, 5);
   const suffix = hash.slice(5);
@@ -18,19 +23,18 @@ export async function isBreachedPassword(password: string): Promise<boolean> {
     clearTimeout(timeout);
 
     if (!response.ok) {
-      auditLogger.warn(`PwnedPasswords API returned status ${response.status}. Fallback to false.`);
-      return false;
+      const error = new Error(`PwnedPasswords API returned status ${response.status}`);
+      auditLogger.warn(`${error.message}. Fallback to caller handling.`);
+      return { detected: false, error };
     }
 
     const text = await response.text();
     const lines = text.split("\n");
-    return lines.some((line) => line.split(":")[0] === suffix);
+    const detected = lines.some((line) => line.split(":")[0] === suffix);
+    return { detected };
   } catch (error) {
-    auditLogger.warn(
-      `Failed to check breached password. Fallback to false. Error: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
-    return false;
+    const err = error instanceof Error ? error : new Error(String(error));
+    auditLogger.warn(`Failed to check breached password. Error: ${err.message}`);
+    return { detected: false, error: err };
   }
 }

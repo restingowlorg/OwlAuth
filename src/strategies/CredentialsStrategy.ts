@@ -14,12 +14,18 @@ export class CredentialsAuthStrategy implements IAuthStrategy {
 
     target.credentials = {
       signup: (email: string, username: string, password: string) =>
-        service.signup(email, username, password, options.blockedPasswords),
+        service.signup(email, username, password, {
+          blockedPasswords: options.blockedPasswords,
+          pwnedPasswordFailClosed: options.pwnedPasswordFailClosed
+        }),
 
       login: (email: string, password: string) => service.login(email, password),
 
       changePassword: (userId: string | number, currentPass: string, newPass: string) =>
-        service.changePassword(userId, currentPass, newPass, options.blockedPasswords)
+        service.changePassword(userId, currentPass, newPass, {
+          blockedPasswords: options.blockedPasswords,
+          pwnedPasswordFailClosed: options.pwnedPasswordFailClosed
+        })
     };
   }
 }

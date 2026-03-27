@@ -40,9 +40,7 @@ export class MagicLinkService {
       // invalidate existing tokens for this user
       const invalidated = await this.magicLinks.invalidateByUserId(user.id);
       if (!invalidated) {
-        this.logger.error("Failed to invalidate magic links", new Error("DB update failed"), {
-          userId: user.id
-        });
+        this.logger.error("Failed to invalidate magic links", new Error("DB update failed"));
         return {
           success: false,
           data: undefined,
@@ -59,9 +57,7 @@ export class MagicLinkService {
       });
 
       if (!record) {
-        this.logger.error("Failed to create magic link", new Error("DB insert failed"), {
-          userId: user.id
-        });
+        this.logger.error("Failed to create magic link", new Error("DB insert failed"));
         return {
           success: false,
           data: undefined,
@@ -70,7 +66,7 @@ export class MagicLinkService {
         };
       }
 
-      this.logger.audit({ type: "MAGIC_LINK_REQUESTED", userId: user.id, email: user.email });
+      this.logger.audit({ type: "MAGIC_LINK_REQUESTED", email: user.email });
 
       return {
         success: true,
@@ -111,7 +107,7 @@ export class MagicLinkService {
       if (!record || record.usedAt || record.expiresAt.getTime() < Date.now()) {
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
-          metadata: { reason: "Invalid or expired token", tokenId }
+          metadata: { reason: "Invalid or expired token" }
         });
         return {
           success: false,
@@ -125,8 +121,7 @@ export class MagicLinkService {
       if (!match) {
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
-          userId: record.userId,
-          metadata: { reason: "Token mismatch", tokenId }
+          metadata: { reason: "Token mismatch" }
         });
         return {
           success: false,
@@ -136,7 +131,7 @@ export class MagicLinkService {
         };
       }
 
-      this.logger.audit({ type: "MAGIC_LINK_VERIFIED", userId: record.userId });
+      this.logger.audit({ type: "MAGIC_LINK_VERIFIED" });
 
       return {
         success: true,
@@ -173,13 +168,10 @@ export class MagicLinkService {
       const consumed = await this.magicLinks.consume(verifyResult.data.tokenId);
 
       if (!consumed) {
-        this.logger.error("Failed to consume magic link", new Error("DB update failed"), {
-          tokenId: verifyResult.data.tokenId
-        });
+        this.logger.error("Failed to consume magic link", new Error("DB update failed"));
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
-          userId: verifyResult.data.userId,
-          metadata: { reason: "Token already used", tokenId: verifyResult.data.tokenId }
+          metadata: { reason: "Token already used" }
         });
         return {
           success: false,
@@ -188,10 +180,9 @@ export class MagicLinkService {
         };
       }
 
-      this.logger.audit({ type: "MAGIC_LINK_CONSUMED", userId: verifyResult.data.userId });
+      this.logger.audit({ type: "MAGIC_LINK_CONSUMED" });
       this.logger.audit({
         type: "LOGIN_SUCCESS",
-        userId: verifyResult.data.userId,
         metadata: { method: "magic-link" }
       });
 

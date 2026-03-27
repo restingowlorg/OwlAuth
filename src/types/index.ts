@@ -36,6 +36,8 @@ export type BaseAuthOptions<T extends AuthType = AuthType> = {
   blockedPasswords?: string[];
   magicLinkBaseUrl?: string;
   cryptoAdapter?: ICryptoAdapter;
+  customMaskingKeys?: string[];
+  pwnedPasswordFailClosed?: boolean;
 };
 
 export type Mutable<T> = {

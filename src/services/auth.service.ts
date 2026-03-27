@@ -22,7 +22,10 @@ export class AuthService {
     email: string,
     username: string,
     password: string,
-    blockedPasswords?: string[]
+    options?: {
+      blockedPasswords?: string[];
+      pwnedPasswordFailClosed?: boolean;
+    }
   ): Promise<AuthResult<LoginResult>> {
     try {
       // Basic validation
@@ -54,7 +57,7 @@ export class AuthService {
         };
       }
 
-      if (containsBlockedPasswords(password, email, username, blockedPasswords)) {
+      if (containsBlockedPasswords(password, email, username, options?.blockedPasswords)) {
         this.logger.audit({
           type: "SIGNUP_FAILURE",
           email,
@@ -79,7 +82,8 @@ export class AuthService {
       }
 
       // Breached password check
-      if (await isBreachedPassword(password)) {
+      const breachCheck = await isBreachedPassword(password);
+      if (breachCheck.detected) {
         this.logger.audit({
           type: "SIGNUP_FAILURE",
           email,
@@ -90,6 +94,20 @@ export class AuthService {
           data: undefined,
           message: "Password found in data breach.",
           httpCode: 400
+        };
+      }
+
+      if (breachCheck.error && options?.pwnedPasswordFailClosed) {
+        this.logger.audit({
+          type: "SIGNUP_FAILURE",
+          email,
+          metadata: { username, reason: "Breached password check failed (Fail-Closed)" }
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "Security check unavailable. Please try again later.",
+          httpCode: 503
         };
       }
 
@@ -142,7 +160,7 @@ export class AuthService {
         };
       }
 
-      this.logger.audit({ type: "SIGNUP", userId: user.id, email: user.email });
+      this.logger.audit({ type: "SIGNUP", email: user.email });
 
       return {
         success: true,
@@ -203,7 +221,6 @@ export class AuthService {
         this.logger.audit({
           type: "LOGIN_FAILURE",
           email,
-          userId: user.id,
           metadata: { reason: "Invalid password" }
         });
         return {
@@ -215,7 +232,7 @@ export class AuthService {
       }
 
       // -------------------- Return Safe Response --------------------
-      this.logger.audit({ type: "LOGIN_SUCCESS", email, userId: user.id });
+      this.logger.audit({ type: "LOGIN_SUCCESS", email });
 
       return {
         success: true,
@@ -244,7 +261,10 @@ export class AuthService {
     userId: string | number,
     currentPassword: string,
     newPassword: string,
-    blockedPasswords?: string[]
+    options?: {
+      blockedPasswords?: string[];
+      pwnedPasswordFailClosed?: boolean;
+    }
   ): Promise<AuthResult<ChangePasswordResult>> {
     try {
       // Fetch user
@@ -258,7 +278,6 @@ export class AuthService {
       if (!valid) {
         this.logger.audit({
           type: "PASSWORD_CHANGE",
-          userId,
           metadata: { success: false, reason: "Current password incorrect" }
         });
         return {
@@ -270,10 +289,11 @@ export class AuthService {
       }
 
       // Check blocked passwords
-      if (containsBlockedPasswords(newPassword, user.email, user.username, blockedPasswords)) {
+      if (
+        containsBlockedPasswords(newPassword, user.email, user.username, options?.blockedPasswords)
+      ) {
         this.logger.audit({
           type: "PASSWORD_CHANGE",
-          userId,
           metadata: { success: false, reason: "New password contains blocked keywords" }
         });
         return {
@@ -288,17 +308,16 @@ export class AuthService {
       if (zxcvbn(newPassword).score < 3) {
         this.logger.audit({
           type: "PASSWORD_CHANGE",
-          userId,
           metadata: { success: false, reason: "New password too weak" }
         });
         return { success: false, data: undefined, message: "New password too weak", httpCode: 400 };
       }
 
       // Breach check
-      if (await isBreachedPassword(newPassword)) {
+      const breachCheck = await isBreachedPassword(newPassword);
+      if (breachCheck.detected) {
         this.logger.audit({
           type: "PASSWORD_CHANGE",
-          userId,
           metadata: { success: false, reason: "New password found in data breach" }
         });
         return {
@@ -309,14 +328,25 @@ export class AuthService {
         };
       }
 
+      if (breachCheck.error && options?.pwnedPasswordFailClosed) {
+        this.logger.audit({
+          type: "PASSWORD_CHANGE",
+          metadata: { success: false, reason: "Breached password check failed (Fail-Closed)" }
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "Security check unavailable. Please try again later.",
+          httpCode: 503
+        };
+      }
+
       // Hash new password and update
       const newHash = await this.crypto.hashPassword(newPassword);
       const updated = await this.users.updatePassword(userId, newHash);
 
       if (!updated) {
-        this.logger.error("Password update failed", new Error("Database update returned false"), {
-          userId
-        });
+        this.logger.error("Password update failed", new Error("Database update returned false"));
         return {
           success: false,
           data: undefined,
@@ -325,7 +355,7 @@ export class AuthService {
         };
       }
 
-      this.logger.audit({ type: "PASSWORD_CHANGE", userId, metadata: { success: true } });
+      this.logger.audit({ type: "PASSWORD_CHANGE", metadata: { success: true } });
 
       return {
         success: true,
@@ -340,7 +370,7 @@ export class AuthService {
         httpCode: 200
       };
     } catch (err) {
-      this.logger.error("Password change exception", err, { userId });
+      this.logger.error("Password change exception", err);
       return {
         success: false,
         data: undefined,
