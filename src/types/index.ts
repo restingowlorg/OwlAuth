@@ -36,6 +36,8 @@ export type BaseAuthOptions<T extends AuthType = AuthType> = {
   blockedPasswords?: string[];
   magicLinkBaseUrl?: string;
   cryptoAdapter?: ICryptoAdapter;
+  customMaskingKeys?: string[];
+  pwnedPasswordFailClosed?: boolean;
 };
 
 export type Mutable<T> = {
@@ -141,20 +143,43 @@ export interface ICredentialsMethods {
   readonly signup: (
     email: string,
     username: string,
-    password: string
+    password: string,
+    options?: {
+      blockedPasswords?: string[];
+      pwnedPasswordFailClosed?: boolean;
+      correlationId?: string;
+    }
   ) => Promise<AuthResult<SignupResult>>;
-  readonly login: (email: string, password: string) => Promise<AuthResult<LoginResult>>;
+  readonly login: (
+    email: string,
+    password: string,
+    options?: { correlationId?: string }
+  ) => Promise<AuthResult<LoginResult>>;
   readonly changePassword: (
     userId: string | number,
     currentPassword: string,
-    newPassword: string
+    newPassword: string,
+    options?: {
+      blockedPasswords?: string[];
+      pwnedPasswordFailClosed?: boolean;
+      correlationId?: string;
+    }
   ) => Promise<AuthResult<ChangePasswordResult>>;
 }
 
 export interface IMagicLinkMethods {
-  readonly request: (email: string) => Promise<AuthResult<RequestMagicLinkResult>>;
-  readonly verify: (token: string) => Promise<AuthResult<VerifyMagicLinkResult>>;
-  readonly consume: (token: string) => Promise<AuthResult<ConsumeMagicLinkResult>>;
+  readonly request: (
+    email: string,
+    options?: { correlationId?: string }
+  ) => Promise<AuthResult<RequestMagicLinkResult>>;
+  readonly verify: (
+    token: string,
+    options?: { correlationId?: string }
+  ) => Promise<AuthResult<VerifyMagicLinkResult>>;
+  readonly consume: (
+    token: string,
+    options?: { correlationId?: string }
+  ) => Promise<AuthResult<ConsumeMagicLinkResult>>;
 }
 
 export interface IAuthMethods {
@@ -230,8 +255,35 @@ export type ConsumeMagicLinkResult = {
 };
 
 export type SafeUser = {
+  id: string | number;
   email: string;
   username: string;
 };
 
 export type UserColumn = (typeof PostgresUserSchema.requiredColumns)[number];
+
+export type SecurityEventType =
+  | "LOGIN_SUCCESS"
+  | "LOGIN_FAILURE"
+  | "SIGNUP"
+  | "SIGNUP_FAILURE"
+  | "PASSWORD_CHANGE"
+  | "MAGIC_LINK_REQUESTED"
+  | "MAGIC_LINK_VERIFIED"
+  | "MAGIC_LINK_CONSUMED"
+  | "MAGIC_LINK_FAILURE";
+
+export type SecurityEvent = {
+  type: SecurityEventType;
+  userId?: string | number;
+  email?: string;
+  metadata?: Record<string, unknown>;
+  correlationId?: string;
+};
+
+export interface IAuditLogger {
+  info(message: string, context?: unknown, correlationId?: string): void;
+  warn(message: string, context?: unknown, correlationId?: string): void;
+  error(message: string, error: unknown, context?: unknown, correlationId?: string): void;
+  audit(event: SecurityEvent): void;
+}

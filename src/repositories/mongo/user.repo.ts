@@ -46,7 +46,14 @@ export class MongoUserRepo implements UserRepository {
   }
 
   async findById(id: string): Promise<User | null> {
-    const user = await this.collection.findOne({ _id: new ObjectId(id) });
+    let objectId: ObjectId;
+    try {
+      objectId = new ObjectId(id);
+    } catch {
+      return null;
+    }
+
+    const user = await this.collection.findOne({ _id: objectId });
     if (!user) return null;
 
     return {
@@ -70,8 +77,15 @@ export class MongoUserRepo implements UserRepository {
   }
 
   async updatePassword(userId: string | number, passwordHash: string): Promise<boolean> {
+    let objectId: ObjectId;
+    try {
+      objectId = new ObjectId(userId.toString());
+    } catch {
+      return false;
+    }
+
     const result = await this.collection.updateOne(
-      { _id: new ObjectId(userId.toString()) },
+      { _id: objectId },
       { $set: { password: passwordHash, updated_at: new Date() } }
     );
     return result.modifiedCount > 0;

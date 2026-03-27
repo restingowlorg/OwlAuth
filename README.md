@@ -17,6 +17,10 @@ A robust, multi-platform authentication framework built on OWASP security standa
 - Explicit, named public API to prevent drift
 - Subpath exports for modular database support (`/mongo`, `/postgres`)
 - Clean layered architecture (Core, Infra, Services, Strategies)
+- Automatic masking of sensitive data (passwords, tokens) in logs.
+- Define your own sensitive keywords for the audit logger.
+- Configurable "fail-closed" mode for Have I Been Pwned API checks.
+- **Request Tracing**: Support for Correlation IDs to tie logs to specific requests.
 
 ## OWASP Authentication Alignment
 
@@ -34,13 +38,18 @@ A robust, multi-platform authentication framework built on OWASP security standa
 - **V6.5 MFA & Tokens**:
   - **Standardized Magic Links**: Passwordless authentication uses single-use tokens with cryptographically secure generation and strict 15-minute expiration windows (ASVS 6.5.1, 6.5.3, 6.5.5).
 
-### Future Security Roadmap
+### Future Roadmap
 
-We are committed to continuous security improvements. Planned updates to further enhance OWASP alignment include:
+We are committed to continuous security improvements. Planned updates to further enhance **OWASP ASVS v6.0** alignment include:
 
-- **Rate Limiting & Anti-Brute Force**: Implementing adaptive delays and account lockout mechanisms (ASVS 6.3.1).
-- **Multi-factor Authentication (MFA)**: Adding support for TOTP (Time-based One-Time Passwords) for Level 2 authentication (ASVS 6.3.3).
-- **Security Notifications**: Real-time user alerts for password changes, account updates, and suspicious login activity (ASVS 6.3.5, 6.3.7).
+- **Security & Features**:
+  - **Rate Limiting & Anti-Brute Force**: Adaptive delays and account lockout mechanisms (**ASVS 6.3.1**).
+  - **Multi-factor Authentication (MFA)**: Support for TOTP (**ASVS 6.3.3**) and **WebAuthn/FIDO2** for phishing-resistant MFA (**ASVS 6.5.1**, **13.2.1**).
+  - **Security Notifications**: Real-time user alerts for password changes and suspicious activity (**ASVS 6.3.5**, **6.3.7**).
+
+- **Ecosystem & Interoperability**:
+  - **Framework Hub**: Dedicated plugins and middlewares for **Express**, **Fastify**, and **NestJS**.
+  - **More Databases**: Extending support to **MySQL**, **SQLite**, and **DynamoDB**.
 
 ## Support Matrix
 
@@ -137,6 +146,32 @@ If you use magic links, you can configure the base URL for the links sent to use
 
 ```ts
 magicLinkBaseUrl: "https://auth.example.com/verify";
+```
+
+#### Custom Masking Keywords
+
+Add your own sensitive keys to be masked in the audit logs (case-insensitive).
+
+```ts
+customMaskingKeys: ["ssn", "credit_card", "api_key"];
+```
+
+#### Fail-Safe Password Checks
+
+By default, if the Have I Been Pwned API is down, the library allows the password (fail-open). You can force it to block signups and password changes instead.
+
+```ts
+pwnedPasswordFailClosed: true; // Block signup/change-password if API check fails
+```
+
+#### Correlation IDs (Request Tracing)
+
+You can pass a `correlationId` to any authentication method to tie library logs to your own request traces.
+
+```ts
+await auth.credentials.login(email, password, {
+  correlationId: "req_12345"
+});
 ```
 
 ### Database Specifics
@@ -286,6 +321,34 @@ if (consume.success) {
   console.log("Magic link consumed");
 }
 ```
+
+## Happy & Unhappy Paths
+
+The library provides consistent `AuthResult` responses for every operation. Below is a breakdown of the common success and failure scenarios for each service.
+
+### Credentials Service
+
+| Operation       | Happy Path (Success)    | Unhappy Path (Failure Reason)            | HTTP Code |
+| :-------------- | :---------------------- | :--------------------------------------- | :-------- |
+| **Signup**      | User created & returned | Missing fields, Invalid username         | 400       |
+|                 |                         | Weak password, Breached password         | 400       |
+|                 |                         | Email/Username already taken             | 400       |
+|                 |                         | Security API failure (Fail-Closed)       | 503       |
+| **Login**       | User returned           | Missing fields                           | 400       |
+|                 |                         | Invalid credentials (User/Pass mismatch) | 401       |
+| **Change Pass** | Password updated        | Current password incorrect               | 401       |
+|                 |                         | New password weak/breached/blocked       | 400       |
+|                 |                         | Security API failure (Fail-Closed)       | 503       |
+
+### Magic Link Service
+
+| Operation   | Happy Path (Success)  | Unhappy Path (Failure Reason)      | HTTP Code |
+| :---------- | :-------------------- | :--------------------------------- | :-------- |
+| **Request** | Token string returned | User not found                     | 404       |
+| **Verify**  | `isValid: true`       | Malformed token format             | 400       |
+|             |                       | Expired or incorrect token         | 401       |
+| **Consume** | `userId` returned     | Token already used (Replay attack) | 401       |
+|             |                       | Token expired or invalid           | 401       |
 
 ## Response Types
 
