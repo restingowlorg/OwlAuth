@@ -93,6 +93,22 @@ describe("MagicLinkService", () => {
       expect(result.success).toBe(false);
       expect(result.httpCode).toBe(500);
     });
+
+    it("should propagate correlationId to auditLogger during request", async () => {
+      mockUserRepo.findByEmail.mockResolvedValue({ id: "1", email } as unknown as User);
+      mockMagicLinkRepo.invalidateByUserId.mockResolvedValue(true);
+      mockCrypto.generateToken.mockReturnValue("t");
+      (mockCrypto.hashToken as jest.Mock).mockResolvedValue("ht");
+      mockMagicLinkRepo.create.mockResolvedValue({ id: "l" } as unknown as MagicLinkToken);
+
+      const correlationId = "magic-req-id";
+      await service.request(email, { correlationId });
+
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "MAGIC_LINK_REQUESTED", correlationId })
+      );
+    });
   });
 
   describe("verify", () => {

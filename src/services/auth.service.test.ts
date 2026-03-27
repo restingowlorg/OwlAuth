@@ -159,6 +159,54 @@ describe("AuthService", () => {
       expect(result.httpCode).toBe(400);
       expect(result.message).toBe("Email already registered.");
     });
+
+    it("should return 503 SERVICE_UNAVAILABLE if pwned check fails and pwnedPasswordFailClosed is true", async () => {
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({
+        detected: false,
+        error: new Error("HIBP API Down")
+      });
+
+      const result = await authService.signup(
+        signupData.email,
+        signupData.username,
+        signupData.password,
+        { pwnedPasswordFailClosed: true }
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(503);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+        expect.objectContaining({
+          metadata: expect.objectContaining({ reason: expect.stringContaining("Fail-Closed") })
+        })
+      );
+    });
+
+    it("should propagate correlationId to auditLogger during signup", async () => {
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: false });
+      (mockUserRepo.findByUsername as jest.Mock).mockResolvedValue(null);
+      mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockCrypto.hashPassword.mockResolvedValue("hashed");
+      mockUserRepo.create.mockResolvedValue({
+        id: "1",
+        email: signupData.email,
+        username: signupData.username
+      });
+
+      const correlationId = "test-corr-id";
+      await authService.signup(signupData.email, signupData.username, signupData.password, {
+        correlationId
+      });
+
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(expect.objectContaining({ correlationId }));
+    });
   });
 
   describe("login", () => {
@@ -209,6 +257,19 @@ describe("AuthService", () => {
       const result = await authService.login(loginData.email, loginData.password);
       expect(result.success).toBe(false);
       expect(result.httpCode).toBe(401);
+    });
+
+    it("should propagate correlationId to auditLogger and error logs during login", async () => {
+      const email = "test@example.com";
+      const correlationId = "login-trace-id";
+      mockUserRepo.findByEmail.mockResolvedValue(null); // Force a failure for logging check
+
+      await authService.login(email, "pass", { correlationId });
+
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "LOGIN_FAILURE", correlationId })
+      );
     });
   });
 
@@ -278,6 +339,44 @@ describe("AuthService", () => {
       const result = await authService.changePassword("1", "old", "weak");
       expect(result.success).toBe(false);
       expect(result.httpCode).toBe(400);
+    });
+
+    it("should return 503 SERVICE_UNAVAILABLE during password change if fail-closed is enabled and check fails", async () => {
+      mockUserRepo.findById.mockResolvedValue({
+        id: "1",
+        email: "test@example.com",
+        username: "testuser",
+        password: "old"
+      } as unknown as User);
+      mockCrypto.verifyPassword.mockResolvedValue(true);
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({
+        detected: false,
+        error: new Error("Network Error")
+      });
+
+      const result = await authService.changePassword("1", "old", "new", {
+        pwnedPasswordFailClosed: true
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(503);
+    });
+
+    it("should propagate correlationId to all logs during password change", async () => {
+      const correlationId = "change-pwd-trace";
+      mockUserRepo.findById.mockRejectedValue(new Error("DB Error")); // Force exception for error log check
+
+      await authService.changePassword("1", "old", "new", { correlationId });
+
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Error),
+        undefined,
+        correlationId
+      );
     });
   });
 });
