@@ -245,6 +245,10 @@ describe("AuthService", () => {
       const result = await authService.login(loginData.email, loginData.password);
       expect(result.success).toBe(false);
       expect(result.httpCode).toBe(401);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "LOGIN_FAILURE", metadata: { reason: "User not found" } })
+      );
     });
 
     it("should fail if password does not match", async () => {
@@ -258,6 +262,10 @@ describe("AuthService", () => {
       const result = await authService.login(loginData.email, loginData.password);
       expect(result.success).toBe(false);
       expect(result.httpCode).toBe(401);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "LOGIN_FAILURE", metadata: { reason: "Invalid password" } })
+      );
     });
 
     it("should propagate correlationId to auditLogger and error logs during login", async () => {

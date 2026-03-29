@@ -140,6 +140,10 @@ describe("MagicLinkService", () => {
       if (result.success && result.data) {
         expect(result.data.userId).toBe("1");
       }
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "MAGIC_LINK_VERIFIED" })
+      );
     });
 
     it("should fail if token is malformed", async () => {
@@ -222,6 +226,14 @@ describe("MagicLinkService", () => {
       }
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockMagicLinkRepo.consume).toHaveBeenCalledWith("link1");
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "MAGIC_LINK_CONSUMED" })
+      );
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "LOGIN_SUCCESS", metadata: { method: "magic-link" } })
+      );
     });
 
     it("should fail if verification fails", async () => {
@@ -257,13 +269,22 @@ describe("MagicLinkService", () => {
         expect.objectContaining({ type: "MAGIC_LINK_FAILURE", correlationId })
       );
 
-      // 2. Error log on exception
-      const error = new Error("DB Error");
-      mockMagicLinkRepo.findById.mockRejectedValue(error);
+      // 2. Error log on exception (test consume's own catch block)
+      mockMagicLinkRepo.findById.mockResolvedValue({
+        id: "link1",
+        userId: "123",
+        tokenHash: "ht",
+        expiresAt: new Date(Date.now() + 1000),
+        usedAt: null
+      } as unknown as MagicLinkToken);
+      mockCrypto.verifyToken.mockResolvedValue(true);
+      const error = new Error("DB Error on Consume");
+      mockMagicLinkRepo.consume.mockRejectedValue(error);
+
       await service.consume(token, { correlationId });
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.error).toHaveBeenCalledWith(
-        "Magic link verify exception",
+        "Magic link consume exception",
         error,
         undefined,
         correlationId
