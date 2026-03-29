@@ -94,19 +94,31 @@ describe("MagicLinkService", () => {
       expect(result.httpCode).toBe(500);
     });
 
-    it("should propagate correlationId to auditLogger during request", async () => {
+    it("should propagate correlationId to auditLogger and error logs during request", async () => {
+      const correlationId = "magic-req-id";
       mockUserRepo.findByEmail.mockResolvedValue({ id: "1", email } as unknown as User);
       mockMagicLinkRepo.invalidateByUserId.mockResolvedValue(true);
       mockCrypto.generateToken.mockReturnValue("t");
       (mockCrypto.hashToken as jest.Mock).mockResolvedValue("ht");
       mockMagicLinkRepo.create.mockResolvedValue({ id: "l" } as unknown as MagicLinkToken);
 
-      const correlationId = "magic-req-id";
+      // 1. Audit log on success
       await service.request(email, { correlationId });
-
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.audit).toHaveBeenCalledWith(
         expect.objectContaining({ type: "MAGIC_LINK_REQUESTED", correlationId })
+      );
+
+      // 2. Error log on exception
+      const error = new Error("DB Error");
+      mockUserRepo.findByEmail.mockRejectedValue(error);
+      await service.request(email, { correlationId });
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        "Magic link request exception",
+        error,
+        { email },
+        correlationId
       );
     });
   });
@@ -162,6 +174,31 @@ describe("MagicLinkService", () => {
       expect(result.success).toBe(false);
       expect(result.message).toContain("expired"); // Service message is same for both
     });
+
+    it("should propagate correlationId to auditLogger and error logs during verification", async () => {
+      const token = "link1.raw_token";
+      const correlationId = "magic-verify-id";
+
+      // 1. Audit log on failure
+      mockMagicLinkRepo.findById.mockResolvedValue(null);
+      await service.verify(token, { correlationId });
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "MAGIC_LINK_FAILURE", correlationId })
+      );
+
+      // 2. Error log on exception
+      const error = new Error("DB Error");
+      mockMagicLinkRepo.findById.mockRejectedValue(error);
+      await service.verify(token, { correlationId });
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        "Magic link verify exception",
+        error,
+        undefined,
+        correlationId
+      );
+    });
   });
 
   describe("consume", () => {
@@ -206,6 +243,31 @@ describe("MagicLinkService", () => {
       const result = await service.consume(token);
       expect(result.success).toBe(false);
       expect(result.httpCode).toBe(401);
+    });
+
+    it("should propagate correlationId to auditLogger and error logs during consumption", async () => {
+      const token = "link1.raw_token";
+      const correlationId = "magic-consume-id";
+
+      // 1. Audit log on failure
+      mockMagicLinkRepo.findById.mockResolvedValue(null);
+      await service.consume(token, { correlationId });
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "MAGIC_LINK_FAILURE", correlationId })
+      );
+
+      // 2. Error log on exception
+      const error = new Error("DB Error");
+      mockMagicLinkRepo.findById.mockRejectedValue(error);
+      await service.consume(token, { correlationId });
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        "Magic link verify exception",
+        error,
+        undefined,
+        correlationId
+      );
     });
   });
 });

@@ -263,13 +263,25 @@ describe("AuthService", () => {
     it("should propagate correlationId to auditLogger and error logs during login", async () => {
       const email = "test@example.com";
       const correlationId = "login-trace-id";
-      mockUserRepo.findByEmail.mockResolvedValue(null); // Force a failure for logging check
 
+      // 1. Audit log on failure
+      mockUserRepo.findByEmail.mockResolvedValue(null);
       await authService.login(email, "pass", { correlationId });
-
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.audit).toHaveBeenCalledWith(
         expect.objectContaining({ type: "LOGIN_FAILURE", correlationId })
+      );
+
+      // 2. Error log on exception
+      const error = new Error("DB Error");
+      mockUserRepo.findByEmail.mockRejectedValue(error);
+      await authService.login(email, "pass", { correlationId });
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        "Login exception",
+        error,
+        { email },
+        correlationId
       );
     });
   });
