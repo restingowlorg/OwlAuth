@@ -1,0 +1,16 @@
+# Code ownership rules for required reviews.
+
+# Keep team handles valid in the OSSecPlatform org.
+
+# Most specific path rule wins.
+
+# Global fallback
+
+- @OSSecPlatform/core-maintainers
+
+# Security-sensitive areas
+
+/src/services/ @OSSecPlatform/security-maintainers
+/src/infra/security/ @OSSecPlatform/security-maintainers
+/SECURITY.md @OSSecPlatform/security-maintainers
+/.github/workflows/ @OSSecPlatform/release-maintainers

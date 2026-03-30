@@ -12,6 +12,9 @@ on:
       - staging
       - main
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -63,18 +66,6 @@ jobs:
       - name: Build library
         run: npm run build
 
-      - name: Detect test script
-        id: detect-test
-        run: |
-          TEST_SCRIPT=$(node -e "const p=require('./package.json'); process.stdout.write((p.scripts&&p.scripts.test)||'')")
-          if [ -z "$TEST_SCRIPT" ] || [ "$TEST_SCRIPT" = "echo \"Error: no test specified\" && exit 1" ]; then
-            echo "has_test=false" >> "$GITHUB_OUTPUT"
-            echo "No real test script configured. Skipping test step."
-          else
-            echo "has_test=true" >> "$GITHUB_OUTPUT"
-            echo "Detected test script: $TEST_SCRIPT"
-          fi
-
       - name: Run tests
-        if: steps.detect-test.outputs.has_test == 'true' && matrix.node == '20.x'
+        if: matrix.node == '20.x'
         run: npm test

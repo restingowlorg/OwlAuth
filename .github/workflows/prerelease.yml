@@ -1,0 +1,65 @@
+name: Prerelease
+
+on:
+  push:
+    branches:
+      - staging
+  workflow_dispatch:
+
+concurrency:
+  group: "prerelease-${{ github.ref }}"
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  prerelease:
+    name: Publish Prerelease (next)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate release quality gates
+        run: npm run release:validate
+
+      - name: Create npm package artifact
+        run: npm pack --json > pack-output.json
+
+      - name: Smoke test npm package artifact
+        run: |
+          PACK_FILE=$(node -e 'const fs=require("fs");const out=JSON.parse(fs.readFileSync("pack-output.json","utf8"));process.stdout.write(out[0].filename)')
+          TMP_DIR=$(mktemp -d)
+          cd "$TMP_DIR"
+          npm init -y >/dev/null 2>&1
+          npm install "$GITHUB_WORKSPACE/$PACK_FILE"
+          node -e 'require("@restingowlorg/ossec-auth"); require("@restingowlorg/ossec-auth/mongo"); require("@restingowlorg/ossec-auth/postgres"); console.log("artifact smoke test passed")'
+
+      - name: Create snapshot version
+        run: npm run version-packages:snapshot
+
+      - name: Configure npm token fallback
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "NODE_AUTH_TOKEN=$NPM_TOKEN" >> "$GITHUB_ENV"
+          fi
+
+      - name: Publish prerelease to next tag
+        run: npm run release:next

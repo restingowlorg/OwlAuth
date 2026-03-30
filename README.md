@@ -63,14 +63,14 @@ We are committed to continuous security improvements. Planned updates to further
 ## Installation
 
 ```bash
-npm install @restingowlorg/mvp-auth
+npm install @restingowlorg/ossec-auth
 ```
 
 ## Quick Start
 
 ```ts
-import { createAuthManager, PostgresAdapter } from "@restingowlorg/mvp-auth";
-// OR import { PostgresAdapter } from "@restingowlorg/mvp-auth/postgres";
+import { createAuthManager, PostgresAdapter } from "@restingowlorg/ossec-auth";
+// OR import { PostgresAdapter } from "@restingowlorg/ossec-auth/postgres";
 
 const auth = await createAuthManager({
   adapter: new PostgresAdapter({
@@ -90,7 +90,7 @@ const auth = await createAuthManager({
 ### MongoDB
 
 ```ts
-import { createAuthManager, MongoAdapter } from "@restingowlorg/mvp-auth";
+import { createAuthManager, MongoAdapter } from "@restingowlorg/ossec-auth";
 
 const auth = await createAuthManager({
   adapter: new MongoAdapter({
@@ -105,7 +105,7 @@ const auth = await createAuthManager({
 ### PostgreSQL
 
 ```ts
-import { createAuthManager, PostgresAdapter } from "@restingowlorg/mvp-auth";
+import { createAuthManager, PostgresAdapter } from "@restingowlorg/ossec-auth";
 
 const auth = await createAuthManager({
   adapter: new PostgresAdapter({
@@ -181,7 +181,7 @@ await auth.credentials.login(email, password, {
 When using `PostgresAdapter`, provide the connection details and table names.
 
 ```ts
-import { PostgresAdapter } from "@restingowlorg/mvp-auth/postgres";
+import { PostgresAdapter } from "@restingowlorg/ossec-auth/postgres";
 
 adapter: new PostgresAdapter({
   postgresUrl: "postgresql://user:pass@localhost:5432/db",
@@ -197,7 +197,7 @@ adapter: new PostgresAdapter({
 When using `MongoAdapter`, provide the connection URI and collection names.
 
 ```ts
-import { MongoAdapter } from "@restingowlorg/mvp-auth/mongo";
+import { MongoAdapter } from "@restingowlorg/ossec-auth/mongo";
 
 adapter: new MongoAdapter({
   mongoUri: "mongodb://localhost:27017/auth_db",
@@ -212,14 +212,14 @@ For modularity and better tree-shaking, you can import database-specific reposit
 
 ```ts
 // MongoDB specialized exports
-import { MongoAdapter, connectMongo, MongoUserRepo } from "@restingowlorg/mvp-auth/mongo";
+import { MongoAdapter, connectMongo, MongoUserRepo } from "@restingowlorg/ossec-auth/mongo";
 
 // PostgreSQL specialized exports
 import {
   PostgresAdapter,
   initPostgres,
   PostgresUserRepository
-} from "@restingowlorg/mvp-auth/postgres";
+} from "@restingowlorg/ossec-auth/postgres";
 ```
 
 ## Core API
@@ -237,7 +237,7 @@ import {
   AuthUser,
   SafeUser,
   MagicLinkToken
-} from "@restingowlorg/mvp-auth";
+} from "@restingowlorg/ossec-auth";
 
 export interface IAuthMethods {
   credentials: ICredentialsMethods;
@@ -256,7 +256,7 @@ export type IAuthManager<T extends AuthType = AuthType> = {
 ### Signup
 
 ```ts
-import { SignupResult, AuthResult } from "@restingowlorg/mvp-auth";
+import { SignupResult, AuthResult } from "@restingowlorg/ossec-auth";
 
 const result: AuthResult<SignupResult> = await auth.credentials.signup(
   "user@example.com",
@@ -268,7 +268,7 @@ const result: AuthResult<SignupResult> = await auth.credentials.signup(
 ### Login
 
 ```ts
-import { LoginResult, AuthResult } from "@restingowlorg/mvp-auth";
+import { LoginResult, AuthResult } from "@restingowlorg/ossec-auth";
 
 const result: AuthResult<LoginResult> = await auth.credentials.login(
   "user@example.com",
@@ -284,7 +284,7 @@ if (result.success) {
 ### Change Password
 
 ```ts
-import { ChangePasswordResult, AuthResult } from "@restingowlorg/mvp-auth";
+import { ChangePasswordResult, AuthResult } from "@restingowlorg/ossec-auth";
 
 const result: AuthResult<ChangePasswordResult> = await auth.credentials.changePassword(
   userId,
@@ -301,7 +301,7 @@ import {
   VerifyMagicLinkResult,
   ConsumeMagicLinkResult,
   AuthResult
-} from "@restingowlorg/mvp-auth";
+} from "@restingowlorg/ossec-auth";
 
 const request: AuthResult<RequestMagicLinkResult> =
   await auth.magicLink.request("user@example.com");
