@@ -1,5 +1,5 @@
 export const SECURITY_CONFIG = {
-  LOGGER_PREFIX: "MVP-AUTH",
+  LOGGER_PREFIX: "OSSEC-AUTH",
   SENSITIVE_KEYS: ["password", "token", "secret", "authorization", "cookie", "apikey"],
   /**
    * Have I Been Pwned API URL for range-based hash checking
