@@ -133,24 +133,54 @@ if [ $BUILD_FAILED -eq 1 ]; then
 fi
 success "Build passed"
 
-# Run tests if they exist
+# Run tests if configured
 echo ""
-if [ -d "test" ] || [ -d "tests" ] || [ -d "__tests__" ]; then
-  if grep -q '"test"' package.json 2>/dev/null; then
-    if ! echo '"echo \"Error: no test specified\" && exit 1"' | grep -qF "$(grep '"test"' package.json)"; then
-      info "Running tests..."
+TEST_SCRIPT=$(node -e 'try{const p=require("./package.json");process.stdout.write((p.scripts&&p.scripts.test)||"")}catch(e){process.stdout.write("")}')
+DEFAULT_TEST_SCRIPT='echo "Error: no test specified" && exit 1'
+
+if [ -z "$TEST_SCRIPT" ] || [ "$TEST_SCRIPT" = "$DEFAULT_TEST_SCRIPT" ]; then
+  warn "Tests not configured (skipping)"
+else
+  if [ "$IS_CI" = "false" ] && [ -f "jest.config.cjs" ]; then
+    UPSTREAM_REF=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)
+    BASE_REF=""
+    if [ -n "$UPSTREAM_REF" ]; then
+      BASE_REF=$(git merge-base HEAD "$UPSTREAM_REF" 2>/dev/null || true)
+    fi
+
+    if [ -n "$BASE_REF" ]; then
+      CHANGED_TEST_TARGETS=$(git diff --name-only "$BASE_REF...HEAD" -- '*.ts' '*.js' ':!dist/**' || true)
+    else
+      CHANGED_TEST_TARGETS=""
+    fi
+
+    if [ -n "$CHANGED_TEST_TARGETS" ]; then
+      info "Running related tests for changed files..."
+      # shellcheck disable=SC2086
+      if "$NPM_CMD" test -- --findRelatedTests $CHANGED_TEST_TARGETS --passWithNoTests; then
+        success "Related tests passed"
+      else
+        error "Related tests failed"
+        exit 1
+      fi
+    else
+      info "No changed source files detected against upstream. Running full test suite..."
       if "$NPM_CMD" test; then
         success "Tests passed"
       else
         error "Tests failed"
         exit 1
       fi
+    fi
+  else
+    info "Running tests..."
+    if "$NPM_CMD" test; then
+      success "Tests passed"
     else
-      warn "Tests not configured (skipping)"
+      error "Tests failed"
+      exit 1
     fi
   fi
-else
-  warn "No test directory found (skipping)"
 fi
 
 # Security audit
