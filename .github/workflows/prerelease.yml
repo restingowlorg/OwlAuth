@@ -48,7 +48,7 @@ jobs:
           cd "$TMP_DIR"
           npm init -y >/dev/null 2>&1
           npm install "$GITHUB_WORKSPACE/$PACK_FILE"
-          node -e 'require("@restingowlorg/ossec-auth"); require("@restingowlorg/ossec-auth/mongo"); require("@restingowlorg/ossec-auth/postgres"); console.log("artifact smoke test passed")'
+          node -e 'require("@restingowlorg/owlauth"); require("@restingowlorg/owlauth/mongo"); require("@restingowlorg/owlauth/postgres"); console.log("artifact smoke test passed")'
 
       - name: Create snapshot version
         run: npm run version-packages:snapshot

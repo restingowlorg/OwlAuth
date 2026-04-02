@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to `@restingowlorg/ossec-auth`.
+Thanks for contributing to `@restingowlorg/owlauth`.
 
 This project is a security-sensitive authentication library, so all changes are expected to meet a higher review and release quality bar.
 

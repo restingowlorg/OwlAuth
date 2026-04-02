@@ -1,18 +1,18 @@
 {
-  "name": "@restingowlorg/ossec-auth",
+  "name": "@restingowlorg/owlauth",
   "version": "1.0.1",
-  "description": "Multi-platform, OWASP-aligned authentication framework",
+  "description": "owl-auth: OWASP-informed authentication primitives for Node.js",
   "publishConfig": {
     "access": "public"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/OSSecPlatform/ossec-auth-library.git"
+    "url": "https://github.com/restingowlorg/OwlAuth.git"
   },
   "bugs": {
-    "url": "https://github.com/OSSecPlatform/ossec-auth-library/issues"
+    "url": "https://github.com/restingowlorg/OwlAuth/issues"
   },
-  "homepage": "https://github.com/OSSecPlatform/ossec-auth-library#readme",
+  "homepage": "https://github.com/restingowlorg/OwlAuth#readme",
   "engines": {
     "node": ">=18"
   },
@@ -63,7 +63,7 @@
     "nest-auth"
   ],
   "author": "",
-  "license": "MIT",
+  "license": "MPL-2.0",
   "type": "commonjs",
   "dependencies": {
     "@nestjs/common": "^11.1.9",
