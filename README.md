@@ -1,7 +1,7 @@
 # owlauth
 
 <p align="center">
-  <img src="https://restingowl.com/owl-logo.png" alt="owlauth logo" width="120" />
+  <img src="https://restingowl.com/owl-logo.png?v=20260403" alt="owlauth logo" width="120" />
 </p>
 
 ---
