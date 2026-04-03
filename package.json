@@ -63,7 +63,7 @@
     "nest-auth"
   ],
   "author": "",
-  "license": "MPL-2.0",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "@nestjs/common": "^11.1.9",
