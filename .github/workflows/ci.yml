@@ -52,7 +52,7 @@ jobs:
 
       - name: Detect merge conflict markers
         run: |
-          if git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- . ':!package-lock.json'; then
+          if git grep -nE '^(<<<<<<< |=======$|>>>>>>> )' -- . ':!package-lock.json' ':!LICENSE'; then
             echo "Merge conflict markers detected. Resolve them before merge."
             exit 1
           fi
