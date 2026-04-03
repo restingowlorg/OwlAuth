@@ -1,7 +1,21 @@
 {
-  "name": "@restingowlorg/ossec-auth",
+  "name": "@restingowlorg/owlauth",
   "version": "1.0.1",
-  "description": "Multi-platform, OWASP-aligned authentication framework",
+  "description": "owl-auth: OWASP-informed authentication primitives for Node.js",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/restingowlorg/OwlAuth.git"
+  },
+  "bugs": {
+    "url": "https://github.com/restingowlorg/OwlAuth/issues"
+  },
+  "homepage": "https://github.com/restingowlorg/OwlAuth#readme",
+  "engines": {
+    "node": ">=18"
+  },
   "main": "dist/index.js",
   "exports": {
     ".": "./dist/index.js",
@@ -16,7 +30,13 @@
     "format": "prettier --write \"src/**/*.ts\" \"*.{json,md}\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"*.{json,md}\"",
     "test": "jest",
-    "prepare": "husky"
+    "prepare": "husky",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "version-packages:snapshot": "changeset version --snapshot next",
+    "release": "changeset publish",
+    "release:next": "changeset publish --tag next",
+    "release:validate": "npm run format:check && npm run lint -- --max-warnings=0 && npm run typecheck && npm run build && npm test"
   },
   "keywords": [
     "authentication",
@@ -43,7 +63,7 @@
     "nest-auth"
   ],
   "author": "",
-  "license": "MIT",
+  "license": "MPL-2.0",
   "type": "commonjs",
   "dependencies": {
     "@nestjs/common": "^11.1.9",
@@ -54,6 +74,7 @@
     "pg": "^8.16.3"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.7",
     "@commitlint/cli": "^19.8.0",
     "@commitlint/config-conventional": "^19.8.0",
     "@secretlint/quick-start": "^8.4.0",

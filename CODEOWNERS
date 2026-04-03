@@ -1,0 +1,16 @@
+# Code ownership rules for required reviews.
+
+# Keep team handles valid in the restingowlorg org.
+
+# Most specific path rule wins.
+
+# Global fallback
+
+- @restingowlorg/core-maintainers
+
+# Security-sensitive areas
+
+/src/services/ @restingowlorg/security-maintainers
+/src/infra/security/ @restingowlorg/security-maintainers
+/SECURITY.md @restingowlorg/security-maintainers
+/.github/workflows/ @restingowlorg/release-maintainers
