@@ -127,7 +127,7 @@ export type MagicLinkToken = {
 
 // Input object for creating a token
 export type CreateMagicLinkInput = {
-  userId: string;
+  userId: UserId;
   tokenHash: string;
   expiresAt: Date;
   usedAt?: Date;
@@ -247,11 +247,11 @@ export type ChangePasswordResult = {
 export type RequestMagicLinkResult = string;
 export type VerifyMagicLinkResult = {
   isValid: boolean;
-  userId: string;
+  userId: UserId;
   tokenId: string;
 };
 export type ConsumeMagicLinkResult = {
-  userId: string;
+  userId: UserId;
 };
 
 export type SafeUser = {

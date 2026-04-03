@@ -1,4 +1,4 @@
-import { CreateUserInput, IMongoUserDoc } from "../../types";
+import { CreateUserInput, IMongoUserDoc, SafeUser, UserId } from "../../types";
 import { User } from "../../types/index";
 import { UserRepository } from "../contracts";
 import { Collection, ObjectId, InsertOneResult } from "mongodb";
@@ -13,7 +13,7 @@ export class MongoUserRepo implements UserRepository {
     this.collection = collection;
   }
 
-  async create(input: CreateUserInput): Promise<User> {
+  async create(input: CreateUserInput): Promise<SafeUser> {
     const { email, username, passwordHash } = input;
 
     const now = new Date();
@@ -28,8 +28,7 @@ export class MongoUserRepo implements UserRepository {
     return {
       id: result.insertedId.toString(),
       email,
-      username,
-      password: passwordHash
+      username
     };
   }
 
@@ -45,10 +44,10 @@ export class MongoUserRepo implements UserRepository {
     };
   }
 
-  async findById(id: string): Promise<User | null> {
+  async findById(id: UserId): Promise<User | null> {
     let objectId: ObjectId;
     try {
-      objectId = new ObjectId(id);
+      objectId = new ObjectId(id.toString());
     } catch {
       return null;
     }

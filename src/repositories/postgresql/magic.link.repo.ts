@@ -1,26 +1,23 @@
 import { Pool } from "pg";
-import { MagicLinkToken, MagicLinkRow } from "../../types";
+import { MagicLinkToken, MagicLinkRow, UserId } from "../../types";
 import { MagicLinkRepository } from "../contracts";
 
 export class PostgresMagicLinkRepository implements MagicLinkRepository {
   constructor(
-    private readonly table: string,
+    private readonly schemaName: string,
+    private readonly tableName: string,
     private readonly pool: Pool
   ) {}
 
   private getTable() {
-    if (this.table.includes(".")) {
-      const [schema, table] = this.table.split(".");
-      return `"${schema}"."${table}"`;
-    }
-    return `"${this.table}"`;
+    return `"${this.schemaName}"."${this.tableName}"`;
   }
 
   async create(token: {
-    userId: string;
+    userId: UserId;
     tokenHash: string;
     expiresAt: Date;
-    usedAt?: Date;
+    usedAt?: Date | null;
   }): Promise<MagicLinkToken> {
     const result = await this.pool.query<MagicLinkRow>(
       `
@@ -102,15 +99,7 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
       [userId]
     );
 
-    // Confirm that no active tokens remain for this user
-    const checkResult = await this.pool.query<{ count: string | number }>(
-      `SELECT count(*) as count FROM ${this.getTable()} WHERE user_id = $1 AND used_at IS NULL`,
-      [userId]
-    );
-
-    const row = checkResult.rows[0];
-    const activeCount = parseInt(row?.count?.toString() ?? "0", 10);
-    return activeCount === 0;
+    return true;
   }
 
   async findAll(): Promise<MagicLinkRow[]> {

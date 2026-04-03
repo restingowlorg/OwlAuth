@@ -211,6 +211,7 @@ export class MagicLinkService {
         });
         return {
           success: false,
+          data: undefined,
           message: "Magic link already used",
           httpCode: 401
         };

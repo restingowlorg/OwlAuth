@@ -1,4 +1,4 @@
-import { User, MagicLinkRow, MagicLinkToken, CreateUserInput, SafeUser } from "../types";
+import { User, MagicLinkRow, MagicLinkToken, CreateUserInput, SafeUser, UserId } from "../types";
 
 export interface UserRepository {
   create(input: CreateUserInput): Promise<SafeUser>;
@@ -12,9 +12,10 @@ export interface UserRepository {
 
 export interface MagicLinkRepository {
   create(data: {
-    userId: string | number;
+    userId: UserId;
     tokenHash: string;
     expiresAt: Date;
+    usedAt?: Date | null;
   }): Promise<MagicLinkToken>;
 
   findAll(): Promise<MagicLinkRow[]>;

@@ -58,12 +58,12 @@ export async function initPostgres(
       )
     ]);
 
-    magicRepo = new PostgresMagicLinkRepository(qualifiedMagicTable, pool);
+    magicRepo = new PostgresMagicLinkRepository(magicLinkSchema, magicTable, pool);
   }
 
   // Return repositories
   return {
-    userRepo: new PostgresUserRepository(qualifiedUserTable, pool),
+    userRepo: new PostgresUserRepository(userSchema, userTableName, pool),
     magicLinkRepo: magicRepo,
     close: async () => {
       await pool.end();

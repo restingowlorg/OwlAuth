@@ -9,7 +9,9 @@ export async function validateSchema(pool: Pool, schema: string): Promise<void> 
     `SELECT schema_name FROM information_schema.schemata WHERE schema_name = $1`,
     [schema]
   );
-  if (!res.rowCount) throw new Error(`[Auth:validateSchema] Schema '${schema}' does not exist`);
+  if (res.rowCount === 0 || res.rowCount === null) {
+    throw new Error(`[Auth:validateSchema] Schema '${schema}' does not exist`);
+  }
 }
 
 export async function validateTable(pool: Pool, qualifiedTable: string): Promise<void> {

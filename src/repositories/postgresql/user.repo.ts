@@ -1,28 +1,25 @@
 import { QueryResult, Pool } from "pg";
-import { User, CreateUserInput } from "../../types";
+import { User, CreateUserInput, SafeUser, UserId } from "../../types";
 import { UserRepository } from "../contracts";
 
 export class PostgresUserRepository implements UserRepository {
   constructor(
-    private readonly table: string,
+    private readonly schemaName: string,
+    private readonly tableName: string,
     private readonly pool: Pool
   ) {}
 
   private getTable() {
-    if (this.table.includes(".")) {
-      const [schema, table] = this.table.split(".");
-      return `"${schema}"."${table}"`;
-    }
-    return `"${this.table}"`;
+    return `"${this.schemaName}"."${this.tableName}"`;
   }
 
-  async create(input: CreateUserInput): Promise<User> {
+  async create(input: CreateUserInput): Promise<SafeUser> {
     const { email, username, passwordHash } = input;
-    const result: QueryResult<User> = await this.pool.query(
+    const result: QueryResult<SafeUser> = await this.pool.query(
       `
       INSERT INTO ${this.getTable()} (email, username, password)
       VALUES ($1, $2, $3)
-      RETURNING *
+      RETURNING id, email, username
       `,
       [email, username, passwordHash]
     );
@@ -39,7 +36,7 @@ export class PostgresUserRepository implements UserRepository {
     return result.rows[0] ?? null;
   }
 
-  async findById(id: string): Promise<User | null> {
+  async findById(id: UserId): Promise<User | null> {
     const result: QueryResult<User> = await this.pool.query(
       `SELECT * FROM ${this.getTable()} WHERE id = $1`,
       [id]

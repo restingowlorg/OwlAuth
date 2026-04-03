@@ -156,9 +156,7 @@ Add your own sensitive keys to be masked in the audit logs (case-insensitive).
 customMaskingKeys: ["ssn", "credit_card", "api_key"];
 ```
 
-#### Fail-Safe Password Checks
-
-By default, if the Have I Been Pwned API is down, the library allows the password (fail-open). You can force it to block signups and password changes instead.
+By default, if the Have I Been Pwned API is down, the library allows the password (fail-open) and logs a `warn` message with the failure details. You can force it to block signups and password changes instead.
 
 ```ts
 pwnedPasswordFailClosed: true; // Block signup/change-password if API check fails
@@ -369,8 +367,8 @@ Available specific data types:
 - `LoginResult`: `{ user: SafeUser }`
 - `ChangePasswordResult`: `{ user: SafeUser }`
 - `RequestMagicLinkResult`: `string`
-- `VerifyMagicLinkResult`: `{ isValid: boolean; tokenId: string }`
-- `ConsumeMagicLinkResult`: `undefined`
+- `VerifyMagicLinkResult`: `{ isValid: boolean; userId: UserId; tokenId: string }`
+- `ConsumeMagicLinkResult`: `{ userId: UserId }`
 
 ## Development
 

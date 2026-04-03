@@ -97,13 +97,11 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
   /** Invalidate existing tokens for a user */
   async invalidateByUserId(userId: string | number): Promise<boolean> {
     const filter = { user_id: new ObjectId(userId.toString()), used_at: null };
-    await this.collection.updateMany(filter, {
+    const result = await this.collection.updateMany(filter, {
       $set: { used_at: new Date(), updated_at: new Date() }
     });
 
-    // Confirm no active tokens remain
-    const remainingCount = await this.collection.countDocuments(filter);
-    return remainingCount === 0;
+    return result.acknowledged;
   }
 
   /** Return all active tokens as MagicLinkRow (for contracts) */
