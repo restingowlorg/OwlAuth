@@ -1,76 +1,87 @@
-# MVP Auth
+# owlauth
 
-A robust, multi-platform authentication framework built on OWASP security standards.
+<p align="center">
+  <img src="https://restingowl.com/owl-logo.png" alt="owlauth logo" width="120" />
+</p>
 
-## Features
+---
 
-- Credentials authentication:
-  - signup
-  - login
-  - change password
-- Magic link authentication:
-  - request magic link
-  - verify magic link
-  - consume magic link
-- PostgreSQL and MongoDB support
-- Consistent typed `AuthResult` responses
-- Explicit, named public API to prevent drift
-- Subpath exports for modular database support (`/mongo`, `/postgres`)
-- Clean layered architecture (Core, Infra, Services, Strategies)
-- Automatic masking of sensitive data (passwords, tokens) in logs.
-- Define your own sensitive keywords for the audit logger.
-- Configurable "fail-closed" mode for Have I Been Pwned API checks.
-- **Request Tracing**: Support for Correlation IDs to tie logs to specific requests.
+[![npm version](https://img.shields.io/npm/v/%40restingowlorg%2Fowlauth)](https://www.npmjs.com/package/@restingowlorg/owlauth) [![npm downloads](https://img.shields.io/npm/dm/%40restingowlorg%2Fowlauth)](https://www.npmjs.com/package/@restingowlorg/owlauth) [![Node.js](https://img.shields.io/node/v/%40restingowlorg%2Fowlauth)](https://www.npmjs.com/package/@restingowlorg/owlauth) [![License](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
 
-## OWASP Authentication Alignment
+Open-source OWASP-aligned authentication and account-security library for Node.js.
 
-**MVP Auth** is designed with security as a first-class citizen, strictly aligning with the **OWASP Application Security Verification Standard (ASVS v4.0)** for authentication.
+owlauth, published as `@restingowlorg/owlauth`, gives your Node.js app the core pieces of authentication: credentials login, magic links, password checks, and security-focused audit logging. It works with PostgreSQL and MongoDB and stays out of your framework.
 
-### Core Security Strengths
+- **Package:** `@restingowlorg/owlauth`
+- **Latest stable tag:** `latest`
+- **Prerelease tag:** `next`
+- **Install:** `npm install @restingowlorg/owlauth`
+- **Developer guide:** [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md)
 
-- **V6.2 Password Security**:
-  - **Entropy-Based Strength**: Leverages `@zxcvbn-ts/core` to enforce complex passwords based on entropy scores rather than simple character rules (ASVS 6.2.1, 6.2.5).
-  - **Breached Password Protection**: Real-time checks against over 600 million compromised credentials using the Have I Been Pwned k-anonymity API (ASVS 6.2.12).
-  - **Context-Aware Defense**: Automatically blocks passwords that contain the user's email, username, or custom-defined forbidden words (ASVS 6.2.11).
-  - **No Truncation**: Passwords of any length (64+ characters) are supported and verified exactly as received (ASVS 6.2.8, 6.2.9).
-- **V6.3 General Security**:
-  - **Enumeration Protection**: Consistent error messaging and response times prevent attackers from identifying valid user accounts via login attempts (ASVS 6.3.8).
-- **V6.5 MFA & Tokens**:
-  - **Standardized Magic Links**: Passwordless authentication uses single-use tokens with cryptographically secure generation and strict 15-minute expiration windows (ASVS 6.5.1, 6.5.3, 6.5.5).
+## What You Get
 
-### Future Roadmap
-
-We are committed to continuous security improvements. Planned updates to further enhance **OWASP ASVS v6.0** alignment include:
-
-- **Security & Features**:
-  - **Rate Limiting & Anti-Brute Force**: Adaptive delays and account lockout mechanisms (**ASVS 6.3.1**).
-  - **Multi-factor Authentication (MFA)**: Support for TOTP (**ASVS 6.3.3**) and **WebAuthn/FIDO2** for phishing-resistant MFA (**ASVS 6.5.1**, **13.2.1**).
-  - **Security Notifications**: Real-time user alerts for password changes and suspicious activity (**ASVS 6.3.5**, **6.3.7**).
-
-- **Ecosystem & Interoperability**:
-  - **Framework Hub**: Dedicated plugins and middlewares for **Express**, **Fastify**, and **NestJS**.
-  - **More Databases**: Extending support to **MySQL**, **SQLite**, and **DynamoDB**.
+- **Credentials authentication**: Sign up users, log them in, and rotate passwords through one library surface.
+- **Passwordless magic links**: Request, verify, and consume single-use login tokens.
+- **PostgreSQL and MongoDB adapters**: Use the same auth API across two common persistence stacks.
+- **Password hygiene controls**: Enforce minimum strength with `zxcvbn`, reject context-based weak passwords, and check candidate passwords against Have I Been Pwned using the k-anonymity API.
+- **Security-focused logging**: Audit events are logged with built-in masking for sensitive fields such as passwords, tokens, secrets, cookies, and authorization data.
+- **Request tracing support**: Pass a `correlationId` through auth operations to align library logs with your application logs.
+- **Pluggable cryptography**: Swap the default crypto adapter if your stack requires a different hashing or token strategy.
+- **Typed, predictable results**: Every auth method returns a consistent `AuthResult<T>` shape.
 
 ## Support Matrix
 
-| Feature        | Support                           |
-| :------------- | :-------------------------------- |
-| **Node.js**    | >= 18.x                           |
-| **Databases**  | PostgreSQL, MongoDB               |
-| **Auth Modes** | Credentials, Magic Link           |
-| **Languages**  | TypeScript, JavaScript (CommonJS) |
+| Area          | Current Support         |
+| ------------- | ----------------------- |
+| Runtime       | Node.js 18+             |
+| Language      | TypeScript, JavaScript  |
+| Module output | CommonJS                |
+| Databases     | PostgreSQL, MongoDB     |
+| Auth flows    | Credentials, Magic Link |
 
 ## Installation
 
 ```bash
-npm install @restingowlorg/mvp-auth
+npm install @restingowlorg/owlauth
 ```
 
 ## Quick Start
 
 ```ts
-import { createAuthManager, PostgresAdapter } from "@restingowlorg/mvp-auth";
-// OR import { PostgresAdapter } from "@restingowlorg/mvp-auth/postgres";
+import { createAuthManager, PostgresAdapter } from "@restingowlorg/owlauth";
+
+const auth = await createAuthManager({
+  adapter: new PostgresAdapter({
+    postgresUrl: process.env.POSTGRES_URL!,
+    userTableName: "users",
+    magicLinkTableName: "magic_links"
+  }),
+  authTypes: ["credentials", "magicLink"],
+  blockedPasswords: ["company-name", "product-name"],
+  pwnedPasswordFailClosed: true,
+  customMaskingKeys: ["apiKey", "accessToken"]
+});
+
+const signup = await auth.credentials.signup(
+  "user@example.com",
+  "engineer01",
+  "CorrectHorseBatteryStaple!2026",
+  { correlationId: "req_123" }
+);
+
+if (signup.success) {
+  console.log(signup.data.user.email);
+}
+
+await auth.disconnectDB();
+```
+
+## Database Adapters
+
+### PostgreSQL
+
+```ts
+import { createAuthManager, PostgresAdapter } from "@restingowlorg/owlauth";
 
 const auth = await createAuthManager({
   adapter: new PostgresAdapter({
@@ -80,17 +91,14 @@ const auth = await createAuthManager({
     magicLinkTableName: "magic_links",
     magicLinkSchema: "public"
   }),
-  authTypes: ["credentials", "magicLink"],
-  blockedPasswords: ["company", "admin"]
+  authTypes: ["credentials", "magicLink"]
 });
 ```
-
-## Initialization
 
 ### MongoDB
 
 ```ts
-import { createAuthManager, MongoAdapter } from "@restingowlorg/mvp-auth";
+import { createAuthManager, MongoAdapter } from "@restingowlorg/owlauth";
 
 const auth = await createAuthManager({
   adapter: new MongoAdapter({
@@ -102,285 +110,198 @@ const auth = await createAuthManager({
 });
 ```
 
-### PostgreSQL
+### Subpath Exports
+
+Need just the adapter layer? The package ships database-specific entry points too:
 
 ```ts
-import { createAuthManager, PostgresAdapter } from "@restingowlorg/mvp-auth";
-
-const auth = await createAuthManager({
-  adapter: new PostgresAdapter({
-    postgresUrl: process.env.POSTGRES_URL!,
-    userTableName: "users"
-  }),
-  authTypes: ["credentials"]
-});
-```
-
-## Configuration
-
-The `createAuthManager` function accepts a configuration object. Here is a breakdown of the available settings.
-
-### Common Options
-
-These options apply regardless of the database type you Choose.
-
-#### Authentication Types
-
-Define which authentication flows are enabled for your instance.
-
-```ts
-authTypes: ["credentials", "magicLink"]; // Defaults to credentials if omitted
-```
-
-#### Password Protections
-
-Add a list of custom words to block during registration or password updates.
-
-```ts
-blockedPasswords: ["admin", "password", "company-name"];
-```
-
-#### Magic Link Setup
-
-If you use magic links, you can configure the base URL for the links sent to users.
-
-```ts
-magicLinkBaseUrl: "https://auth.example.com/verify";
-```
-
-#### Custom Masking Keywords
-
-Add your own sensitive keys to be masked in the audit logs (case-insensitive).
-
-```ts
-customMaskingKeys: ["ssn", "credit_card", "api_key"];
-```
-
-#### Fail-Safe Password Checks
-
-By default, if the Have I Been Pwned API is down, the library allows the password (fail-open). You can force it to block signups and password changes instead.
-
-```ts
-pwnedPasswordFailClosed: true; // Block signup/change-password if API check fails
-```
-
-#### Correlation IDs (Request Tracing)
-
-You can pass a `correlationId` to any authentication method to tie library logs to your own request traces.
-
-```ts
-await auth.credentials.login(email, password, {
-  correlationId: "req_12345"
-});
-```
-
-### Database Specifics
-
-#### PostgreSQL Configuration
-
-When using `PostgresAdapter`, provide the connection details and table names.
-
-```ts
-import { PostgresAdapter } from "@restingowlorg/mvp-auth/postgres";
-
-adapter: new PostgresAdapter({
-  postgresUrl: "postgresql://user:pass@localhost:5432/db",
-  userTableName: "users", // Table for user data
-  userSchema: "auth", // Optional: Database schema (default: "public")
-  magicLinkTableName: "links", // Optional: Table for magic tokens
-  magicLinkSchema: "auth" // Optional: Schema for links (default: "public")
-});
-```
-
-#### MongoDB Configuration
-
-When using `MongoAdapter`, provide the connection URI and collection names.
-
-```ts
-import { MongoAdapter } from "@restingowlorg/mvp-auth/mongo";
-
-adapter: new MongoAdapter({
-  mongoUri: "mongodb://localhost:27017/auth_db",
-  userCollectionName: "users", // Collection for user data
-  magicLinkCollectionName: "magic_links" // Optional: Default is "magic_links"
-});
-```
-
-## Subpath Exports
-
-For modularity and better tree-shaking, you can import database-specific repositories and connection helpers directly:
-
-```ts
-// MongoDB specialized exports
-import { MongoAdapter, connectMongo, MongoUserRepo } from "@restingowlorg/mvp-auth/mongo";
-
-// PostgreSQL specialized exports
+import {
+  MongoAdapter,
+  MongoUserRepo,
+  MongoMagicLinkRepo,
+  connectMongo
+} from "@restingowlorg/owlauth/mongo";
 import {
   PostgresAdapter,
-  initPostgres,
-  PostgresUserRepository
-} from "@restingowlorg/mvp-auth/postgres";
+  PostgresUserRepository,
+  PostgresMagicLinkRepository,
+  initPostgres
+} from "@restingowlorg/owlauth/postgres";
 ```
 
-## Core API
+## Core Usage
+
+### Credentials Flow
 
 ```ts
 import {
-  IAuthManager,
   AuthResult,
   SignupResult,
   LoginResult,
-  ChangePasswordResult,
-  RequestMagicLinkResult,
-  VerifyMagicLinkResult,
-  ConsumeMagicLinkResult,
-  AuthUser,
-  SafeUser,
-  MagicLinkToken
-} from "@restingowlorg/mvp-auth";
+  ChangePasswordResult
+} from "@restingowlorg/owlauth";
 
-export interface IAuthMethods {
-  credentials: ICredentialsMethods;
-  magicLink: IMagicLinkMethods;
-}
-
-export type IAuthManager<T extends AuthType = AuthType> = {
-  [K in T]: IAuthMethods[K];
-} & {
-  readonly disconnectDB: () => Promise<void>;
-};
-```
-
-## Usage
-
-### Signup
-
-```ts
-import { SignupResult, AuthResult } from "@restingowlorg/mvp-auth";
-
-const result: AuthResult<SignupResult> = await auth.credentials.signup(
+const signup: AuthResult<SignupResult> = await auth.credentials.signup(
   "user@example.com",
-  "username",
-  "StrongPassword123!"
+  "engineer01",
+  "CorrectHorseBatteryStaple!2026"
 );
-```
 
-### Login
-
-```ts
-import { LoginResult, AuthResult } from "@restingowlorg/mvp-auth";
-
-const result: AuthResult<LoginResult> = await auth.credentials.login(
+const login: AuthResult<LoginResult> = await auth.credentials.login(
   "user@example.com",
-  "StrongPassword123!"
+  "CorrectHorseBatteryStaple!2026",
+  {
+    correlationId: "req_login_001"
+  }
 );
 
-if (result.success) {
-  const { user } = result.data;
-  console.log(`User ${user.username} logged in (${user.email})`);
-}
-```
-
-### Change Password
-
-```ts
-import { ChangePasswordResult, AuthResult } from "@restingowlorg/mvp-auth";
-
-const result: AuthResult<ChangePasswordResult> = await auth.credentials.changePassword(
-  userId,
-  "CurrentPassword123!",
-  "NewStrongPassword456!"
+const passwordChange: AuthResult<ChangePasswordResult> = await auth.credentials.changePassword(
+  "user_id123456",
+  "current_strong_password",
+  "new_strong_password_example",
+  {
+    correlationId: "req_password_001"
+  }
 );
 ```
 
-### Magic Link
+### Magic Link Flow
 
 ```ts
 import {
+  AuthResult,
   RequestMagicLinkResult,
   VerifyMagicLinkResult,
-  ConsumeMagicLinkResult,
-  AuthResult
-} from "@restingowlorg/mvp-auth";
+  ConsumeMagicLinkResult
+} from "@restingowlorg/owlauth";
 
-const request: AuthResult<RequestMagicLinkResult> =
-  await auth.magicLink.request("user@example.com");
-if (request.success) {
-  const token = request.data; // token string
-}
+const requested: AuthResult<RequestMagicLinkResult> = await auth.magicLink.request(
+  "user@example.com",
+  { correlationId: "req_magic_001" }
+);
 
-const verify: AuthResult<VerifyMagicLinkResult> = await auth.magicLink.verify("token-from-email");
-if (verify.success) {
-  const { isValid } = verify.data;
-  console.log(`Token is ${isValid ? "valid" : "invalid"}`);
-}
-
-const consume: AuthResult<ConsumeMagicLinkResult> =
-  await auth.magicLink.consume("token-from-email");
-if (consume.success) {
-  console.log("Magic link consumed");
+if (requested.success) {
+  const token = requested.data;
+  const verified: AuthResult<VerifyMagicLinkResult> = await auth.magicLink.verify(token);
+  const consumed: AuthResult<ConsumeMagicLinkResult> = await auth.magicLink.consume(token);
 }
 ```
 
-## Happy & Unhappy Paths
+`request()` returns the raw token string. Putting it in a URL, sending the email, and handling delivery is your application's job. owlauth does not touch any of that.
 
-The library provides consistent `AuthResult` responses for every operation. Below is a breakdown of the common success and failure scenarios for each service.
+## Configuration Options
 
-### Credentials Service
+### Shared Options
 
-| Operation       | Happy Path (Success)    | Unhappy Path (Failure Reason)            | HTTP Code |
-| :-------------- | :---------------------- | :--------------------------------------- | :-------- |
-| **Signup**      | User created & returned | Missing fields, Invalid username         | 400       |
-|                 |                         | Weak password, Breached password         | 400       |
-|                 |                         | Email/Username already taken             | 400       |
-|                 |                         | Security API failure (Fail-Closed)       | 503       |
-| **Login**       | User returned           | Missing fields                           | 400       |
-|                 |                         | Invalid credentials (User/Pass mismatch) | 401       |
-| **Change Pass** | Password updated        | Current password incorrect               | 401       |
-|                 |                         | New password weak/breached/blocked       | 400       |
-|                 |                         | Security API failure (Fail-Closed)       | 503       |
+| Option                    | Type                               | Purpose                                                                                 |
+| ------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------- |
+| `authTypes`               | `("credentials" \| "magicLink")[]` | Enables one or both supported auth flows. Defaults to credentials only.                 |
+| `blockedPasswords`        | `string[]`                         | Rejects passwords containing the user's email, username, or any supplied blocked terms. |
+| `cryptoAdapter`           | `ICryptoAdapter`                   | Replaces the default bcrypt-based crypto implementation.                                |
+| `customMaskingKeys`       | `string[]`                         | Adds case-insensitive keys to the audit logger masking list.                            |
+| `pwnedPasswordFailClosed` | `boolean`                          | Rejects signups and password changes when the breached-password API cannot be reached.  |
 
-### Magic Link Service
+### Method-Level Options
 
-| Operation   | Happy Path (Success)  | Unhappy Path (Failure Reason)      | HTTP Code |
-| :---------- | :-------------------- | :--------------------------------- | :-------- |
-| **Request** | Token string returned | User not found                     | 404       |
-| **Verify**  | `isValid: true`       | Malformed token format             | 400       |
-|             |                       | Expired or incorrect token         | 401       |
-| **Consume** | `userId` returned     | Token already used (Replay attack) | 401       |
-|             |                       | Token expired or invalid           | 401       |
+- `signup()`: `blockedPasswords`, `pwnedPasswordFailClosed`, `correlationId`
+- `login()`: `correlationId`
+- `changePassword()`: `blockedPasswords`, `pwnedPasswordFailClosed`, `correlationId`
+- `magicLink.request()`: `correlationId`
+- `magicLink.verify()`: `correlationId`
+- `magicLink.consume()`: `correlationId`
 
-## Response Types
+## Response Model
 
-All endpoints return a consistent `AuthResult` object with a specific data payload:
+Every public method returns the same envelope:
 
 ```ts
-type AuthResult<T = unknown> = {
-  success: boolean;
-  data?: T;
-  httpCode: number;
-  message: string;
-};
+type AuthResult<T = unknown> =
+  | { success: true; data: T; httpCode: number; message: string }
+  | { success: false; data?: undefined; httpCode: number; message: string };
 ```
 
-Available specific data types:
+Result payloads are:
 
-- `SignupResult`: `{ user: SafeUser }`
-- `LoginResult`: `{ user: SafeUser }`
-- `ChangePasswordResult`: `{ user: SafeUser }`
+- `SignupResult`: `{ user: { id, email, username } }`
+- `LoginResult`: `{ user: { id, email, username } }`
+- `ChangePasswordResult`: `{ user: { id, email, username } }`
 - `RequestMagicLinkResult`: `string`
-- `VerifyMagicLinkResult`: `{ isValid: boolean; tokenId: string }`
-- `ConsumeMagicLinkResult`: `undefined`
+- `VerifyMagicLinkResult`: `{ isValid: true, userId: string, tokenId: string }`
+- `ConsumeMagicLinkResult`: `{ userId: string }`
 
-## Development
+## OWASP Alignment
 
-- Build: `npm run build`
-- Type check: `npm run typecheck`
-- Lint: `npm run lint`
-- Format check: `npm run format:check`
+Here's exactly what owlauth does, and where each decision comes from. Every control is traced back to the [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html), [ASVS 5.0.0](https://owasp.org/www-project-application-security-verification-standard/), or [OWASP Top 10:2025](https://owasp.org/www-project-top-ten/).
 
-See [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) for local workflow and standards.
+### Password Security
+
+| Control                   | What the library does                                                                                                                                                                                                                                  | OWASP reference                                                                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Password strength scoring | Candidate passwords are scored with `@zxcvbn-ts/core` at signup and on every password change. Scores below 3 of 4 are rejected.                                                                                                                        | [Auth Cheat Sheet — Implement Proper Password Strength Controls](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#implement-proper-password-strength-controls) |
+| Breached password check   | The [Have I Been Pwned Pwned Passwords API](https://haveibeenpwned.com/API/v3#PwnedPasswords) is queried using the k-anonymity range method. Only the first 5 characters of the SHA-1 hash are transmitted; the raw password never leaves the process. | [Auth Cheat Sheet — Block previously breached passwords](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#implement-proper-password-strength-controls)         |
+| Context-aware blocking    | Passwords are rejected if they contain the user's email local part, username, or any caller-supplied blocked terms, preventing context-guessable passwords.                                                                                            | [NIST SP 800-63B § 5.1.1.2](https://pages.nist.gov/800-63-4/sp800-63b.html), context-specific word verification                                                                              |
+| Fail-closed breach check  | When `pwnedPasswordFailClosed: true`, a network error on the breach API causes the request to fail rather than silently pass.                                                                                                                          | Defense-in-depth, fail-safe defaults                                                                                                                                                         |
+
+### Credential Storage
+
+| Control                   | What the library does                                                                                                                                                 | OWASP reference                                                                                                                    |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Adaptive password hashing | Passwords are hashed with bcrypt at 10 salt rounds via the built-in `BcryptAdapter`.                                                                                  | [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html), use bcrypt |
+| Pluggable crypto adapter  | The `ICryptoAdapter` interface allows swapping the default bcrypt implementation for any alternative hashing or token strategy without changing the auth API surface. | ASVS 5.0, algorithm agility                                                                                                        |
+
+### Authentication Logic
+
+| Control                          | What the library does                                                                                                                                                 | OWASP reference                                                                                                                                                         |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Generic login error messages     | Login failure returns `"Invalid credentials."` regardless of whether the email is unknown or the password is wrong, preventing user enumeration.                      | [Auth Cheat Sheet, Authentication and Error Messages](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#authentication-and-error-messages) |
+| Current password re-verification | `changePassword()` requires the caller to supply and verify the current password before a new one is accepted, preventing silent takeover through a hijacked session. | [Auth Cheat Sheet, Change Password Feature](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#change-password-feature)                     |
+
+### Passwordless Authentication
+
+| Control                                   | What the library does                                                                                                           | OWASP reference                                                                                                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cryptographically secure token generation | Magic link tokens are produced with `crypto.randomBytes(32)` from Node.js's built-in CSPRNG.                                    | [OWASP Forgot Password Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html), use a cryptographically random value |
+| Token hashing at rest                     | The raw token is never stored. Only the bcrypt hash of the token is persisted; the database contains no recoverable plaintext.  | [OWASP Forgot Password Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html), hash tokens before storage           |
+| Short expiry window                       | Tokens expire 15 minutes after issuance.                                                                                        | [OWASP Forgot Password Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html), use a short token lifetime           |
+| Single-use with prior invalidation        | Requesting a new magic link immediately invalidates all previous active tokens for that user. Consumed tokens cannot be reused. | [OWASP Forgot Password Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html), single-use tokens                    |
+
+### Security Logging and Audit Trail
+
+| Control                    | What the library does                                                                                                                                                                    | OWASP reference                                                                                                                                                                                                                              |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Security event logging     | Every auth operation, signup, login, password change, and all magic link steps, emits a structured audit event with event type, email, outcome, and reason.                              | [Auth Cheat Sheet, Logging and Monitoring](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#logging-and-monitoring); [A09:2025 Security Logging and Alerting Failures](https://owasp.org/www-project-top-ten/) |
+| Sensitive field masking    | The audit logger automatically redacts values at keys matching `password`, `token`, `secret`, `authorization`, `cookie`, and `apikey`. Callers can extend this with `customMaskingKeys`. | ASVS 5.0, do not log sensitive data; [OWASP Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html)                                                                                                    |
+| Correlation ID propagation | Every auth method accepts an optional `correlationId`. When supplied, it is included in all log output for that operation, enabling trace correlation with application-level logs.       | [OWASP Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html), include trace identifiers                                                                                                              |
+
+## Security Notes
+
+The table above covers what this library actually does. It's **not** an OWASP certification, and it won't make your app ASVS-compliant on its own. You still need to handle:
+
+- TLS and secure transport
+- secure email delivery for magic links
+- rate limiting, brute-force protection, and account lockout
+- session management
+- CSRF defenses where relevant
+- account verification and recovery workflows
+- MFA or passkeys if the risk model requires them
+- authorization and role enforcement
+
+## Roadmap
+
+owlauth is part of a wider RestingOwl effort focused on building secure-by-default tooling for various technology stacks, not limited to Node.js.
+
+Here's what's coming next:
+
+- **More application stacks**: First-party integrations for Express, Fastify, NestJS, Next.js, and serverless Node runtimes
+- **More data stores**: Additional adapters for MySQL, SQLite, DynamoDB, and other operationally common backends
+- **Stronger auth options**: WebAuthn, passkeys, TOTP-based MFA, and recovery-oriented flows
+- **Operational hardening**: Built-in rate limiting hooks, lockout strategies, and safer recovery patterns
+- **Broader RestingOwl package family**: Adjacent packages for rate limiting, input sanitization, audit logging, secrets management, and CSRF protection
+
+## Community
+
+[![Website](https://img.shields.io/badge/restingowl.com-111827?style=flat-square&logo=googlechrome&logoColor=white)](https://restingowl.com/) [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/showcase/restingowl/) [![GitHub](https://img.shields.io/badge/Source-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/restingowlorg/OwlAuth) [![Issues](https://img.shields.io/github/issues/restingowlorg/OwlAuth?style=flat-square&logo=github&logoColor=white&label=Issues&color=181717)](https://github.com/restingowlorg/OwlAuth/issues) [![Security Policy](https://img.shields.io/badge/Security_Policy-B91C1C?style=flat-square&logo=owasp&logoColor=white)](SECURITY.md) [![Contributing](https://img.shields.io/badge/Contributing-15803D?style=flat-square&logo=git&logoColor=white)](CONTRIBUTING.md)
 
 ## License
 
-MIT
+[Mozilla Public License 2.0](LICENSE)
