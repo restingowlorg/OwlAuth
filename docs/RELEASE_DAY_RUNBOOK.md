@@ -11,7 +11,7 @@ Use this document during release windows.
 
 ## 0) Preconditions (must be true)
 
-- npm trusted publishing is enabled for `@restingowlorg/ossec-auth`
+- npm trusted publishing is enabled for `@restingowlorg/owlauth`
 - GitHub Actions has workflow permission `id-token: write`
 - Branch protections are enabled for `develop`, `staging`, and `main`
 - Required checks are green
@@ -78,10 +78,10 @@ Expected:
 ### 2.4 Consumer smoke install (recommended)
 
 ```bash
-mkdir -p /tmp/ossec-auth-next-check && cd /tmp/ossec-auth-next-check
+mkdir -p /tmp/owlauth-next-check && cd /tmp/owlauth-next-check
 npm init -y
-npm i @restingowlorg/ossec-auth@next
-node -e 'require("@restingowlorg/ossec-auth"); require("@restingowlorg/ossec-auth/mongo"); require("@restingowlorg/ossec-auth/postgres"); console.log("next install OK")'
+npm i @restingowlorg/owlauth@next
+node -e 'require("@restingowlorg/owlauth"); require("@restingowlorg/owlauth/mongo"); require("@restingowlorg/owlauth/postgres"); console.log("next install OK")'
 ```
 
 ## 3) Validation Phase
@@ -123,7 +123,7 @@ Once `next` is validated:
 ### 4.3 Verify stable tag
 
 ```bash
-npm view @restingowlorg/ossec-auth dist-tags
+npm view @restingowlorg/owlauth dist-tags
 ```
 
 Expected:
@@ -136,10 +136,10 @@ Expected:
 ### 5.1 Install stable package in clean temp project
 
 ```bash
-mkdir -p /tmp/ossec-auth-latest-check && cd /tmp/ossec-auth-latest-check
+mkdir -p /tmp/owlauth-latest-check && cd /tmp/owlauth-latest-check
 npm init -y
-npm i @restingowlorg/ossec-auth@latest
-node -e 'require("@restingowlorg/ossec-auth"); require("@restingowlorg/ossec-auth/mongo"); require("@restingowlorg/ossec-auth/postgres"); console.log("latest install OK")'
+npm i @restingowlorg/owlauth@latest
+node -e 'require("@restingowlorg/owlauth"); require("@restingowlorg/owlauth/mongo"); require("@restingowlorg/owlauth/postgres"); console.log("latest install OK")'
 ```
 
 ### 5.2 Review release artifacts

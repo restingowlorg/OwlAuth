@@ -1,12 +1,12 @@
 # owlauth
 
 <p align="center">
-  <img src="https://restingowl.com/owl-logo.png" alt="owlauth logo" width="120" />
+  <img src="https://restingowl.com/owl-logo.png?v=20260403" alt="owlauth logo" width="120" />
 </p>
 
 ---
 
-[![npm version](https://img.shields.io/npm/v/%40restingowlorg%2Fowlauth)](https://www.npmjs.com/package/@restingowlorg/owlauth) [![npm downloads](https://img.shields.io/npm/dm/%40restingowlorg%2Fowlauth)](https://www.npmjs.com/package/@restingowlorg/owlauth) [![Node.js](https://img.shields.io/node/v/%40restingowlorg%2Fowlauth)](https://www.npmjs.com/package/@restingowlorg/owlauth) [![License](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
+[![npm version](https://img.shields.io/npm/v/%40restingowlorg%2Fowlauth)](https://www.npmjs.com/package/@restingowlorg/owlauth) [![npm downloads](https://img.shields.io/npm/dm/%40restingowlorg%2Fowlauth)](https://www.npmjs.com/package/@restingowlorg/owlauth) [![Node.js](https://img.shields.io/node/v/%40restingowlorg%2Fowlauth)](https://www.npmjs.com/package/@restingowlorg/owlauth) [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 Open-source OWASP-aligned authentication and account-security library for Node.js.
 
@@ -304,4 +304,4 @@ Here's what's coming next:
 
 ## License
 
-[Mozilla Public License 2.0](LICENSE)
+[MIT License](LICENSE)
