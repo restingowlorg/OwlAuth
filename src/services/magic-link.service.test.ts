@@ -25,8 +25,6 @@ describe("MagicLinkService", () => {
 
     mockMagicLinkRepo = {
       create: jest.fn(),
-      findAll: jest.fn(),
-      findByTokenHash: jest.fn(),
       findById: jest.fn(),
       consume: jest.fn(),
       invalidateByUserId: jest.fn(),
@@ -73,11 +71,15 @@ describe("MagicLinkService", () => {
       );
     });
 
-    it("should fail if user not found", async () => {
+    it("should return a neutral 200 response when user not found (anti-enumeration)", async () => {
       mockUserRepo.findByEmail.mockResolvedValue(null);
       const result = await service.request(email);
-      expect(result.success).toBe(false);
-      expect(result.httpCode).toBe(404);
+      expect(result.success).toBe(true);
+      expect(result.httpCode).toBe(200);
+      if (result.success) {
+        expect(result.data).toBe("");
+        expect(result.message).toBe("If this email is registered, a magic link has been sent.");
+      }
     });
 
     it("should fail if invalidation fails", async () => {
@@ -125,6 +127,29 @@ describe("MagicLinkService", () => {
         { email },
         correlationId
       );
+    });
+
+    it("should return a full URL when magicLinkBaseUrl is configured", async () => {
+      const serviceWithUrl = new MagicLinkService(
+        mockUserRepo,
+        mockMagicLinkRepo,
+        mockCrypto,
+        mockLogger,
+        "https://example.com/auth/verify"
+      );
+
+      mockUserRepo.findByEmail.mockResolvedValue({ id: "1", email } as unknown as User);
+      mockMagicLinkRepo.invalidateByUserId.mockResolvedValue(true);
+      mockCrypto.generateToken.mockReturnValue("raw_token");
+      (mockCrypto.hashToken as jest.Mock).mockResolvedValue("hashed_token");
+      mockMagicLinkRepo.create.mockResolvedValue({ id: "link1" } as unknown as MagicLinkToken);
+
+      const result = await serviceWithUrl.request(email);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data).toBe("https://example.com/auth/verify?token=link1.raw_token");
+      }
     });
   });
 
@@ -207,6 +232,22 @@ describe("MagicLinkService", () => {
         undefined,
         correlationId
       );
+    });
+
+    it("should fail with 401 when token hash does not match", async () => {
+      mockMagicLinkRepo.findById.mockResolvedValue({
+        id: "link1",
+        userId: "1",
+        tokenHash: "hashed_token",
+        expiresAt: new Date(Date.now() + 3600000),
+        usedAt: null
+      } as unknown as MagicLinkToken);
+      mockCrypto.verifyToken.mockResolvedValue(false);
+
+      const result = await service.verify("link1.raw_token");
+
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(401);
     });
   });
 

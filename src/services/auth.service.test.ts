@@ -96,6 +96,38 @@ describe("AuthService", () => {
       );
     });
 
+    it("should accept a username that passes a custom usernameValidator", async () => {
+      const customService = new AuthService(
+        mockUserRepo,
+        mockCrypto,
+        mockLogger,
+        (u) => u.length >= 2 // looser rule: allow 2+ chars
+      );
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: false });
+      (mockUserRepo.findByUsername as jest.Mock).mockResolvedValue(null);
+      mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockCrypto.hashPassword.mockResolvedValue("hashed_password");
+      mockUserRepo.create.mockResolvedValue({ id: "1", email: "test@example.com", username: "ab" });
+
+      const result = await customService.signup("test@example.com", "ab", "Password123!");
+      expect(result.success).toBe(true);
+    });
+
+    it("should reject a username that fails a custom usernameValidator", async () => {
+      const customService = new AuthService(
+        mockUserRepo,
+        mockCrypto,
+        mockLogger,
+        (u) => !u.includes("admin") // disallow 'admin' in username
+      );
+
+      const result = await customService.signup("test@example.com", "superadmin", "Password123!");
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(400);
+    });
+
     it("should fail if password contains blocked terms", async () => {
       (containsBlockedPasswords as jest.Mock).mockReturnValue(true);
       const result = await authService.signup(
@@ -140,7 +172,7 @@ describe("AuthService", () => {
         signupData.password
       );
       expect(result.success).toBe(false);
-      expect(result.httpCode).toBe(400);
+      expect(result.httpCode).toBe(409);
       expect(result.message).toBe("Username already taken.");
     });
 
@@ -157,7 +189,7 @@ describe("AuthService", () => {
         signupData.password
       );
       expect(result.success).toBe(false);
-      expect(result.httpCode).toBe(400);
+      expect(result.httpCode).toBe(409);
       expect(result.message).toBe("Email already registered.");
     });
 
@@ -208,6 +240,75 @@ describe("AuthService", () => {
 
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.audit).toHaveBeenCalledWith(expect.objectContaining({ correlationId }));
+    });
+
+    it("should log a warning and proceed when HIBP is unreachable and pwnedPasswordFailClosed is not set", async () => {
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({
+        detected: false,
+        error: new Error("API Down")
+      });
+      (mockUserRepo.findByUsername as jest.Mock).mockResolvedValue(null);
+      mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockCrypto.hashPassword.mockResolvedValue("hashed");
+      mockUserRepo.create.mockResolvedValue({
+        id: "1",
+        email: signupData.email,
+        username: signupData.username
+      });
+
+      const result = await authService.signup(
+        signupData.email,
+        signupData.username,
+        signupData.password
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.httpCode).toBe(201);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("fail-open"),
+        expect.anything(),
+        undefined
+      );
+    });
+
+    it("should return 500 when user creation returns null", async () => {
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: false });
+      (mockUserRepo.findByUsername as jest.Mock).mockResolvedValue(null);
+      mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockCrypto.hashPassword.mockResolvedValue("hashed");
+      mockUserRepo.create.mockResolvedValue(null as unknown as User);
+
+      const result = await authService.signup(
+        signupData.email,
+        signupData.username,
+        signupData.password
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(500);
+    });
+
+    it("should return 500 on an unexpected exception during signup", async () => {
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: false });
+      (mockUserRepo.findByUsername as jest.Mock).mockResolvedValue(null);
+      mockUserRepo.findByEmail.mockRejectedValue(new Error("DB connection lost"));
+
+      const result = await authService.signup(
+        signupData.email,
+        signupData.username,
+        signupData.password
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(500);
+      expect(result.message).toContain("DB connection lost");
     });
   });
 
@@ -363,6 +464,21 @@ describe("AuthService", () => {
       expect(result.httpCode).toBe(400);
     });
 
+    it("should fail if new password contains blocked terms", async () => {
+      mockUserRepo.findById.mockResolvedValue({
+        id: "1",
+        email: "test@example.com",
+        username: "testuser",
+        password: "hashed_password"
+      } as unknown as User);
+      mockCrypto.verifyPassword.mockResolvedValue(true);
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(true);
+
+      const result = await authService.changePassword("1", "old", "testuser123");
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(400);
+    });
+
     it("should return 503 SERVICE_UNAVAILABLE during password change if fail-closed is enabled and check fails", async () => {
       mockUserRepo.findById.mockResolvedValue({
         id: "1",
@@ -384,6 +500,73 @@ describe("AuthService", () => {
 
       expect(result.success).toBe(false);
       expect(result.httpCode).toBe(503);
+    });
+
+    it("should fail with 400 if new password is found in a data breach", async () => {
+      mockUserRepo.findById.mockResolvedValue({
+        id: "1",
+        email: "test@example.com",
+        username: "testuser",
+        password: "old"
+      } as unknown as User);
+      mockCrypto.verifyPassword.mockResolvedValue(true);
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: true });
+
+      const result = await authService.changePassword("1", "old", "breached_new");
+
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(400);
+      expect(result.message).toContain("breach");
+    });
+
+    it("should log a warning and proceed when HIBP is down and pwnedPasswordFailClosed is not set", async () => {
+      mockUserRepo.findById.mockResolvedValue({
+        id: "1",
+        email: "test@example.com",
+        username: "testuser",
+        password: "old"
+      } as unknown as User);
+      mockCrypto.verifyPassword.mockResolvedValue(true);
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({
+        detected: false,
+        error: new Error("Timeout")
+      });
+      mockCrypto.hashPassword.mockResolvedValue("new_hash");
+      mockUserRepo.updatePassword.mockResolvedValue(true);
+
+      const result = await authService.changePassword("1", "old", "new_pass");
+
+      expect(result.success).toBe(true);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("fail-open"),
+        expect.anything(),
+        undefined
+      );
+    });
+
+    it("should return 500 when updatePassword returns false", async () => {
+      mockUserRepo.findById.mockResolvedValue({
+        id: "1",
+        email: "test@example.com",
+        username: "testuser",
+        password: "old"
+      } as unknown as User);
+      mockCrypto.verifyPassword.mockResolvedValue(true);
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: false });
+      mockCrypto.hashPassword.mockResolvedValue("new_hash");
+      mockUserRepo.updatePassword.mockResolvedValue(false);
+
+      const result = await authService.changePassword("1", "old", "new_pass");
+
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(500);
     });
 
     it("should propagate correlationId to all logs during password change", async () => {

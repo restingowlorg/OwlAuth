@@ -1,6 +1,6 @@
+import * as crypto from "crypto";
 import { isBreachedPassword } from "./pwned-passwords";
 import { auditLogger } from "./security-audit-logger";
-import { sha1 } from "js-sha1";
 
 // Mock dependencies
 jest.mock("./security-audit-logger", () => ({
@@ -9,20 +9,27 @@ jest.mock("./security-audit-logger", () => ({
   }
 }));
 
-jest.mock("js-sha1", () => ({
-  sha1: jest.fn()
+jest.mock("crypto", () => ({
+  createHash: jest.fn()
 }));
+
+const mockCreateHash = crypto.createHash as jest.Mock;
 
 describe("isBreachedPassword", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     global.fetch = jest.fn();
-    (sha1 as unknown as jest.Mock).mockReturnValue("DEFAULT_HASH_FOR_TESTS");
+
+    const mockDigest = jest.fn().mockReturnValue("default_hash_for_tests");
+    const mockUpdate = jest.fn().mockReturnThis();
+    mockCreateHash.mockReturnValue({ update: mockUpdate, digest: mockDigest });
   });
 
   it("should return detected true if password suffix is found in the API response", async () => {
-    const fakeHash = "0123456789ABCDEF0123456789ABCDEF01234567";
-    (sha1 as unknown as jest.Mock).mockReturnValue(fakeHash);
+    const fakeHash = "0123456789abcdef0123456789abcdef01234567";
+    const mockDigest = jest.fn().mockReturnValue(fakeHash);
+    const mockUpdate = jest.fn().mockReturnThis();
+    mockCreateHash.mockReturnValue({ update: mockUpdate, digest: mockDigest });
 
     const suffix = "56789ABCDEF0123456789ABCDEF01234567";
     const mockResponse = `${suffix}:10\nOTHERHASH:5\n`;
@@ -38,7 +45,11 @@ describe("isBreachedPassword", () => {
   });
 
   it("should return detected false if password suffix is NOT found", async () => {
-    (sha1 as unknown as jest.Mock).mockReturnValue("0123456789ABCDEF0123456789ABCDEF01234567");
+    const fakeHash = "0123456789abcdef0123456789abcdef01234567";
+    const mockDigest = jest.fn().mockReturnValue(fakeHash);
+    const mockUpdate = jest.fn().mockReturnThis();
+    mockCreateHash.mockReturnValue({ update: mockUpdate, digest: mockDigest });
+
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
       text: () => Promise.resolve("OTHERHASH:10\n")
