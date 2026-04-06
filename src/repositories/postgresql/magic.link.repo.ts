@@ -94,12 +94,15 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
   }
 
   async invalidateByUserId(userId: UserId): Promise<boolean> {
-    await this.pool.query(
-      `UPDATE ${this.getTable()} SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`,
-      [userId]
-    );
-
-    return true;
+    try {
+      await this.pool.query(
+        `UPDATE ${this.getTable()} SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`,
+        [userId]
+      );
+      return true;
+    } catch (err) {
+      return false;
+    }
   }
 
   async findAll(): Promise<MagicLinkToken[]> {
