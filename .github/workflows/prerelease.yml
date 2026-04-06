@@ -1,9 +1,6 @@
 name: Prerelease
 
 on:
-  push:
-    branches:
-      - staging
   workflow_dispatch:
 
 concurrency:

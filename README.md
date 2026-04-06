@@ -214,19 +214,25 @@ if (requested.success) {
 }
 ```
 
-`request()` returns the raw token string. Putting it in a URL, sending the email, and handling delivery is your application's job. owlauth does not touch any of that.
+`request()` returns a composite token string in the format `{recordId}.{rawToken}`. Both parts are required — `verify()` and `consume()` expect the full composite value as-is. Putting it in a URL, sending the email, and handling delivery is your application's job. owlauth does not touch any of that.
+
+> **Note:** The `recordId` segment is the database record's primary key. It is not sensitive, but treat the full composite token as a secret: it grants one-time login access and must only be transmitted over TLS.
 
 ## Configuration Options
 
 ### Shared Options
 
-| Option                    | Type                               | Purpose                                                                                 |
-| ------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------- |
-| `authTypes`               | `("credentials" \| "magicLink")[]` | Enables one or both supported auth flows. Defaults to credentials only.                 |
-| `blockedPasswords`        | `string[]`                         | Rejects passwords containing the user's email, username, or any supplied blocked terms. |
-| `cryptoAdapter`           | `ICryptoAdapter`                   | Replaces the default bcrypt-based crypto implementation.                                |
-| `customMaskingKeys`       | `string[]`                         | Adds case-insensitive keys to the audit logger masking list.                            |
-| `pwnedPasswordFailClosed` | `boolean`                          | Rejects signups and password changes when the breached-password API cannot be reached.  |
+| Option                    | Type                               | Purpose                                                                                                                                                                                                  |
+| ------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `authTypes`               | `("credentials" \| "magicLink")[]` | Enables one or both supported auth flows. Defaults to credentials only.                                                                                                                                  |
+| `blockedPasswords`        | `string[]`                         | Rejects passwords containing the user's email, username, or any supplied blocked terms.                                                                                                                  |
+| `magicLinkBaseUrl`        | `string`                           | Base URL for magic link emails. When set, `request()` returns a ready-to-use URL in the format `{baseUrl}?token={token}`. When omitted, the raw composite token is returned for manual URL construction. |
+| `cryptoAdapter`           | `ICryptoAdapter`                   | Replaces the default bcrypt-based crypto implementation.                                                                                                                                                 |
+| `customMaskingKeys`       | `string[]`                         | Adds case-insensitive keys to the audit logger masking list.                                                                                                                                             |
+| `pwnedPasswordFailClosed` | `boolean`                          | Rejects signups and password changes when the breached-password API cannot be reached.                                                                                                                   |
+| `usernameValidator`       | `(username: string) => boolean`    | Overrides the default username validation rule. Default: `3–20 chars, alphanumeric + underscore only` (`/^[a-zA-Z0-9_]{3,20}$/`). Return `true` to accept, `false` to reject.                            |
+
+> **Note:** The built-in `PostgresAdapter` and `MongoAdapter` implement `findByUsername` and enforce username uniqueness at signup. If you supply a custom `UserRepository` that does not implement `findByUsername`, duplicate-username detection is skipped silently. Implement the method if your application requires unique usernames.
 
 ### Method-Level Options
 
@@ -249,12 +255,18 @@ type AuthResult<T = unknown> =
 
 Result payloads are:
 
-- `SignupResult`: `{ user: { id, email, username } }`
-- `LoginResult`: `{ user: { id, email, username } }`
-- `ChangePasswordResult`: `{ user: { id, email, username } }`
-- `RequestMagicLinkResult`: `string`
+- `SignupResult`: `{ user: SafeUser }` — where `SafeUser = { id, email, username }`
+- `LoginResult`: `{ user: SafeUser }`
+- `ChangePasswordResult`: `{ user: SafeUser }`
+- `RequestMagicLinkResult`: `string` — when `magicLinkBaseUrl` is configured: full URL `"{baseUrl}?token={recordId}.{rawToken}"` ready to embed in an email. Without `magicLinkBaseUrl`: raw composite `"{recordId}.{rawToken}"` for manual URL construction. Pass the token portion directly to `verify()` and `consume()`.
 - `VerifyMagicLinkResult`: `{ isValid: boolean; userId: UserId; tokenId: string }`
 - `ConsumeMagicLinkResult`: `{ userId: UserId }`
+
+`SafeUser` and `UserId` are exported directly from the package and can be imported for type annotations:
+
+```ts
+import type { SafeUser, UserId } from "@restingowlorg/owlauth";
+```
 
 ## OWASP Alignment
 
@@ -278,10 +290,10 @@ Here's exactly what owlauth does, and where each decision comes from. Every cont
 
 ### Authentication Logic
 
-| Control                          | What the library does                                                                                                                                                 | OWASP reference                                                                                                                                                         |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Generic login error messages     | Login failure returns `"Invalid credentials."` regardless of whether the email is unknown or the password is wrong, preventing user enumeration.                      | [Auth Cheat Sheet, Authentication and Error Messages](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#authentication-and-error-messages) |
-| Current password re-verification | `changePassword()` requires the caller to supply and verify the current password before a new one is accepted, preventing silent takeover through a hijacked session. | [Auth Cheat Sheet, Change Password Feature](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#change-password-feature)                     |
+| Control                          | What the library does                                                                                                                                                                                                                                                                                                                                                              | OWASP reference                                                                                                                                                         |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Generic login error messages     | Login failure returns `"Invalid credentials."` regardless of whether the email is unknown or the password is wrong, preventing user enumeration. Magic link `request()` always returns `200` with a neutral message (`"If this email is registered, a magic link has been sent."`) regardless of whether the email exists, preventing email enumeration via the passwordless flow. | [Auth Cheat Sheet, Authentication and Error Messages](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#authentication-and-error-messages) |
+| Current password re-verification | `changePassword()` requires the caller to supply and verify the current password before a new one is accepted, preventing silent takeover through a hijacked session.                                                                                                                                                                                                              | [Auth Cheat Sheet, Change Password Feature](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#change-password-feature)                     |
 
 ### Passwordless Authentication
 
