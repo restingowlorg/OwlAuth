@@ -2,8 +2,10 @@ import { Pool } from "pg";
 import { PostgresUserRepository } from "../../../repositories/postgresql/user.repo";
 import { PostgresMagicLinkRepository } from "../../../repositories/postgresql/magic.link.repo";
 import { PostgresMagicLinkSchema, PostgresUserSchema } from "./schema";
-import { InitPostgresOptions, BaseAuthOptions, AuthDB } from "../../../types/index";
+import { AuthDB } from "../../../repositories/contracts";
 import { validateSchema, validateTable, validateColumns, validateForeignKey } from "./helpers";
+import { InitPostgresOptions } from "./types";
+import { BaseAuthOptions } from "../../../core/types";
 
 /**
  * Initialize PostgreSQL connection and repositories
@@ -58,12 +60,12 @@ export async function initPostgres(
       )
     ]);
 
-    magicRepo = new PostgresMagicLinkRepository(qualifiedMagicTable, pool);
+    magicRepo = new PostgresMagicLinkRepository(magicLinkSchema, magicTable, pool);
   }
 
   // Return repositories
   return {
-    userRepo: new PostgresUserRepository(qualifiedUserTable, pool),
+    userRepo: new PostgresUserRepository(userSchema, userTableName, pool),
     magicLinkRepo: magicRepo,
     close: async () => {
       await pool.end();

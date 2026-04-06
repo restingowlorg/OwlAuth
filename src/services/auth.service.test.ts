@@ -1,9 +1,10 @@
 import { AuthService } from "./auth.service";
-import { UserRepository } from "../repositories/contracts";
-import { ICryptoAdapter, IAuditLogger, User } from "../types";
+import { User, UserRepository } from "../repositories/contracts";
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
+import { IAuditLogger } from "../infra/security/types";
+import { ICryptoAdapter } from "../infra/security/types";
 
 // Mock dependencies
 jest.mock("@zxcvbn-ts/core");

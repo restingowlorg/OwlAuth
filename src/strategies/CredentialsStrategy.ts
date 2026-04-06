@@ -1,7 +1,9 @@
 import { auditLogger } from "../infra/security/security-audit-logger";
 import { BcryptAdapter } from "../infra/security/bcrypt.adapter";
 import { AuthService } from "../services/auth.service";
-import { AuthDB, AuthOptions, AuthType, IAuthMethods, IAuthStrategy, Mutable } from "../types";
+import { AuthDB } from "../repositories/contracts";
+import { AuthOptions, AuthType, IAuthMethods } from "../core/types";
+import { IAuthStrategy, Mutable } from "./types";
 
 export class CredentialsAuthStrategy implements IAuthStrategy {
   register(

@@ -1,15 +1,10 @@
 import { zxcvbn } from "@zxcvbn-ts/core";
-import { ICryptoAdapter, IAuditLogger } from "../types";
+import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
 import { UserRepository } from "../repositories/contracts";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
-import {
-  AuthResult,
-  LoginResult,
-  SignupResult,
-  ChangePasswordResult,
-  CreateUserInput
-} from "../types/index";
+import { AuthResult, LoginResult, SignupResult, ChangePasswordResult } from "../types";
+import { CreateUserInput } from "../repositories/contracts";
 
 export class AuthService {
   constructor(
@@ -27,7 +22,7 @@ export class AuthService {
       pwnedPasswordFailClosed?: boolean;
       correlationId?: string;
     }
-  ): Promise<AuthResult<LoginResult>> {
+  ): Promise<AuthResult<SignupResult>> {
     try {
       // Basic validation
       if (!email || !username || !password) {
@@ -116,6 +111,14 @@ export class AuthService {
           message: "Security check unavailable. Please try again later.",
           httpCode: 503
         };
+      }
+
+      if (breachCheck.error) {
+        this.logger.warn(
+          "PwnedPassword check failed (system is fail-open). Proceeding with signup.",
+          { email, error: breachCheck.error.message },
+          options?.correlationId
+        );
       }
 
       // Username uniqueness
@@ -208,7 +211,7 @@ export class AuthService {
     email: string,
     password: string,
     options?: { correlationId?: string }
-  ): Promise<AuthResult<SignupResult>> {
+  ): Promise<AuthResult<LoginResult>> {
     try {
       // -------------------- Input Validation --------------------
       if (!email || !password) {
@@ -308,6 +311,7 @@ export class AuthService {
       if (!valid) {
         this.logger.audit({
           type: "PASSWORD_CHANGE",
+          userId: user.id,
           metadata: { success: false, reason: "Current password incorrect" },
           correlationId: options?.correlationId
         });
@@ -325,6 +329,7 @@ export class AuthService {
       ) {
         this.logger.audit({
           type: "PASSWORD_CHANGE",
+          userId: user.id,
           metadata: { success: false, reason: "New password contains blocked keywords" },
           correlationId: options?.correlationId
         });
@@ -340,6 +345,7 @@ export class AuthService {
       if (zxcvbn(newPassword).score < 3) {
         this.logger.audit({
           type: "PASSWORD_CHANGE",
+          userId: user.id,
           metadata: { success: false, reason: "New password too weak" },
           correlationId: options?.correlationId
         });
@@ -351,6 +357,7 @@ export class AuthService {
       if (breachCheck.detected) {
         this.logger.audit({
           type: "PASSWORD_CHANGE",
+          userId: user.id,
           metadata: { success: false, reason: "New password found in data breach" },
           correlationId: options?.correlationId
         });
@@ -363,17 +370,20 @@ export class AuthService {
       }
 
       if (breachCheck.error && options?.pwnedPasswordFailClosed) {
-        this.logger.audit({
-          type: "PASSWORD_CHANGE",
-          metadata: { success: false, reason: "Breached password check failed (Fail-Closed)" },
-          correlationId: options?.correlationId
-        });
         return {
           success: false,
           data: undefined,
           message: "Security check unavailable. Please try again later.",
           httpCode: 503
         };
+      }
+
+      if (breachCheck.error) {
+        this.logger.warn(
+          "PwnedPassword check failed (system is fail-open). Proceeding with password change.",
+          { userId, error: breachCheck.error.message },
+          options?.correlationId
+        );
       }
 
       // Hash new password and update
@@ -397,6 +407,7 @@ export class AuthService {
 
       this.logger.audit({
         type: "PASSWORD_CHANGE",
+        userId: user.id,
         metadata: { success: true },
         correlationId: options?.correlationId
       });

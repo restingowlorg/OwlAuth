@@ -1,6 +1,9 @@
+import { AuthType, IAuthMethods } from "../core/types";
+import { ICryptoAdapter } from "../infra/security/types";
+import { UserRepository, MagicLinkRepository, AuthDB } from "../repositories/contracts";
 import { MagicLinkAuthStrategy } from "./MagicLinkStrategy";
-import { AuthDB, AuthOptions, AuthType, IAuthMethods, Mutable, ICryptoAdapter } from "../types";
-import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
+import { Mutable } from "./types";
+import { AuthOptions } from "../core/types";
 
 describe("MagicLinkAuthStrategy", () => {
   let strategy: MagicLinkAuthStrategy;

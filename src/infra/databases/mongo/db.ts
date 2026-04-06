@@ -1,9 +1,9 @@
 import { MongoClient, Collection } from "mongodb";
 import { MongoMagicLinkRepo } from "../../../repositories/mongo/magicLink.repo";
 import { MongoUserRepo } from "../../../repositories/mongo/user.repo";
-import { InitMongoOptions, BaseAuthOptions, AuthDB } from "../../../types/index";
-import { auditLogger } from "../../security/security-audit-logger";
-import { IMongoMagicLinkDoc, IMongoUserDoc } from "../../../types";
+import { AuthDB } from "../../../repositories/contracts";
+import { IMongoMagicLinkDoc, IMongoUserDoc, InitMongoOptions } from "./types";
+import { BaseAuthOptions } from "../../../core/types";
 
 /**
  * Connect to MongoDB and initialize repositories
@@ -18,14 +18,6 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
   const client = new MongoClient(mongoUri);
   await client.connect();
   const db = client.db();
-
-  if (!db) {
-    auditLogger.error(
-      "Failed to connect to MongoDB - no database instance found",
-      new Error("No DB instance")
-    );
-    throw new Error("[Auth:connectMongo] Failed to connect to MongoDB");
-  }
 
   // Use generic to type collection correctly
   const userColl: Collection<IMongoUserDoc> = db.collection<IMongoUserDoc>(userCollectionName);

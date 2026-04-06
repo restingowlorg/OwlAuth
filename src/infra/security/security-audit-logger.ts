@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 import { SECURITY_CONFIG } from "../../config";
-import { IAuditLogger, SecurityEvent } from "../../types/index";
+import { IAuditLogger, SecurityEvent } from "./types";
 
 /**
  * Robustly masks sensitive data in objects/arrays.

@@ -1,5 +1,5 @@
 import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
-import { ICryptoAdapter, IAuditLogger } from "../types";
+import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
 import {
   AuthResult,
   RequestMagicLinkResult,
@@ -211,6 +211,7 @@ export class MagicLinkService {
         });
         return {
           success: false,
+          data: undefined,
           message: "Magic link already used",
           httpCode: 401
         };

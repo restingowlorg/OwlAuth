@@ -1,6 +1,11 @@
 import { MagicLinkService } from "./magic-link.service";
-import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
-import { ICryptoAdapter, IAuditLogger, User, MagicLinkToken } from "../types";
+import {
+  UserRepository,
+  MagicLinkRepository,
+  MagicLinkToken,
+  User
+} from "../repositories/contracts";
+import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
 
 describe("MagicLinkService", () => {
   let service: MagicLinkService;

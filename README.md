@@ -110,23 +110,50 @@ const auth = await createAuthManager({
 });
 ```
 
-### Subpath Exports
+## Cryptography
 
-Need just the adapter layer? The package ships database-specific entry points too:
+owlauth ships with a default `BcryptAdapter` (10 rounds). You can customize it or provide your own implementation of `ICryptoAdapter`.
+
+### Customizing Default Crypto
 
 ```ts
-import {
-  MongoAdapter,
-  MongoUserRepo,
-  MongoMagicLinkRepo,
-  connectMongo
-} from "@restingowlorg/owlauth/mongo";
-import {
-  PostgresAdapter,
-  PostgresUserRepository,
-  PostgresMagicLinkRepository,
-  initPostgres
-} from "@restingowlorg/owlauth/postgres";
+import { createAuthManager, BcryptAdapter } from "@restingowlorg/owlauth";
+
+const auth = await createAuthManager({
+  // ... rest of config
+  cryptoAdapter: new BcryptAdapter()
+});
+```
+
+### Implementing Your Own
+
+If you need Argon2, PBKDF2, or a custom token strategy, implement the `ICryptoAdapter` interface:
+
+```ts
+import { ICryptoAdapter } from "@restingowlorg/owlauth";
+
+class MyCrypto implements ICryptoAdapter {
+  async hashPassword(p: string) {
+    /* ... */
+  }
+  async verifyPassword(p: string, h: string) {
+    /* ... */
+  }
+  generateToken() {
+    /* ... */
+  }
+  async hashToken(t: string) {
+    /* ... */
+  }
+  async verifyToken(t: string, h: string) {
+    /* ... */
+  }
+}
+
+const auth = await createAuthManager({
+  // ...
+  cryptoAdapter: new MyCrypto()
+});
 ```
 
 ## Core Usage
@@ -226,8 +253,8 @@ Result payloads are:
 - `LoginResult`: `{ user: { id, email, username } }`
 - `ChangePasswordResult`: `{ user: { id, email, username } }`
 - `RequestMagicLinkResult`: `string`
-- `VerifyMagicLinkResult`: `{ isValid: true, userId: string, tokenId: string }`
-- `ConsumeMagicLinkResult`: `{ userId: string }`
+- `VerifyMagicLinkResult`: `{ isValid: boolean; userId: UserId; tokenId: string }`
+- `ConsumeMagicLinkResult`: `{ userId: UserId }`
 
 ## OWASP Alignment
 
@@ -235,12 +262,12 @@ Here's exactly what owlauth does, and where each decision comes from. Every cont
 
 ### Password Security
 
-| Control                   | What the library does                                                                                                                                                                                                                                  | OWASP reference                                                                                                                                                                              |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Password strength scoring | Candidate passwords are scored with `@zxcvbn-ts/core` at signup and on every password change. Scores below 3 of 4 are rejected.                                                                                                                        | [Auth Cheat Sheet — Implement Proper Password Strength Controls](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#implement-proper-password-strength-controls) |
-| Breached password check   | The [Have I Been Pwned Pwned Passwords API](https://haveibeenpwned.com/API/v3#PwnedPasswords) is queried using the k-anonymity range method. Only the first 5 characters of the SHA-1 hash are transmitted; the raw password never leaves the process. | [Auth Cheat Sheet — Block previously breached passwords](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#implement-proper-password-strength-controls)         |
-| Context-aware blocking    | Passwords are rejected if they contain the user's email local part, username, or any caller-supplied blocked terms, preventing context-guessable passwords.                                                                                            | [NIST SP 800-63B § 5.1.1.2](https://pages.nist.gov/800-63-4/sp800-63b.html), context-specific word verification                                                                              |
-| Fail-closed breach check  | When `pwnedPasswordFailClosed: true`, a network error on the breach API causes the request to fail rather than silently pass.                                                                                                                          | Defense-in-depth, fail-safe defaults                                                                                                                                                         |
+| Control                   | What the library does                                                                                                                                                                                                                                 | OWASP reference                                                                                                                                                                              |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Password strength scoring | Candidate passwords are scored with `@zxcvbn-ts/core` at signup and on every password change. Scores below 3 of 4 are rejected.                                                                                                                       | [Auth Cheat Sheet — Implement Proper Password Strength Controls](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#implement-proper-password-strength-controls) |
+| Breached password check   | The[Have I Been Pwned Pwned Passwords API](https://haveibeenpwned.com/API/v3#PwnedPasswords) is queried using the k-anonymity range method. Only the first 5 characters of the SHA-1 hash are transmitted; the raw password never leaves the process. | [Auth Cheat Sheet — Block previously breached passwords](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#implement-proper-password-strength-controls)         |
+| Context-aware blocking    | Passwords are rejected if they contain the user's email local part, username, or any caller-supplied blocked terms, preventing context-guessable passwords.                                                                                           | [NIST SP 800-63B § 5.1.1.2](https://pages.nist.gov/800-63-4/sp800-63b.html), context-specific word verification                                                                              |
+| Fail-closed breach check  | When `pwnedPasswordFailClosed: true`, a network error on the breach API causes the request to fail rather than silently pass.                                                                                                                         | Defense-in-depth, fail-safe defaults                                                                                                                                                         |
 
 ### Credential Storage
 
@@ -270,7 +297,7 @@ Here's exactly what owlauth does, and where each decision comes from. Every cont
 | Control                    | What the library does                                                                                                                                                                    | OWASP reference                                                                                                                                                                                                                              |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Security event logging     | Every auth operation, signup, login, password change, and all magic link steps, emits a structured audit event with event type, email, outcome, and reason.                              | [Auth Cheat Sheet, Logging and Monitoring](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#logging-and-monitoring); [A09:2025 Security Logging and Alerting Failures](https://owasp.org/www-project-top-ten/) |
-| Sensitive field masking    | The audit logger automatically redacts values at keys matching `password`, `token`, `secret`, `authorization`, `cookie`, and `apikey`. Callers can extend this with `customMaskingKeys`. | ASVS 5.0, do not log sensitive data; [OWASP Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html)                                                                                                    |
+| Sensitive field masking    | The audit logger automatically redacts values at keys matching `password`, `token`, `secret`, `authorization`, `cookie`, and `apikey`. Callers can extend this with `customMaskingKeys`. | ASVS 5.0, do not log sensitive data;[OWASP Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html)                                                                                                     |
 | Correlation ID propagation | Every auth method accepts an optional `correlationId`. When supplied, it is included in all log output for that operation, enabling trace correlation with application-level logs.       | [OWASP Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html), include trace identifiers                                                                                                              |
 
 ## Security Notes
