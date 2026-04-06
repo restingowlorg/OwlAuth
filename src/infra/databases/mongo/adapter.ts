@@ -1,5 +1,8 @@
+import { BaseAuthOptions } from "../../../core/types";
+import { AuthDB } from "../../../repositories/contracts";
+import { IDatabaseAdapter } from "../types";
 import { connectMongo } from "./db";
-import { AuthDB, BaseAuthOptions, IDatabaseAdapter, InitMongoOptions } from "../../../types/index";
+import { InitMongoOptions } from "./types";
 
 export class MongoAdapter implements IDatabaseAdapter {
   constructor(private readonly config: InitMongoOptions) {}

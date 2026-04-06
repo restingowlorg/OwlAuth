@@ -1,6 +1,9 @@
 import { CredentialsAuthStrategy } from "./CredentialsStrategy";
-import { AuthDB, AuthOptions, AuthType, IAuthMethods, Mutable, ICryptoAdapter } from "../types";
-import { UserRepository } from "../repositories/contracts";
+import { AuthDB, UserRepository } from "../repositories/contracts";
+import { AuthOptions, IAuthMethods } from "../core/types";
+import { ICryptoAdapter } from "../infra/security/types";
+import { Mutable } from "./types";
+import { AuthType } from "../core/types";
 
 describe("CredentialsAuthStrategy", () => {
   let strategy: CredentialsAuthStrategy;

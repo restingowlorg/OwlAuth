@@ -1,15 +1,10 @@
 import { zxcvbn } from "@zxcvbn-ts/core";
-import { ICryptoAdapter, IAuditLogger } from "../types";
+import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
 import { UserRepository } from "../repositories/contracts";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
-import {
-  AuthResult,
-  LoginResult,
-  SignupResult,
-  ChangePasswordResult,
-  CreateUserInput
-} from "../types/index";
+import { AuthResult, LoginResult, SignupResult, ChangePasswordResult } from "../types";
+import { CreateUserInput } from "../repositories/contracts";
 
 export class AuthService {
   constructor(

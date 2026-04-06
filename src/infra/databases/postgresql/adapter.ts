@@ -1,10 +1,8 @@
+import { AuthDB } from "../../../repositories/contracts";
+import { IDatabaseAdapter } from "../types";
 import { initPostgres } from "./db";
-import {
-  AuthDB,
-  BaseAuthOptions,
-  IDatabaseAdapter,
-  InitPostgresOptions
-} from "../../../types/index";
+import { InitPostgresOptions } from "./types";
+import { BaseAuthOptions } from "../../../core/types";
 
 export class PostgresAdapter implements IDatabaseAdapter {
   constructor(private readonly config: InitPostgresOptions) {}

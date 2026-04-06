@@ -1,6 +1,6 @@
 import { Pool } from "pg";
-import { MagicLinkToken, MagicLinkRow, UserId } from "../../types";
-import { MagicLinkRepository } from "../contracts";
+import { MagicLinkToken, MagicLinkRepository, UserId } from "../contracts";
+import { MagicLinkRow } from "../../infra/databases/postgresql/types";
 
 export class PostgresMagicLinkRepository implements MagicLinkRepository {
   constructor(
@@ -59,7 +59,7 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
     };
   }
 
-  async findById(id: string | number): Promise<MagicLinkToken | null> {
+  async findById(id: UserId): Promise<MagicLinkToken | null> {
     const result = await this.pool.query<MagicLinkRow>(
       `SELECT * FROM ${this.getTable()} WHERE id = $1`,
       [id]
@@ -78,7 +78,7 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
     };
   }
 
-  async consume(id: string | number): Promise<boolean> {
+  async consume(id: UserId): Promise<boolean> {
     const result = await this.pool.query(
       `UPDATE ${this.getTable()} SET used_at = NOW() WHERE id = $1 AND used_at IS NULL`,
       [id]
@@ -86,14 +86,14 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
     return (result.rowCount ?? 0) > 0;
   }
 
-  async deleteByUserId(userId: string | number): Promise<boolean> {
+  async deleteByUserId(userId: UserId): Promise<boolean> {
     const result = await this.pool.query(`DELETE FROM ${this.getTable()} WHERE user_id = $1`, [
       userId
     ]);
     return (result.rowCount ?? 0) > 0;
   }
 
-  async invalidateByUserId(userId: string | number): Promise<boolean> {
+  async invalidateByUserId(userId: UserId): Promise<boolean> {
     await this.pool.query(
       `UPDATE ${this.getTable()} SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`,
       [userId]
@@ -102,7 +102,7 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
     return true;
   }
 
-  async findAll(): Promise<MagicLinkRow[]> {
+  async findAll(): Promise<MagicLinkToken[]> {
     const result = await this.pool.query<MagicLinkRow>(
       `
       SELECT * FROM ${this.getTable()}
@@ -112,11 +112,11 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
 
     return result.rows.map((row) => ({
       id: row.id,
-      user_id: row.user_id,
-      token: row.token,
-      expires_at: row.expires_at,
-      used_at: row.used_at,
-      created_at: row.created_at
+      userId: row.user_id,
+      tokenHash: row.token,
+      expiresAt: row.expires_at,
+      usedAt: row.used_at,
+      createdAt: row.created_at
     }));
   }
 }

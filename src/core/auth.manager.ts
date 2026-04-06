@@ -1,5 +1,5 @@
 import { initAuthServices } from "./auth.service.init";
-import { AuthOptions, IAuthManager, AuthType } from "../types/index";
+import { AuthOptions, AuthType, IAuthManager } from "./types";
 
 /**
  * Creates and initializes an instance of the AuthManager.

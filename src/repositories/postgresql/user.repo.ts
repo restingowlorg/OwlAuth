@@ -1,6 +1,5 @@
 import { QueryResult, Pool } from "pg";
-import { User, CreateUserInput, SafeUser, UserId } from "../../types";
-import { UserRepository } from "../contracts";
+import { User, CreateUserInput, UserRepository, SafeUser, UserId } from "../contracts";
 
 export class PostgresUserRepository implements UserRepository {
   constructor(
@@ -54,7 +53,7 @@ export class PostgresUserRepository implements UserRepository {
     return result.rows[0] ?? null;
   }
 
-  async updatePassword(userId: string | number, passwordHash: string): Promise<boolean> {
+  async updatePassword(userId: UserId, passwordHash: string): Promise<boolean> {
     const result = await this.pool.query(
       `
       UPDATE ${this.getTable()}

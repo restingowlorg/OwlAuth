@@ -1,5 +1,5 @@
 import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
-import { ICryptoAdapter, IAuditLogger } from "../types";
+import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
 import {
   AuthResult,
   RequestMagicLinkResult,

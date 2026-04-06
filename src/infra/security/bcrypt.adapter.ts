@@ -1,7 +1,7 @@
 import * as bcrypt from "bcryptjs";
 import * as crypto from "crypto";
-import { ICryptoAdapter } from "../../types";
 import { SECURITY_CONFIG } from "../../config";
+import { ICryptoAdapter } from "./types";
 
 export class BcryptAdapter implements ICryptoAdapter {
   private readonly SALT_ROUNDS = SECURITY_CONFIG.SALT_ROUNDS;

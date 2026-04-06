@@ -1,8 +1,9 @@
 import { MongoClient, Collection } from "mongodb";
 import { MongoMagicLinkRepo } from "../../../repositories/mongo/magicLink.repo";
 import { MongoUserRepo } from "../../../repositories/mongo/user.repo";
-import { InitMongoOptions, BaseAuthOptions, AuthDB } from "../../../types/index";
-import { IMongoMagicLinkDoc, IMongoUserDoc } from "../../../types";
+import { AuthDB } from "../../../repositories/contracts";
+import { IMongoMagicLinkDoc, IMongoUserDoc, InitMongoOptions } from "./types";
+import { BaseAuthOptions } from "../../../core/types";
 
 /**
  * Connect to MongoDB and initialize repositories

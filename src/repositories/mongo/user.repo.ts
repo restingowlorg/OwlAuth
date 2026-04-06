@@ -1,7 +1,6 @@
-import { CreateUserInput, IMongoUserDoc, SafeUser, UserId } from "../../types";
-import { User } from "../../types/index";
-import { UserRepository } from "../contracts";
 import { Collection, ObjectId, InsertOneResult } from "mongodb";
+import { CreateUserInput, User, UserRepository, SafeUser, UserId } from "../contracts";
+import { IMongoUserDoc } from "../../infra/databases/mongodb/types";
 
 /**
  * MongoDB implementation of UserRepository

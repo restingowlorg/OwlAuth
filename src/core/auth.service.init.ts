@@ -1,14 +1,9 @@
-import {
-  AuthDB,
-  AuthOptions,
-  AuthType,
-  IAuthMethods,
-  IAuthStrategy,
-  Mutable
-} from "../types/index";
 import { auditLogger } from "../infra/security/security-audit-logger";
+import { AuthDB } from "../repositories/contracts";
 import { CredentialsAuthStrategy } from "../strategies/CredentialsStrategy";
 import { MagicLinkAuthStrategy } from "../strategies/MagicLinkStrategy";
+import { IAuthStrategy, Mutable } from "../strategies/types";
+import { AuthOptions, AuthType, IAuthMethods } from "./types";
 
 const authStrategies: Record<AuthType, IAuthStrategy> = {
   credentials: new CredentialsAuthStrategy(),
