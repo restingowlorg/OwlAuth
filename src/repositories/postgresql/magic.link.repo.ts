@@ -21,7 +21,7 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
   }): Promise<MagicLinkToken> {
     const result = await this.pool.query<MagicLinkRow>(
       `
-      INSERT INTO ${this.getTable()} (user_id, token, expires_at, used_at)
+      INSERT INTO ${this.getTable()} (user_id, token_hash, expires_at, used_at)
       VALUES ($1, $2, $3, $4)
       RETURNING *
       `,
@@ -31,28 +31,9 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
     const row = result.rows[0];
 
     return {
-      id: row.id,
-      userId: row.user_id,
-      tokenHash: row.token,
-      expiresAt: row.expires_at,
-      usedAt: row.used_at,
-      createdAt: row.created_at
-    };
-  }
-
-  async findByTokenHash(tokenHash: string): Promise<MagicLinkToken | null> {
-    const result = await this.pool.query<MagicLinkRow>(
-      `SELECT * FROM ${this.getTable()} WHERE token = $1`,
-      [tokenHash]
-    );
-
-    const row = result.rows[0];
-    if (!row) return null;
-
-    return {
-      id: row.id,
-      userId: row.user_id,
-      tokenHash: row.token,
+      id: String(row.id),
+      userId: String(row.user_id),
+      tokenHash: row.token_hash,
       expiresAt: row.expires_at,
       usedAt: row.used_at,
       createdAt: row.created_at
@@ -69,9 +50,9 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
     if (!row) return null;
 
     return {
-      id: row.id,
-      userId: row.user_id,
-      tokenHash: row.token,
+      id: String(row.id),
+      userId: String(row.user_id),
+      tokenHash: row.token_hash,
       expiresAt: row.expires_at,
       usedAt: row.used_at,
       createdAt: row.created_at
@@ -103,23 +84,5 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
     } catch (err) {
       return false;
     }
-  }
-
-  async findAll(): Promise<MagicLinkToken[]> {
-    const result = await this.pool.query<MagicLinkRow>(
-      `
-      SELECT * FROM ${this.getTable()}
-      WHERE used_at IS NULL AND expires_at > NOW()
-      `
-    );
-
-    return result.rows.map((row) => ({
-      id: row.id,
-      userId: row.user_id,
-      tokenHash: row.token,
-      expiresAt: row.expires_at,
-      usedAt: row.used_at,
-      createdAt: row.created_at
-    }));
   }
 }

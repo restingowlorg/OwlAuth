@@ -14,3 +14,4 @@ export { MongoAdapter } from "./infra/databases/mongo/adapter";
 export { PostgresAdapter } from "./infra/databases/postgresql/adapter";
 export { ICryptoAdapter } from "./infra/security/types";
 export { BcryptAdapter } from "./infra/security/bcrypt.adapter";
+export type { SafeUser, UserId } from "./repositories/contracts";

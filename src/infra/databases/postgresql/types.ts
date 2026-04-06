@@ -1,9 +1,16 @@
 import { PostgresUserSchema } from "./schema";
 
+export type UserRow = {
+  id: number | string;
+  email: string;
+  username: string;
+  password: string;
+};
+
 export type MagicLinkRow = {
   id: number | string;
   user_id: number | string;
-  token: string;
+  token_hash: string;
   expires_at: Date;
   used_at: Date | null;
   created_at: Date;
