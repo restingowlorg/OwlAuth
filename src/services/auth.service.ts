@@ -10,7 +10,8 @@ export class AuthService {
   constructor(
     private readonly users: UserRepository,
     private readonly crypto: ICryptoAdapter,
-    private readonly logger: IAuditLogger
+    private readonly logger: IAuditLogger,
+    private readonly usernameValidator?: (username: string) => boolean
   ) {}
 
   async signup(
@@ -40,7 +41,11 @@ export class AuthService {
         };
       }
 
-      if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
+      const isValidUsername = this.usernameValidator
+        ? this.usernameValidator(username)
+        : /^[a-zA-Z0-9_]{3,20}$/.test(username);
+
+      if (!isValidUsername) {
         this.logger.audit({
           type: "SIGNUP_FAILURE",
           email,
@@ -135,7 +140,7 @@ export class AuthService {
             success: false,
             data: undefined,
             message: "Username already taken.",
-            httpCode: 400
+            httpCode: 409
           };
         }
       }
@@ -153,7 +158,7 @@ export class AuthService {
           success: false,
           data: undefined,
           message: "Email already registered.",
-          httpCode: 400
+          httpCode: 409
         };
       }
 
@@ -290,7 +295,7 @@ export class AuthService {
   }
 
   async changePassword(
-    userId: string | number,
+    userId: string,
     currentPassword: string,
     newPassword: string,
     options?: {

@@ -12,7 +12,8 @@ export class MagicLinkService {
     private users: UserRepository,
     private magicLinks: MagicLinkRepository,
     private crypto: ICryptoAdapter,
-    private logger: IAuditLogger
+    private logger: IAuditLogger,
+    private magicLinkBaseUrl?: string
   ) {}
 
   /** Request a magic link (passwordless login) */
@@ -26,15 +27,15 @@ export class MagicLinkService {
       if (!user) {
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
-          email,
           metadata: { reason: "User not found" },
           correlationId: options?.correlationId
         });
+        // Return the same response as a successful request to prevent email enumeration.
         return {
-          success: false,
-          data: undefined,
-          message: "User not found",
-          httpCode: 404
+          success: true,
+          data: "",
+          message: "If this email is registered, a magic link has been sent.",
+          httpCode: 200
         };
       }
 
@@ -86,9 +87,14 @@ export class MagicLinkService {
         correlationId: options?.correlationId
       });
 
+      const compositeToken = `${record.id}.${token}`;
+      const data = this.magicLinkBaseUrl
+        ? `${this.magicLinkBaseUrl}?token=${compositeToken}`
+        : compositeToken;
+
       return {
         success: true,
-        data: `${record.id}.${token}`,
+        data,
         message: "Magic link created",
         httpCode: 200
       };
