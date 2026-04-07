@@ -14,6 +14,7 @@ on:
   push:
     branches:
       - main
+      - chore/add-release-changeset-for-v1.1.0
 
 concurrency:
   group: release-${{ github.ref }}-${{ github.event_name }}-${{ inputs.release_mode || 'stable' }}
