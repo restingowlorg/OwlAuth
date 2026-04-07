@@ -73,7 +73,7 @@ jobs:
           cd "$TMP_DIR"
           npm init -y >/dev/null 2>&1
           npm install "$GITHUB_WORKSPACE/$PACK_FILE"
-          node -e 'require("@restingowlorg/owlauthtest"); require("@restingowlorg/owlauthtest/mongo"); require("@restingowlorg/owlauthtest/postgres"); console.log("artifact smoke test passed")'
+          node -e 'require("@restingowlorg/owlauth-release-test"); require("@restingowlorg/owlauth-release-test/mongo"); require("@restingowlorg/owlauth-release-test/postgres"); console.log("artifact smoke test passed")'
 
       - name: Enter prerelease mode and version packages
         if: steps.mode.outputs.mode == 'prerelease'

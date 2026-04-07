@@ -1,5 +1,5 @@
 ---
-"@restingowlorg/owlauthtest": minor
+"@restingowlorg/owlauth-release-test": minor
 ---
 
-Test release for owlauthtest to validate the unified prerelease and stable publishing workflow.
+Test release for owlauth-release-test to validate the unified prerelease and stable publishing workflow.
