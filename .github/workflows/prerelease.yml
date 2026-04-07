@@ -2,6 +2,9 @@ name: Prerelease
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - chore/release-workflow-improvements # temp: remove before merging to main
 
 concurrency:
   group: "prerelease-${{ github.ref }}"
