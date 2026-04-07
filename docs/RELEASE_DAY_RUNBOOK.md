@@ -19,16 +19,15 @@ Use this document during release windows.
 
 ### 0.1 Publish Authentication Mode
 
-The publish workflows are set up with this order of precedence:
+The publish workflow is set up to use:
 
-- Primary: npm trusted publishing via GitHub OIDC
-- Fallback: `NPM_TOKEN` secret, only if trusted publishing is unavailable
+- npm trusted publishing via GitHub OIDC only
 
 What this means operationally:
 
-- If trusted publishing is configured correctly in npm, no long-lived npm credential is needed in GitHub
-- If `NPM_TOKEN` exists in repository secrets, the workflow will use it as a fallback publish credential
-- `GITHUB_TOKEN` is still required in the stable release workflow because Changesets uses it to create or update the release PR
+- No long-lived npm publish credential is needed in GitHub
+- Repo/org secrets should not define `NPM_TOKEN` or `NODE_AUTH_TOKEN` for publish jobs
+- `GITHUB_TOKEN` is still required because Changesets uses it to create or update the release PR
 
 Do not publish manually from a local machine unless you are handling a one-off emergency outside the normal release path.
 
@@ -56,18 +55,22 @@ When ready to prepare a release:
 
 ### 2.2 Trigger prerelease publish (manual)
 
-- Go to **Actions → Prerelease → Run workflow** on the `staging` branch
+- Go to **Actions → Release → Run workflow**
+- Select branch: `staging`
+- Set `release_mode` to `prerelease`
+- Ensure repo/org secrets do **not** set `NPM_TOKEN` or `NODE_AUTH_TOKEN` so npm OIDC trusted publishing is used
 - Pipeline does:
   - `npm ci`
   - `npm run release:validate`
   - artifact smoke test
-  - `changeset version --snapshot next`
-  - `changeset publish --tag next`
+  - `changeset pre enter next`
+  - `changeset version`
+  - `changeset publish` (publishes to the `next` dist-tag while in prerelease mode)
 
 ### 2.3 Verify prerelease tag
 
 ```bash
-npm view @restingowlorg/ossec-auth dist-tags
+npm view @restingowlorg/owlauth dist-tags
 ```
 
 Expected:
@@ -111,13 +114,16 @@ Once `next` is validated:
 - Confirm CI/Security/CodeQL checks pass
 - Merge PR into `main`
 
-### 4.2 Trigger stable publish (manual)
+### 4.2 Trigger stable publish
 
-- Go to **Actions → Release → Run workflow** on the `main` branch
+- Merging into `main` triggers **Actions → Release** automatically
+- If you need a manual retry, use **Actions → Release → Run workflow** on the `main` branch and set `release_mode` to `stable`
+- Ensure repo/org secrets do **not** set `NPM_TOKEN` or `NODE_AUTH_TOKEN` so npm OIDC trusted publishing is used
 - Pipeline does:
   - `npm ci`
   - `npm run release:validate`
   - artifact smoke test
+  - `changeset pre exit` (if prerelease mode is active)
   - changesets action: creates versioning PR or publishes if PR already merged
   - GitHub Release and Git tag created automatically
 
