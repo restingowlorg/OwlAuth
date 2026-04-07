@@ -62,7 +62,9 @@ jobs:
       - name: Create release pull request or publish
         uses: changesets/action@v1
         with:
-          version: npm run version-packages
+          version: |
+            if [ -f ".changeset/pre.json" ]; then npx changeset pre exit; fi
+            npm run version-packages
           publish: npm run release
           title: "chore(release): version packages"
           commit: "chore(release): version packages"
