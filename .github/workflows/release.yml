@@ -2,12 +2,21 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      release_mode:
+        description: "Choose prerelease for staging/next or stable for main/latest"
+        required: true
+        default: prerelease
+        type: choice
+        options:
+          - prerelease
+          - stable
   push:
     branches:
       - main
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.ref }}-${{ github.event_name }}-${{ inputs.release_mode || 'stable' }}
   cancel-in-progress: false
 
 permissions:
@@ -30,8 +39,45 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20.x
-          registry-url: https://registry.npmjs.org
+          node-version: 24.x
+          cache: npm
+
+      - name: Determine release mode
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.release_mode }}" = "prerelease" ]; then
+            echo "mode=prerelease" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=stable" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Show release context
+        run: |
+          echo "Event: ${{ github.event_name }}"
+          echo "Branch: ${GITHUB_REF_NAME}"
+          echo "Mode: ${{ steps.mode.outputs.mode }}"
+
+      - name: Enforce release branch policy
+        run: |
+          if [ "${{ steps.mode.outputs.mode }}" = "stable" ] && [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "Stable releases are only allowed from main." >&2
+            exit 1
+          fi
+
+          if [ "${{ steps.mode.outputs.mode }}" = "prerelease" ] && [ "${GITHUB_REF_NAME}" != "staging" ]; then
+            echo "Prereleases are only allowed from staging." >&2
+            exit 1
+          fi
+
+      - name: Force OIDC trusted publishing
+        run: |
+          echo "NODE_AUTH_TOKEN=" >> "$GITHUB_ENV"
+          echo "NPM_TOKEN=" >> "$GITHUB_ENV"
+
+      - name: Verify trusted publishing runtime
+        run: |
+          echo "Node: $(node --version)"
+          echo "npm: $(npm --version)"
+          node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 22 || (major === 22 && minor < 14)) { console.error("npm trusted publishing requires Node 22.14.0 or later."); process.exit(1); }'
 
       - name: Install dependencies
         run: npm ci
@@ -50,22 +96,37 @@ jobs:
           npm init -y >/dev/null 2>&1
           npm install "$GITHUB_WORKSPACE/$PACK_FILE"
           node -e 'require("@restingowlorg/owlauth"); require("@restingowlorg/owlauth/mongo"); require("@restingowlorg/owlauth/postgres"); console.log("artifact smoke test passed")'
-
-      - name: Configure npm token fallback
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Enter prerelease mode and version packages
+        if: steps.mode.outputs.mode == 'prerelease'
         run: |
-          if [ -n "$NPM_TOKEN" ]; then
-            echo "NODE_AUTH_TOKEN=$NPM_TOKEN" >> "$GITHUB_ENV"
+          if [ ! -f ".changeset/pre.json" ]; then
+            npx changeset pre enter next
           fi
+          npm run version-packages
+      - name: Verify OIDC trusted publishing is in use
+        run: |
+          if [ -n "${NODE_AUTH_TOKEN}" ]; then
+            echo "Unexpected NODE_AUTH_TOKEN detected. Remove NPM_TOKEN/NODE_AUTH_TOKEN secrets to use npm trusted publishing." >&2
+            exit 1
+          fi
+      - name: Publish prerelease to next tag
+        if: steps.mode.outputs.mode == 'prerelease'
+        uses: changesets/action@v1
+        with:
+          publish: npm run release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ""
+          NPM_TOKEN: ""
 
       - name: Exit prerelease mode for stable release
+        if: steps.mode.outputs.mode == 'stable'
         run: |
           if [ -f ".changeset/pre.json" ]; then
             npx changeset pre exit
           fi
-
       - name: Create release pull request or publish
+        if: steps.mode.outputs.mode == 'stable'
         uses: changesets/action@v1
         with:
           version: npm run version-packages
@@ -75,3 +136,5 @@ jobs:
           createGithubReleases: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ""
+          NPM_TOKEN: ""
