@@ -56,13 +56,17 @@ When ready to prepare a release:
 
 ### 2.2 Trigger prerelease publish (manual)
 
-- Go to **Actions → Prerelease → Run workflow** on the `staging` branch
+- Go to **Actions → Release → Run workflow**
+- Select branch: `staging`
+- Set `release_mode` to `prerelease`
+- Ensure repo/org secrets do **not** set `NPM_TOKEN` or `NODE_AUTH_TOKEN` so npm OIDC trusted publishing is used
 - Pipeline does:
   - `npm ci`
   - `npm run release:validate`
   - artifact smoke test
-  - `changeset version --snapshot next`
-  - `changeset publish --tag next`
+  - `changeset pre enter next`
+  - `changeset version`
+  - `changeset publish` (publishes to the `next` dist-tag while in prerelease mode)
 
 ### 2.3 Verify prerelease tag
 
@@ -111,13 +115,16 @@ Once `next` is validated:
 - Confirm CI/Security/CodeQL checks pass
 - Merge PR into `main`
 
-### 4.2 Trigger stable publish (manual)
+### 4.2 Trigger stable publish
 
-- Go to **Actions → Release → Run workflow** on the `main` branch
+- Merging into `main` triggers **Actions → Release** automatically
+- If you need a manual retry, use **Actions → Release → Run workflow** on the `main` branch and set `release_mode` to `stable`
+- Ensure repo/org secrets do **not** set `NPM_TOKEN` or `NODE_AUTH_TOKEN` so npm OIDC trusted publishing is used
 - Pipeline does:
   - `npm ci`
   - `npm run release:validate`
   - artifact smoke test
+  - `changeset pre exit` (if prerelease mode is active)
   - changesets action: creates versioning PR or publishes if PR already merged
   - GitHub Release and Git tag created automatically
 
