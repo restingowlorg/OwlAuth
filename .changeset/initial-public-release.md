@@ -1,5 +1,5 @@
 ---
-"@restingowlorg/owlauth": minor
+"@restingowlorg/owlauthtest": minor
 ---
 
-Initial public release of owlauth with credential auth, magic link auth, MongoDB/PostgreSQL adapters, and OWASP-aligned security hardening.
+Test release for owlauthtest to validate the unified prerelease and stable publishing workflow.

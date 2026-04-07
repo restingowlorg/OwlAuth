@@ -1,7 +1,7 @@
 {
-  "name": "@restingowlorg/owlauth",
-  "version": "1.0.1",
-  "description": "owl-auth: OWASP-informed authentication primitives for Node.js",
+  "name": "@restingowlorg/owlauthtest",
+  "version": "0.1.0",
+  "description": "[TEST PACKAGE] owl-auth release workflow test — do not use in production",
   "publishConfig": {
     "access": "public"
   },
@@ -44,7 +44,6 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish",
-    "release:next": "changeset publish --tag next",
     "release:validate": "npm run format:check && npm run lint -- --max-warnings=0 && npm run typecheck && npm run build && npm test"
   },
   "keywords": [
