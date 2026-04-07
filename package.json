@@ -1,6 +1,6 @@
 {
   "name": "@restingowlorg/owlauthtest",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "[TEST PACKAGE] owl-auth release workflow test — do not use in production",
   "publishConfig": {
     "access": "public"
