@@ -19,7 +19,6 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
   await client.connect();
   const db = client.db();
 
-  // Use generic to type collection correctly
   const userColl: Collection<IMongoUserDoc> = db.collection<IMongoUserDoc>(userCollectionName);
 
   // Magic link collection

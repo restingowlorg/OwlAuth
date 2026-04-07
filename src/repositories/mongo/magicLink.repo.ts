@@ -21,7 +21,7 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
     // Build the doc
     const doc: Omit<IMongoMagicLinkDoc, "_id"> = {
       user_id: new ObjectId(token.userId),
-      token: token.tokenHash,
+      token_hash: token.tokenHash,
       expires_at: token.expiresAt,
       used_at: token.usedAt ?? null,
       created_at: now,
@@ -57,7 +57,7 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
     return {
       id: doc._id.toString(),
       userId: doc.user_id.toString(),
-      tokenHash: doc.token,
+      tokenHash: doc.token_hash,
       expiresAt: doc.expires_at,
       usedAt: doc.used_at ?? null,
       createdAt: doc.created_at
