@@ -50,8 +50,13 @@ jobs:
           npm install "$GITHUB_WORKSPACE/$PACK_FILE"
           node -e 'require("@restingowlorg/owlauthtest"); require("@restingowlorg/owlauthtest/mongo"); require("@restingowlorg/owlauthtest/postgres"); console.log("artifact smoke test passed")'
 
-      - name: Create snapshot version
-        run: npm run version-packages:snapshot
+      - name: Enter prerelease mode and version packages
+        run: |
+          # Enter pre mode if not already in it
+          if [ ! -f ".changeset/pre.json" ]; then
+            npx changeset pre enter next
+          fi
+          npm run version-packages
 
       - name: Configure npm token fallback
         env:
