@@ -39,7 +39,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20.x
+          node-version: 24.x
 
       - name: Determine release mode
         id: mode
@@ -49,17 +49,21 @@ jobs:
           else
             echo "mode=stable" >> "$GITHUB_OUTPUT"
           fi
-
       - name: Show release context
         run: |
           echo "Event: ${{ github.event_name }}"
           echo "Branch: ${GITHUB_REF_NAME}"
           echo "Mode: ${{ steps.mode.outputs.mode }}"
-
       - name: Force OIDC trusted publishing
         run: |
           echo "NODE_AUTH_TOKEN=" >> "$GITHUB_ENV"
           echo "NPM_TOKEN=" >> "$GITHUB_ENV"
+
+      - name: Verify trusted publishing runtime
+        run: |
+          echo "Node: $(node --version)"
+          echo "npm: $(npm --version)"
+          node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 22 || (major === 22 && minor < 14)) { console.error("npm trusted publishing requires Node 22.14.0 or later."); process.exit(1); }'
 
       - name: Install dependencies
         run: npm ci
@@ -78,7 +82,6 @@ jobs:
           npm init -y >/dev/null 2>&1
           npm install "$GITHUB_WORKSPACE/$PACK_FILE"
           node -e 'require("@restingowlorg/owlauth-release-test"); require("@restingowlorg/owlauth-release-test/mongo"); require("@restingowlorg/owlauth-release-test/postgres"); console.log("artifact smoke test passed")'
-
       - name: Enter prerelease mode and version packages
         if: steps.mode.outputs.mode == 'prerelease'
         run: |
@@ -86,14 +89,12 @@ jobs:
             npx changeset pre enter next
           fi
           npm run version-packages
-
       - name: Verify OIDC trusted publishing is in use
         run: |
           if [ -n "${NODE_AUTH_TOKEN}" ]; then
             echo "Unexpected NODE_AUTH_TOKEN detected. Remove NPM_TOKEN/NODE_AUTH_TOKEN secrets to use npm trusted publishing." >&2
             exit 1
           fi
-
       - name: Publish prerelease to next tag
         if: steps.mode.outputs.mode == 'prerelease'
         uses: changesets/action@v1
@@ -110,7 +111,6 @@ jobs:
           if [ -f ".changeset/pre.json" ]; then
             npx changeset pre exit
           fi
-
       - name: Create release pull request or publish
         if: steps.mode.outputs.mode == 'stable'
         uses: changesets/action@v1
