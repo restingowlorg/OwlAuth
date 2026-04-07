@@ -2,6 +2,9 @@ name: Release
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 concurrency:
   group: release-${{ github.ref }}
@@ -56,6 +59,12 @@ jobs:
             echo "NODE_AUTH_TOKEN=$NPM_TOKEN" >> "$GITHUB_ENV"
           fi
 
+      - name: Exit prerelease mode for stable release
+        run: |
+          if [ -f ".changeset/pre.json" ]; then
+            npx changeset pre exit
+          fi
+
       - name: Create release pull request or publish
         uses: changesets/action@v1
         with:
@@ -63,5 +72,6 @@ jobs:
           publish: npm run release
           title: "chore(release): version packages"
           commit: "chore(release): version packages"
+          createGithubReleases: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

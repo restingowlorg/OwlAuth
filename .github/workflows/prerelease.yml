@@ -8,7 +8,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -47,8 +47,13 @@ jobs:
           npm install "$GITHUB_WORKSPACE/$PACK_FILE"
           node -e 'require("@restingowlorg/owlauth"); require("@restingowlorg/owlauth/mongo"); require("@restingowlorg/owlauth/postgres"); console.log("artifact smoke test passed")'
 
-      - name: Create snapshot version
-        run: npm run version-packages:snapshot
+      - name: Enter prerelease mode and version packages
+        run: |
+          # Enter pre mode if not already in it
+          if [ ! -f ".changeset/pre.json" ]; then
+            npx changeset pre enter next
+          fi
+          npm run version-packages
 
       - name: Configure npm token fallback
         env:
@@ -59,4 +64,4 @@ jobs:
           fi
 
       - name: Publish prerelease to next tag
-        run: npm run release:next
+        run: npm run release

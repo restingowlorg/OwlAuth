@@ -2,3 +2,5 @@
 /dist
 /coverage
 tsconfig.tsbuildinfo
+pack-output.json
+*.tgz
