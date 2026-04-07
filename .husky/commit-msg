@@ -1,0 +1,72 @@
+set -eu
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+info() {
+  printf "${BLUE}INFO${NC}: %s\n" "$1"
+}
+
+success() {
+  printf "${GREEN}SUCCESS${NC}: %s\n" "$1"
+}
+
+error() {
+  printf "${RED}ERROR${NC}: %s\n" "$1"
+}
+
+resolve_npm() {
+  if command -v npm >/dev/null 2>&1; then
+    NPM_CMD="$(command -v npm)"
+    return 0
+  fi
+
+  if [ -s "$HOME/.nvm/nvm.sh" ]; then
+    . "$HOME/.nvm/nvm.sh" >/dev/null 2>&1 || true
+  fi
+
+  if command -v npm >/dev/null 2>&1; then
+    NPM_CMD="$(command -v npm)"
+    return 0
+  fi
+
+  for candidate in /opt/homebrew/bin/npm /usr/local/bin/npm /usr/bin/npm; do
+    if [ -x "$candidate" ]; then
+      NPM_CMD="$candidate"
+      return 0
+    fi
+  done
+
+  if command -v node >/dev/null 2>&1; then
+    node_dir="$(dirname "$(command -v node)")"
+    if [ -x "$node_dir/npm" ]; then
+      NPM_CMD="$node_dir/npm"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+if [ -z "${1:-}" ]; then
+  error "Missing commit message file path"
+  exit 1
+fi
+
+if ! resolve_npm; then
+  error "npm is not available in this Git hook environment."
+  exit 1
+fi
+
+export PATH="$PWD/node_modules/.bin:$PATH"
+
+info "Validating commit message..."
+
+if "$NPM_CMD" exec --no -- commitlint --edit "$1"; then
+  success "Commit message validation passed"
+else
+  error "Commit message validation failed"
+  exit 1
+fi
