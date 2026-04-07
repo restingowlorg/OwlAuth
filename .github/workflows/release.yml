@@ -88,19 +88,22 @@ jobs:
           fi
           npm run version-packages
 
-      - name: Publish prerelease to next tag
-        if: steps.mode.outputs.mode == 'prerelease'
-        env:
-          NODE_AUTH_TOKEN: ""
-          NPM_TOKEN: ""
-        run: npm run release
-
       - name: Verify OIDC trusted publishing is in use
         run: |
           if [ -n "${NODE_AUTH_TOKEN}" ]; then
             echo "Unexpected NODE_AUTH_TOKEN detected. Remove NPM_TOKEN/NODE_AUTH_TOKEN secrets to use npm trusted publishing." >&2
             exit 1
           fi
+
+      - name: Publish prerelease to next tag
+        if: steps.mode.outputs.mode == 'prerelease'
+        uses: changesets/action@v1
+        with:
+          publish: npm run release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ""
+          NPM_TOKEN: ""
 
       - name: Exit prerelease mode for stable release
         if: steps.mode.outputs.mode == 'stable'
