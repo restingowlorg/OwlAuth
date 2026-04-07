@@ -67,4 +67,4 @@ jobs:
           fi
 
       - name: Publish prerelease to next tag
-        run: npm run release:next
+        run: npm run release
