@@ -6,7 +6,7 @@
 
 ---
 
-[![npm version](https://img.shields.io/npm/v/%40restingowlorg%2Fowlauth)](https://www.npmjs.com/package/@restingowlorg/owlauth) [![npm downloads](https://img.shields.io/npm/dm/%40restingowlorg%2Fowlauth)](https://www.npmjs.com/package/@restingowlorg/owlauth) [![Node.js](https://img.shields.io/node/v/%40restingowlorg%2Fowlauth)](https://www.npmjs.com/package/@restingowlorg/owlauth) [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![npm package](https://img.shields.io/badge/npm-%40restingowlorg%2Fowlauth-CB3837?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@restingowlorg/owlauth) [![Node.js](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js&logoColor=white)](https://www.npmjs.com/package/@restingowlorg/owlauth) [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 Open-source OWASP-aligned authentication and account-security library for Node.js.
 
@@ -339,7 +339,7 @@ Here's what's coming next:
 
 ## Community
 
-[![Website](https://img.shields.io/badge/restingowl.com-111827?style=flat-square&logo=googlechrome&logoColor=white)](https://restingowl.com/) [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/showcase/restingowl/) [![GitHub](https://img.shields.io/badge/Source-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/restingowlorg/OwlAuth) [![Issues](https://img.shields.io/github/issues/restingowlorg/OwlAuth?style=flat-square&logo=github&logoColor=white&label=Issues&color=181717)](https://github.com/restingowlorg/OwlAuth/issues) [![Security Policy](https://img.shields.io/badge/Security_Policy-B91C1C?style=flat-square&logo=owasp&logoColor=white)](SECURITY.md) [![Contributing](https://img.shields.io/badge/Contributing-15803D?style=flat-square&logo=git&logoColor=white)](CONTRIBUTING.md)
+[![Website](https://img.shields.io/badge/restingowl.com-111827?style=flat-square&logo=googlechrome&logoColor=white)](https://restingowl.com/) [![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/showcase/restingowl/) [![GitHub](https://img.shields.io/badge/Source-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/restingowlorg/OwlAuth) [![Issues](https://img.shields.io/badge/Issues-GitHub-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/restingowlorg/OwlAuth/issues) [![Security Policy](https://img.shields.io/badge/Security_Policy-B91C1C?style=flat-square&logo=owasp&logoColor=white)](SECURITY.md) [![Contributing](https://img.shields.io/badge/Contributing-15803D?style=flat-square&logo=git&logoColor=white)](CONTRIBUTING.md)
 
 ## License
 
