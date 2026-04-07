@@ -1,4 +1,4 @@
-import { sha1 } from "js-sha1";
+import * as crypto from "crypto";
 import { auditLogger } from "./security-audit-logger";
 import { SECURITY_CONFIG } from "../../config";
 
@@ -8,7 +8,7 @@ export type PwnedCheckResult = {
 };
 
 export async function isBreachedPassword(password: string): Promise<PwnedCheckResult> {
-  const hash = sha1(password).toUpperCase();
+  const hash = crypto.createHash("sha1").update(password).digest("hex").toUpperCase();
   const prefix = hash.slice(0, 5);
   const suffix = hash.slice(5);
 

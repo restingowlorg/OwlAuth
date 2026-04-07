@@ -17,10 +17,20 @@
     "node": ">=18"
   },
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./mongo": "./dist/infra/databases/mongo/mongo.js",
-    "./postgres": "./dist/infra/databases/postgresql/postgres.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./mongo": {
+      "types": "./dist/infra/databases/mongo/mongo.d.ts",
+      "default": "./dist/infra/databases/mongo/mongo.js"
+    },
+    "./postgres": {
+      "types": "./dist/infra/databases/postgresql/postgres.d.ts",
+      "default": "./dist/infra/databases/postgresql/postgres.js"
+    }
   },
   "scripts": {
     "build": "tsc --declaration",
@@ -62,14 +72,15 @@
     "express-auth",
     "nest-auth"
   ],
-  "author": "",
+  "author": {
+    "name": "Resting Owl",
+    "url": "https://github.com/restingowlorg"
+  },
   "license": "MIT",
   "type": "commonjs",
   "dependencies": {
-    "@nestjs/common": "^11.1.9",
     "@zxcvbn-ts/core": "^3.0.4",
     "bcryptjs": "^3.0.3",
-    "js-sha1": "^0.7.0",
     "mongodb": "^7.1.0",
     "pg": "^8.16.3"
   },
@@ -82,7 +93,6 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/express": "^5.0.6",
     "@types/jest": "^29.5.14",
-    "@types/js-sha1": "^0.6.3",
     "@types/pg": "^8.16.0",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",

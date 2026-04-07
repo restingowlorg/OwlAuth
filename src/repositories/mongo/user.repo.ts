@@ -1,6 +1,6 @@
 import { Collection, ObjectId, InsertOneResult } from "mongodb";
 import { CreateUserInput, User, UserRepository, SafeUser, UserId } from "../contracts";
-import { IMongoUserDoc } from "../../infra/databases/mongodb/types";
+import { IMongoUserDoc } from "../../infra/databases/mongo/types";
 
 /**
  * MongoDB implementation of UserRepository
@@ -46,7 +46,7 @@ export class MongoUserRepo implements UserRepository {
   async findById(id: UserId): Promise<User | null> {
     let objectId: ObjectId;
     try {
-      objectId = new ObjectId(id.toString());
+      objectId = new ObjectId(id);
     } catch {
       return null;
     }
@@ -74,10 +74,10 @@ export class MongoUserRepo implements UserRepository {
     };
   }
 
-  async updatePassword(userId: string | number, passwordHash: string): Promise<boolean> {
+  async updatePassword(userId: UserId, passwordHash: string): Promise<boolean> {
     let objectId: ObjectId;
     try {
-      objectId = new ObjectId(userId.toString());
+      objectId = new ObjectId(userId);
     } catch {
       return false;
     }

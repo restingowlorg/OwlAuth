@@ -15,7 +15,13 @@ export class MagicLinkAuthStrategy implements IAuthStrategy {
     if (!db.magicLinkRepo) {
       throw new Error("MagicLinkRepository is required for MagicLinkAuthStrategy");
     }
-    const service = new MagicLinkService(db.userRepo, db.magicLinkRepo, cryptoAdapter, auditLogger);
+    const service = new MagicLinkService(
+      db.userRepo,
+      db.magicLinkRepo,
+      cryptoAdapter,
+      auditLogger,
+      options.magicLinkBaseUrl
+    );
 
     target.magicLink = {
       request: (email: string, optionsOverride?: { correlationId?: string }) =>

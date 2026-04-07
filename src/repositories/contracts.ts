@@ -1,21 +1,21 @@
-export type UserId = string | number;
+export type UserId = string;
 
 export type SafeUser = {
-  id: string | number;
+  id: string;
   email: string;
   username: string;
 };
 
 export type User = {
-  id: UserId;
+  id: string;
   email: string;
   username: string;
   password: string;
 };
 
 export type MagicLinkToken = {
-  id: number | string;
-  userId: UserId;
+  id: string;
+  userId: string;
   tokenHash: string;
   expiresAt: Date;
   usedAt: Date | null;
@@ -27,13 +27,6 @@ export interface CreateUserInput {
   passwordHash: string;
   username: string;
 }
-
-export type CreateMagicLinkInput = {
-  userId: UserId;
-  tokenHash: string;
-  expiresAt: Date;
-  usedAt?: Date;
-};
 
 export type AuthDB = {
   userRepo: UserRepository;
@@ -57,8 +50,6 @@ export interface MagicLinkRepository {
     usedAt?: Date | null;
   }): Promise<MagicLinkToken>;
 
-  findAll(): Promise<MagicLinkToken[]>;
-  findByTokenHash(tokenHash: string): Promise<MagicLinkToken | null>;
   findById(id: UserId): Promise<MagicLinkToken | null>;
   consume(id: UserId): Promise<boolean>;
   invalidateByUserId(userId: UserId): Promise<boolean>;

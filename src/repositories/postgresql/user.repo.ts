@@ -1,5 +1,6 @@
-import { QueryResult, Pool } from "pg";
+import { Pool } from "pg";
 import { User, CreateUserInput, UserRepository, SafeUser, UserId } from "../contracts";
+import { UserRow } from "../../infra/databases/postgresql/types";
 
 export class PostgresUserRepository implements UserRepository {
   constructor(
@@ -14,7 +15,7 @@ export class PostgresUserRepository implements UserRepository {
 
   async create(input: CreateUserInput): Promise<SafeUser> {
     const { email, username, passwordHash } = input;
-    const result: QueryResult<SafeUser> = await this.pool.query(
+    const result = await this.pool.query<UserRow>(
       `
       INSERT INTO ${this.getTable()} (email, username, password)
       VALUES ($1, $2, $3)
@@ -22,35 +23,38 @@ export class PostgresUserRepository implements UserRepository {
       `,
       [email, username, passwordHash]
     );
-
-    return result.rows[0];
+    const r = result.rows[0];
+    return { id: String(r.id), email: r.email, username: r.username };
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    const result: QueryResult<User> = await this.pool.query(
+    const result = await this.pool.query<UserRow>(
       `SELECT * FROM ${this.getTable()} WHERE email = $1`,
       [email]
     );
-
-    return result.rows[0] ?? null;
+    const r = result.rows[0];
+    if (!r) return null;
+    return { id: String(r.id), email: r.email, username: r.username, password: r.password };
   }
 
   async findById(id: UserId): Promise<User | null> {
-    const result: QueryResult<User> = await this.pool.query(
+    const result = await this.pool.query<UserRow>(
       `SELECT * FROM ${this.getTable()} WHERE id = $1`,
       [id]
     );
-
-    return result.rows[0] ?? null;
+    const r = result.rows[0];
+    if (!r) return null;
+    return { id: String(r.id), email: r.email, username: r.username, password: r.password };
   }
 
   async findByUsername(username: string): Promise<User | null> {
-    const result: QueryResult<User> = await this.pool.query(
+    const result = await this.pool.query<UserRow>(
       `SELECT * FROM ${this.getTable()} WHERE username = $1`,
       [username]
     );
-
-    return result.rows[0] ?? null;
+    const r = result.rows[0];
+    if (!r) return null;
+    return { id: String(r.id), email: r.email, username: r.username, password: r.password };
   }
 
   async updatePassword(userId: UserId, passwordHash: string): Promise<boolean> {

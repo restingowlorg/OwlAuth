@@ -12,7 +12,12 @@ export class CredentialsAuthStrategy implements IAuthStrategy {
     options: AuthOptions<AuthType>
   ): void {
     const cryptoAdapter = options.cryptoAdapter || new BcryptAdapter();
-    const service = new AuthService(db.userRepo, cryptoAdapter, auditLogger);
+    const service = new AuthService(
+      db.userRepo,
+      cryptoAdapter,
+      auditLogger,
+      options.usernameValidator
+    );
 
     target.credentials = {
       signup: (
@@ -36,7 +41,7 @@ export class CredentialsAuthStrategy implements IAuthStrategy {
         service.login(email, password, optionsOverride),
 
       changePassword: (
-        userId: string | number,
+        userId: string,
         currentPass: string,
         newPass: string,
         optionsOverride?: {
