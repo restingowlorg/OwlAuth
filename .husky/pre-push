@@ -1,0 +1,217 @@
+set -eu
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+info() {
+  printf "${BLUE}INFO${NC}: %s\n" "$1"
+}
+
+success() {
+  printf "${GREEN}SUCCESS${NC}: %s\n" "$1"
+}
+
+warn() {
+  printf "${YELLOW}WARNING${NC}: %s\n" "$1"
+}
+
+error() {
+  printf "${RED}ERROR${NC}: %s\n" "$1"
+}
+
+resolve_npm() {
+  if command -v npm >/dev/null 2>&1; then
+    NPM_CMD="$(command -v npm)"
+    return 0
+  fi
+
+  if [ -s "$HOME/.nvm/nvm.sh" ]; then
+    . "$HOME/.nvm/nvm.sh" >/dev/null 2>&1 || true
+  fi
+
+  if command -v npm >/dev/null 2>&1; then
+    NPM_CMD="$(command -v npm)"
+    return 0
+  fi
+
+  for candidate in /opt/homebrew/bin/npm /usr/local/bin/npm /usr/bin/npm; do
+    if [ -x "$candidate" ]; then
+      NPM_CMD="$candidate"
+      return 0
+    fi
+  done
+
+  if command -v node >/dev/null 2>&1; then
+    node_dir="$(dirname "$(command -v node)")"
+    if [ -x "$node_dir/npm" ]; then
+      NPM_CMD="$node_dir/npm"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+# Start timing
+START_TIME=$(date +%s)
+
+info "Running pre-push checks..."
+echo ""
+
+# Check for skip flag
+if [ "${SKIP_HOOKS:-false}" = "true" ]; then
+  warn "Skipping pre-push hook (SKIP_HOOKS=true)"
+  exit 0
+fi
+
+if ! resolve_npm; then
+  error "npm is not available in this Git hook environment."
+  exit 1
+fi
+
+export PATH="$PWD/node_modules/.bin:$PATH"
+
+# Detect CI environment (GitHub Actions)
+if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+  IS_CI=true
+else
+  IS_CI=false
+fi
+
+# Check for protected branches
+protected_branches="main develop staging"
+current_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+
+if [ -z "$current_branch" ]; then
+  warn "Could not determine current branch"
+else
+  for protected in $protected_branches; do
+    if [ "$current_branch" = "$protected" ]; then
+      echo ""
+      error "Direct push to '$protected' branch is blocked."
+      echo "Protected branches: $protected_branches"
+      echo ""
+      echo "Proper workflow:"
+      echo "  1. Create a feature branch: git checkout -b feature/your-feature"
+      echo "  2. Make your changes and commit"
+      echo "  3. Push to feature branch: git push origin feature/your-feature"
+      echo "  4. Create a Pull Request on GitHub"
+      echo ""
+      exit 1
+    fi
+  done
+fi
+
+# Parallel execution of independent checks
+info "Running parallel checks (typecheck + build)..."
+
+# Run typecheck and build in parallel
+"$NPM_CMD" run typecheck > /tmp/typecheck.log 2>&1 & PID_TYPECHECK=$!
+"$NPM_CMD" run build > /tmp/build.log 2>&1 & PID_BUILD=$!
+
+# Wait for both and check results
+TYPECHECK_FAILED=0
+BUILD_FAILED=0
+
+wait $PID_TYPECHECK || TYPECHECK_FAILED=1
+wait $PID_BUILD || BUILD_FAILED=1
+
+if [ $TYPECHECK_FAILED -eq 1 ]; then
+  error "Type check failed:"
+  cat /tmp/typecheck.log
+  exit 1
+fi
+success "Type check passed"
+
+if [ $BUILD_FAILED -eq 1 ]; then
+  error "Build failed:"
+  cat /tmp/build.log
+  exit 1
+fi
+success "Build passed"
+
+# Run tests if configured
+echo ""
+TEST_SCRIPT=$(node -e 'try{const p=require("./package.json");process.stdout.write((p.scripts&&p.scripts.test)||"")}catch(e){process.stdout.write("")}')
+DEFAULT_TEST_SCRIPT='echo "Error: no test specified" && exit 1'
+
+if [ -z "$TEST_SCRIPT" ] || [ "$TEST_SCRIPT" = "$DEFAULT_TEST_SCRIPT" ]; then
+  warn "Tests not configured (skipping)"
+else
+  if [ "$IS_CI" = "false" ] && [ -f "jest.config.cjs" ]; then
+    UPSTREAM_REF=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)
+    BASE_REF=""
+    if [ -n "$UPSTREAM_REF" ]; then
+      BASE_REF=$(git merge-base HEAD "$UPSTREAM_REF" 2>/dev/null || true)
+    fi
+
+    if [ -n "$BASE_REF" ]; then
+      CHANGED_TEST_TARGETS=$(git diff --name-only "$BASE_REF...HEAD" -- '*.ts' '*.js' ':!dist/**' || true)
+    else
+      CHANGED_TEST_TARGETS=""
+    fi
+
+    if [ -n "$CHANGED_TEST_TARGETS" ]; then
+      info "Running related tests for changed files..."
+      # shellcheck disable=SC2086
+      if "$NPM_CMD" test -- --findRelatedTests $CHANGED_TEST_TARGETS --passWithNoTests; then
+        success "Related tests passed"
+      else
+        error "Related tests failed"
+        exit 1
+      fi
+    else
+      info "No changed source files detected against upstream. Running full test suite..."
+      if "$NPM_CMD" test; then
+        success "Tests passed"
+      else
+        error "Tests failed"
+        exit 1
+      fi
+    fi
+  else
+    info "Running tests..."
+    if "$NPM_CMD" test; then
+      success "Tests passed"
+    else
+      error "Tests failed"
+      exit 1
+    fi
+  fi
+fi
+
+# Security audit
+echo ""
+info "Running security audit..."
+if [ -n "${NPM_CMD:-}" ]; then
+  AUDIT_OUTPUT=$("$NPM_CMD" audit --omit=dev --json 2>/dev/null || echo '{}')
+  
+  if [ "$AUDIT_OUTPUT" != "{}" ]; then
+    CRITICAL=$(echo "$AUDIT_OUTPUT" | grep -o '"critical":[0-9]*' | head -1 | grep -o '[0-9]*' || echo "0")
+    HIGH=$(echo "$AUDIT_OUTPUT" | grep -o '"high":[0-9]*' | head -1 | grep -o '[0-9]*' || echo "0")
+    
+    if [ "${CRITICAL:-0}" -gt 0 ]; then
+      error "Critical vulnerabilities found: ${CRITICAL}"
+      if [ "$IS_CI" = "true" ]; then
+        exit 1
+      fi
+      warn "Continuing in local environment (blocked in CI)"
+    elif [ "${HIGH:-0}" -gt 5 ]; then
+      warn "High vulnerabilities: ${HIGH} (threshold: 5)"
+    else
+      success "Security audit passed"
+    fi
+  else
+    success "Security audit passed (no vulnerabilities)"
+  fi
+fi
+
+# Calculate duration
+END_TIME=$(date +%s)
+DURATION=$((END_TIME - START_TIME))
+
+echo ""
+success "Pre-push checks passed in ${DURATION}s"

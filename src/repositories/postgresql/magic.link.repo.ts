@@ -1,43 +1,88 @@
-import { getPostgresPool } from "../../infra/postgresql/db";
-import { MagicLinkRepository, MagicLinkToken } from "../contracts";
+import { Pool } from "pg";
+import { MagicLinkToken, MagicLinkRepository, UserId } from "../contracts";
+import { MagicLinkRow } from "../../infra/databases/postgresql/types";
 
 export class PostgresMagicLinkRepository implements MagicLinkRepository {
+  constructor(
+    private readonly schemaName: string,
+    private readonly tableName: string,
+    private readonly pool: Pool
+  ) {}
+
+  private getTable() {
+    return `"${this.schemaName}"."${this.tableName}"`;
+  }
+
   async create(token: {
-    userId: string;
+    userId: UserId;
     tokenHash: string;
     expiresAt: Date;
-    usedAt?: Date;
+    usedAt?: Date | null;
   }): Promise<MagicLinkToken> {
-    const pool = getPostgresPool();
-    const result = await pool.query(
-      `INSERT INTO magic_links (user_id, token, expires_at, used_at)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [token.userId, token.tokenHash, token.expiresAt, token.usedAt || null]
+    const result = await this.pool.query<MagicLinkRow>(
+      `
+      INSERT INTO ${this.getTable()} (user_id, token_hash, expires_at, used_at)
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+      `,
+      [token.userId, token.tokenHash, token.expiresAt, token.usedAt ?? null]
     );
-    return result.rows[0];
+
+    const row = result.rows[0];
+
+    return {
+      id: String(row.id),
+      userId: String(row.user_id),
+      tokenHash: row.token_hash,
+      expiresAt: row.expires_at,
+      usedAt: row.used_at,
+      createdAt: row.created_at
+    };
   }
 
-  async findByTokenHash(tokenHash: string): Promise<MagicLinkToken | null> {
-    const pool = getPostgresPool();
-    const result = await pool.query(
-      "SELECT * FROM magic_links WHERE token = $1",
-      [tokenHash]
+  async findById(id: UserId): Promise<MagicLinkToken | null> {
+    const result = await this.pool.query<MagicLinkRow>(
+      `SELECT * FROM ${this.getTable()} WHERE id = $1`,
+      [id]
     );
-    return result.rows[0] || null;
+
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      id: String(row.id),
+      userId: String(row.user_id),
+      tokenHash: row.token_hash,
+      expiresAt: row.expires_at,
+      usedAt: row.used_at,
+      createdAt: row.created_at
+    };
   }
 
-  async markUsed(id: string): Promise<void> {
-    const pool = getPostgresPool();
-    await pool.query("UPDATE magic_links SET used_at = NOW() WHERE id = $1", [
-      id,
+  async consume(id: UserId): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE ${this.getTable()} SET used_at = NOW() WHERE id = $1 AND used_at IS NULL`,
+      [id]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async deleteByUserId(userId: UserId): Promise<boolean> {
+    const result = await this.pool.query(`DELETE FROM ${this.getTable()} WHERE user_id = $1`, [
+      userId
     ]);
+    return (result.rowCount ?? 0) > 0;
   }
 
-  async findAll(): Promise<MagicLinkToken[]> {
-    const pool = getPostgresPool();
-    const result = await pool.query(
-      "SELECT * FROM magic_links WHERE used_at IS NULL AND expires_at > NOW()"
-    );
-    return result.rows;
+  async invalidateByUserId(userId: UserId): Promise<boolean> {
+    try {
+      await this.pool.query(
+        `UPDATE ${this.getTable()} SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`,
+        [userId]
+      );
+      return true;
+    } catch (err) {
+      return false;
+    }
   }
 }
