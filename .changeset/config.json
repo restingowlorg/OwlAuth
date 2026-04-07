@@ -4,7 +4,7 @@
   "commit": false,
   "fixed": [],
   "linked": [],
-  "access": "private",
+  "access": "public",
   "baseBranch": "chore/release-workflow-improvements",
   "updateInternalDependencies": "patch",
   "ignore": [],
