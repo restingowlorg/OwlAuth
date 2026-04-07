@@ -1,7 +1,7 @@
 {
-  "name": "@restingowlorg/owlauth",
-  "version": "1.0.1",
-  "description": "owl-auth: OWASP-informed authentication primitives for Node.js",
+  "name": "@restingowlorg/owlauthtest",
+  "version": "0.0.1",
+  "description": "[TEST PACKAGE] owl-auth release workflow test — do not use in production",
   "publishConfig": {
     "access": "public"
   },

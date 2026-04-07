@@ -54,9 +54,9 @@ When ready to prepare a release:
 - Confirm CI/Security/CodeQL checks pass
 - Merge PR into `staging`
 
-### 2.2 Automatic prerelease publish
+### 2.2 Trigger prerelease publish (manual)
 
-- Workflow triggered: `.github/workflows/prerelease.yml`
+- Go to **Actions → Prerelease → Run workflow** on the `staging` branch
 - Pipeline does:
   - `npm ci`
   - `npm run release:validate`
@@ -111,14 +111,15 @@ Once `next` is validated:
 - Confirm CI/Security/CodeQL checks pass
 - Merge PR into `main`
 
-### 4.2 Automatic stable publish
+### 4.2 Trigger stable publish (manual)
 
-- Workflow triggered: `.github/workflows/release.yml`
+- Go to **Actions → Release → Run workflow** on the `main` branch
 - Pipeline does:
   - `npm ci`
   - `npm run release:validate`
   - artifact smoke test
-  - changesets action release PR/publish path
+  - changesets action: creates versioning PR or publishes if PR already merged
+  - GitHub Release and Git tag created automatically
 
 ### 4.3 Verify stable tag
 
@@ -127,6 +128,16 @@ npm view @restingowlorg/owlauth dist-tags
 ```
 
 Expected:
+
+- `latest` points to new stable version
+- GitHub Release with release notes is visible at `https://github.com/restingowlorg/OwlAuth/releases`
+- Git tag `v{version}` exists on `main`
+
+### 4.4 Clean up stale next tag
+
+```bash
+npm dist-tag rm @restingowlorg/owlauth next
+```
 
 - `latest` points to stable version
 - `next` may still point to latest prerelease
