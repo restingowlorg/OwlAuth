@@ -21,7 +21,7 @@ export type RequestMagicLinkResult = string;
 export type VerifyMagicLinkResult = {
   isValid: boolean;
   userId: UserId;
-  tokenId: string;
+  lookupKey: string;
 };
 
 export type ConsumeMagicLinkResult = {

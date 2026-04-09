@@ -259,7 +259,7 @@ Result payloads are:
 - `LoginResult`: `{ user: SafeUser }`
 - `ChangePasswordResult`: `{ user: SafeUser }`
 - `RequestMagicLinkResult`: `string` — when `magicLinkBaseUrl` is configured: full URL `"{baseUrl}?token={recordId}.{rawToken}"` ready to embed in an email. Without `magicLinkBaseUrl`: raw composite `"{recordId}.{rawToken}"` for manual URL construction. Pass the token portion directly to `verify()` and `consume()`.
-- `VerifyMagicLinkResult`: `{ isValid: boolean; userId: UserId; tokenId: string }`
+- `VerifyMagicLinkResult`: `{ isValid: boolean; userId: UserId; lookupKey: string; }`
 - `ConsumeMagicLinkResult`: `{ userId: UserId }`
 
 `SafeUser` and `UserId` are exported directly from the package and can be imported for type annotations:

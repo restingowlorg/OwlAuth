@@ -15,17 +15,18 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
 
   async create(token: {
     userId: UserId;
+    lookupKey: string;
     tokenHash: string;
     expiresAt: Date;
     usedAt?: Date | null;
   }): Promise<MagicLinkToken> {
     const result = await this.pool.query<MagicLinkRow>(
       `
-      INSERT INTO ${this.getTable()} (user_id, token_hash, expires_at, used_at)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO ${this.getTable()} (user_id, lookup_key, token_hash, expires_at, used_at)
+      VALUES ($1, $2, $3, $4, $5)
       RETURNING *
       `,
-      [token.userId, token.tokenHash, token.expiresAt, token.usedAt ?? null]
+      [token.userId, token.lookupKey, token.tokenHash, token.expiresAt, token.usedAt ?? null]
     );
 
     const row = result.rows[0];
@@ -33,6 +34,7 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
     return {
       id: String(row.id),
       userId: String(row.user_id),
+      lookupKey: row.lookup_key,
       tokenHash: row.token_hash,
       expiresAt: row.expires_at,
       usedAt: row.used_at,
@@ -40,10 +42,10 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
     };
   }
 
-  async findById(id: UserId): Promise<MagicLinkToken | null> {
+  async findByLookupKey(lookupKey: string): Promise<MagicLinkToken | null> {
     const result = await this.pool.query<MagicLinkRow>(
-      `SELECT * FROM ${this.getTable()} WHERE id = $1`,
-      [id]
+      `SELECT * FROM ${this.getTable()} WHERE lookup_key = $1`,
+      [lookupKey]
     );
 
     const row = result.rows[0];
@@ -52,6 +54,7 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
     return {
       id: String(row.id),
       userId: String(row.user_id),
+      lookupKey: row.lookup_key,
       tokenHash: row.token_hash,
       expiresAt: row.expires_at,
       usedAt: row.used_at,
@@ -59,10 +62,10 @@ export class PostgresMagicLinkRepository implements MagicLinkRepository {
     };
   }
 
-  async consume(id: UserId): Promise<boolean> {
+  async consume(lookupKey: string): Promise<boolean> {
     const result = await this.pool.query(
-      `UPDATE ${this.getTable()} SET used_at = NOW() WHERE id = $1 AND used_at IS NULL`,
-      [id]
+      `UPDATE ${this.getTable()} SET used_at = NOW() WHERE lookup_key = $1 AND used_at IS NULL`,
+      [lookupKey]
     );
     return (result.rowCount ?? 0) > 0;
   }

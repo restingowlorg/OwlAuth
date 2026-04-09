@@ -12,6 +12,7 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
   /** Create a new magic link token */
   async create(token: {
     userId: UserId;
+    lookupKey: string;
     tokenHash: string;
     expiresAt: Date;
     usedAt?: Date | null;
@@ -21,6 +22,7 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
     // Build the doc
     const doc: Omit<IMongoMagicLinkDoc, "_id"> = {
       user_id: new ObjectId(token.userId),
+      lookup_key: token.lookupKey,
       token_hash: token.tokenHash,
       expires_at: token.expiresAt,
       used_at: token.usedAt ?? null,
@@ -35,6 +37,7 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
     return {
       id: result.insertedId.toString(),
       userId: token.userId,
+      lookupKey: token.lookupKey,
       tokenHash: token.tokenHash,
       expiresAt: token.expiresAt,
       usedAt: token.usedAt ?? null,
@@ -42,21 +45,15 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
     };
   }
 
-  /** Find token by its ID */
-  async findById(id: UserId): Promise<MagicLinkToken | null> {
-    let objectId: ObjectId;
-    try {
-      objectId = new ObjectId(id);
-    } catch {
-      return null;
-    }
-
-    const doc = await this.collection.findOne({ _id: objectId });
+  /** Find token by its lookup key */
+  async findByLookupKey(lookupKey: string): Promise<MagicLinkToken | null> {
+    const doc = await this.collection.findOne({ lookup_key: lookupKey });
     if (!doc) return null;
 
     return {
-      id: doc._id.toString(),
+      id: doc._id?.toString() || "",
       userId: doc.user_id.toString(),
+      lookupKey: doc.lookup_key,
       tokenHash: doc.token_hash,
       expiresAt: doc.expires_at,
       usedAt: doc.used_at ?? null,
@@ -65,9 +62,9 @@ export class MongoMagicLinkRepo implements MagicLinkRepository {
   }
 
   /** Mark a token as used */
-  async consume(id: UserId): Promise<boolean> {
+  async consume(lookupKey: string): Promise<boolean> {
     const result = await this.collection.updateOne(
-      { _id: new ObjectId(id), used_at: null },
+      { lookup_key: lookupKey, used_at: null },
       { $set: { used_at: new Date(), updated_at: new Date() } }
     );
     return result.modifiedCount > 0;

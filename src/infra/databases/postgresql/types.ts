@@ -10,6 +10,7 @@ export type UserRow = {
 export type MagicLinkRow = {
   id: number | string;
   user_id: number | string;
+  lookup_key: string;
   token_hash: string;
   expires_at: Date;
   used_at: Date | null;

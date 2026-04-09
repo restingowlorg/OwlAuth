@@ -7,7 +7,9 @@ jest.mock("bcryptjs", () => ({
   compare: jest.fn()
 }));
 
+// eslint-disable-next-line @typescript-eslint/no-unsafe-return
 jest.mock("crypto", () => ({
+  ...jest.requireActual("crypto"),
   randomBytes: jest.fn()
 }));
 
@@ -54,25 +56,26 @@ describe("BcryptAdapter", () => {
     expect(crypto.randomBytes).toHaveBeenCalledWith(32);
   });
 
-  it("should hash a token using bcrypt", async () => {
-    (bcrypt.hash as jest.Mock).mockResolvedValue("hashed_token");
+  it("should hash a token using sha256", async () => {
     const result = await adapter.hashToken("my_token");
-    expect(result).toBe("hashed_token");
-    // eslint-disable-next-line @typescript-eslint/unbound-method
-    expect(bcrypt.hash).toHaveBeenCalledWith("my_token", 10);
+    const expected = crypto.createHash("sha256").update("my_token").digest("hex");
+    expect(result).toBe(expected);
   });
 
-  it("should return true when token matches hash", async () => {
-    (bcrypt.compare as jest.Mock).mockResolvedValue(true);
-    const result = await adapter.verifyToken("my_token", "hashed_token");
+  it("should return true when token matches hash using sha256", async () => {
+    const hash = crypto.createHash("sha256").update("my_token").digest("hex");
+    const result = await adapter.verifyToken("my_token", hash);
     expect(result).toBe(true);
-    // eslint-disable-next-line @typescript-eslint/unbound-method
-    expect(bcrypt.compare).toHaveBeenCalledWith("my_token", "hashed_token");
   });
 
   it("should return false when token does not match hash", async () => {
-    (bcrypt.compare as jest.Mock).mockResolvedValue(false);
-    const result = await adapter.verifyToken("wrong_token", "hashed_token");
+    const hash = crypto.createHash("sha256").update("wrong_token").digest("hex");
+    const result = await adapter.verifyToken("my_token", hash);
+    expect(result).toBe(false);
+  });
+
+  it("should silently return false when token hash is different length to avoid timingSafeEqual throws", async () => {
+    const result = await adapter.verifyToken("my_token", "invalid_length_hash");
     expect(result).toBe(false);
   });
 });
