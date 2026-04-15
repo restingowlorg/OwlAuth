@@ -1,7 +1,7 @@
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
-import { UserRepository } from "../repositories/contracts";
+import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
 import { AuthResult, LoginResult, SignupResult, ChangePasswordResult } from "../types";
 import { CreateUserInput } from "../repositories/contracts";
@@ -11,7 +11,8 @@ export class AuthService {
     private readonly users: UserRepository,
     private readonly crypto: ICryptoAdapter,
     private readonly logger: IAuditLogger,
-    private readonly usernameValidator?: (username: string) => boolean
+    private readonly usernameValidator?: (username: string) => boolean,
+    private readonly magicLinks?: MagicLinkRepository
   ) {}
 
   async signup(
@@ -455,6 +456,34 @@ export class AuthService {
         };
       }
 
+      // Invalidate all existing magic link tokens for this user
+      let tokensInvalidated = false;
+      if (this.magicLinks) {
+        try {
+          tokensInvalidated = await this.magicLinks.invalidateByUserId(userId);
+          if (tokensInvalidated) {
+            this.logger.audit({
+              type: "SESSION_INVALIDATION",
+              userId: user.id,
+              metadata: { reason: "Password changed" },
+              correlationId: options?.correlationId
+            });
+          } else {
+            this.logger.warn(
+              "Token invalidation returned false after password change. Tokens may not have been invalidated.",
+              { userId },
+              options?.correlationId
+            );
+          }
+        } catch (err) {
+          this.logger.warn(
+            "Failed to invalidate tokens after password change. Proceeding without invalidation.",
+            { userId, error: err instanceof Error ? err.message : "Unknown error" },
+            options?.correlationId
+          );
+        }
+      }
+
       this.logger.audit({
         type: "PASSWORD_CHANGE",
         userId: user.id,
@@ -470,7 +499,8 @@ export class AuthService {
             id: user.id,
             email: user.email,
             username: user.username
-          }
+          },
+          tokensInvalidated
         },
         httpCode: 200
       };

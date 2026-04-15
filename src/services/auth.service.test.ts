@@ -1,5 +1,5 @@
 import { AuthService } from "./auth.service";
-import { User, UserRepository } from "../repositories/contracts";
+import { User, UserRepository, MagicLinkRepository } from "../repositories/contracts";
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
@@ -16,6 +16,7 @@ describe("AuthService", () => {
   let mockUserRepo: jest.Mocked<UserRepository>;
   let mockCrypto: jest.Mocked<ICryptoAdapter>;
   let mockLogger: jest.Mocked<IAuditLogger>;
+  let mockMagicRepo: jest.Mocked<MagicLinkRepository>;
 
   beforeEach(() => {
     mockUserRepo = {
@@ -42,8 +43,15 @@ describe("AuthService", () => {
       warn: jest.fn(),
       error: jest.fn()
     };
+    mockMagicRepo = {
+      create: jest.fn(),
+      findByLookupKey: jest.fn(),
+      consume: jest.fn(),
+      invalidateByUserId: jest.fn(),
+      deleteByUserId: jest.fn()
+    };
 
-    authService = new AuthService(mockUserRepo, mockCrypto, mockLogger);
+    authService = new AuthService(mockUserRepo, mockCrypto, mockLogger, undefined, mockMagicRepo);
   });
 
   describe("signup", () => {
@@ -619,6 +627,95 @@ describe("AuthService", () => {
         undefined,
         correlationId
       );
+    });
+
+    it("should invalidate magic link tokens after successful password change", async () => {
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
+        id: "1",
+        email: "test@example.com",
+        username: "testuser",
+        password: "old_hashed_password"
+      } as unknown as User);
+      mockCrypto.verifyPassword.mockResolvedValue(true);
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: false });
+      mockCrypto.hashPassword.mockResolvedValue("new_hashed_password");
+      mockUserRepo.updatePassword.mockResolvedValue(true);
+      mockMagicRepo.invalidateByUserId.mockResolvedValue(true);
+
+      const result = await authService.changePassword(
+        changePwdData.userId,
+        changePwdData.currentPassword,
+        changePwdData.newPassword
+      );
+
+      expect(result.success).toBe(true);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockMagicRepo.invalidateByUserId).toHaveBeenCalledWith("1");
+      expect(result.data?.tokensInvalidated).toBe(true);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SESSION_INVALIDATION", userId: "1" })
+      );
+    });
+
+    it("should return tokensInvalidated: false when invalidation fails (best-effort)", async () => {
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
+        id: "1",
+        email: "test@example.com",
+        username: "testuser",
+        password: "old_hashed_password"
+      } as unknown as User);
+      mockCrypto.verifyPassword.mockResolvedValue(true);
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: false });
+      mockCrypto.hashPassword.mockResolvedValue("new_hashed_password");
+      mockUserRepo.updatePassword.mockResolvedValue(true);
+      mockMagicRepo.invalidateByUserId.mockRejectedValue(new Error("Repo error"));
+
+      const result = await authService.changePassword(
+        changePwdData.userId,
+        changePwdData.currentPassword,
+        changePwdData.newPassword
+      );
+
+      expect(result.success).toBe(true); // Still successful
+      expect(result.data?.tokensInvalidated).toBe(false);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("Failed to invalidate tokens"),
+        expect.anything(),
+        undefined
+      );
+    });
+
+    it("should not attempt invalidation when no MagicLinkRepository is provided", async () => {
+      const basicAuthService = new AuthService(mockUserRepo, mockCrypto, mockLogger);
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
+        id: "1",
+        email: "test@example.com",
+        username: "testuser",
+        password: "old_hashed_password"
+      } as unknown as User);
+      mockCrypto.verifyPassword.mockResolvedValue(true);
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: false });
+      mockCrypto.hashPassword.mockResolvedValue("new_hashed_password");
+      mockUserRepo.updatePassword.mockResolvedValue(true);
+
+      const result = await basicAuthService.changePassword(
+        changePwdData.userId,
+        changePwdData.currentPassword,
+        changePwdData.newPassword
+      );
+
+      expect(result.success).toBe(true);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockMagicRepo.invalidateByUserId).not.toHaveBeenCalled();
+      expect(result.data?.tokensInvalidated).toBe(false);
     });
   });
 });
