@@ -27,7 +27,37 @@ export class PostgresUserRepository implements UserRepository {
     return { id: String(r.id), email: r.email, username: r.username };
   }
 
-  async findByEmail(email: string): Promise<User | null> {
+  async findByEmail(email: string): Promise<SafeUser | null> {
+    const result = await this.pool.query<UserRow>(
+      `SELECT id, email, username FROM ${this.getTable()} WHERE email = $1`,
+      [email]
+    );
+    const r = result.rows[0];
+    if (!r) return null;
+    return { id: String(r.id), email: r.email, username: r.username };
+  }
+
+  async findById(id: UserId): Promise<SafeUser | null> {
+    const result = await this.pool.query<UserRow>(
+      `SELECT id, email, username FROM ${this.getTable()} WHERE id = $1`,
+      [id]
+    );
+    const r = result.rows[0];
+    if (!r) return null;
+    return { id: String(r.id), email: r.email, username: r.username };
+  }
+
+  async findByUsername(username: string): Promise<SafeUser | null> {
+    const result = await this.pool.query<UserRow>(
+      `SELECT id, email, username FROM ${this.getTable()} WHERE username = $1`,
+      [username]
+    );
+    const r = result.rows[0];
+    if (!r) return null;
+    return { id: String(r.id), email: r.email, username: r.username };
+  }
+
+  async findWithPasswordByEmail(email: string): Promise<User | null> {
     const result = await this.pool.query<UserRow>(
       `SELECT * FROM ${this.getTable()} WHERE email = $1`,
       [email]
@@ -37,20 +67,10 @@ export class PostgresUserRepository implements UserRepository {
     return { id: String(r.id), email: r.email, username: r.username, password: r.password };
   }
 
-  async findById(id: UserId): Promise<User | null> {
+  async findWithPasswordById(id: UserId): Promise<User | null> {
     const result = await this.pool.query<UserRow>(
       `SELECT * FROM ${this.getTable()} WHERE id = $1`,
       [id]
-    );
-    const r = result.rows[0];
-    if (!r) return null;
-    return { id: String(r.id), email: r.email, username: r.username, password: r.password };
-  }
-
-  async findByUsername(username: string): Promise<User | null> {
-    const result = await this.pool.query<UserRow>(
-      `SELECT * FROM ${this.getTable()} WHERE username = $1`,
-      [username]
     );
     const r = result.rows[0];
     if (!r) return null;
@@ -61,7 +81,7 @@ export class PostgresUserRepository implements UserRepository {
     const result = await this.pool.query(
       `
       UPDATE ${this.getTable()}
-      SET password = $1
+      SET password = $1, updated_at = NOW()
       WHERE id = $2
       `,
       [passwordHash, userId]

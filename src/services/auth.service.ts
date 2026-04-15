@@ -41,6 +41,21 @@ export class AuthService {
         };
       }
 
+      if (password.length > 72) {
+        this.logger.audit({
+          type: "SIGNUP_FAILURE",
+          email,
+          metadata: { username, reason: "Password exceeds maximum length" },
+          correlationId: options?.correlationId
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "Password must be 72 characters or less.",
+          httpCode: 400
+        };
+      }
+
       const isValidUsername = this.usernameValidator
         ? this.usernameValidator(username)
         : /^[a-zA-Z0-9_]{3,20}$/.test(username);
@@ -139,7 +154,7 @@ export class AuthService {
           return {
             success: false,
             data: undefined,
-            message: "Username already taken.",
+            message: "Unable to create account.",
             httpCode: 409
           };
         }
@@ -157,7 +172,7 @@ export class AuthService {
         return {
           success: false,
           data: undefined,
-          message: "Email already registered.",
+          message: "Unable to create account.",
           httpCode: 409
         };
       }
@@ -235,7 +250,7 @@ export class AuthService {
       }
 
       // -------------------- Find User --------------------
-      const user = await this.users.findByEmail(email);
+      const user = await this.users.findWithPasswordByEmail(email);
       if (!user) {
         this.logger.audit({
           type: "LOGIN_FAILURE",
@@ -306,7 +321,7 @@ export class AuthService {
   ): Promise<AuthResult<ChangePasswordResult>> {
     try {
       // Fetch user
-      const user = await this.users.findById(userId);
+      const user = await this.users.findWithPasswordById(userId);
       if (!user) {
         return { success: false, data: undefined, message: "User not found", httpCode: 404 };
       }
@@ -325,6 +340,36 @@ export class AuthService {
           data: undefined,
           message: "Current password incorrect",
           httpCode: 401
+        };
+      }
+
+      if (currentPassword === newPassword) {
+        this.logger.audit({
+          type: "PASSWORD_CHANGE",
+          userId: user.id,
+          metadata: { success: false, reason: "New password is the same as current password" },
+          correlationId: options?.correlationId
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "New password must be different from current password.",
+          httpCode: 400
+        };
+      }
+
+      if (newPassword.length > 72) {
+        this.logger.audit({
+          type: "PASSWORD_CHANGE",
+          userId: user.id,
+          metadata: { success: false, reason: "Password exceeds maximum length" },
+          correlationId: options?.correlationId
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "Password must be 72 characters or less.",
+          httpCode: 400
         };
       }
 

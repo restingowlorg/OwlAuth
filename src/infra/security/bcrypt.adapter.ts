@@ -20,11 +20,18 @@ export class BcryptAdapter implements ICryptoAdapter {
     return crypto.randomBytes(length).toString("hex");
   }
 
-  async hashToken(token: string): Promise<string> {
-    return bcrypt.hash(token, this.SALT_ROUNDS);
+  hashToken(token: string): Promise<string> {
+    return Promise.resolve(crypto.createHash("sha256").update(token).digest("hex"));
   }
 
-  async verifyToken(token: string, hash: string): Promise<boolean> {
-    return bcrypt.compare(token, hash);
+  verifyToken(token: string, hash: string): Promise<boolean> {
+    const computed = crypto.createHash("sha256").update(token).digest("hex");
+    const computedBuffer = Buffer.from(computed);
+    const hashBuffer = Buffer.from(hash);
+
+    if (computedBuffer.length !== hashBuffer.length) {
+      return Promise.resolve(false);
+    }
+    return Promise.resolve(crypto.timingSafeEqual(computedBuffer, hashBuffer));
   }
 }
