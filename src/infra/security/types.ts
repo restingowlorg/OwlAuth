@@ -15,7 +15,8 @@ export type SecurityEventType =
   | "MAGIC_LINK_REQUESTED"
   | "MAGIC_LINK_VERIFIED"
   | "MAGIC_LINK_CONSUMED"
-  | "MAGIC_LINK_FAILURE";
+  | "MAGIC_LINK_FAILURE"
+  | "SESSION_INVALIDATION";
 
 export type SecurityEvent = {
   type: SecurityEventType;

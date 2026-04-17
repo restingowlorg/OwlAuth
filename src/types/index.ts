@@ -14,6 +14,7 @@ export type SignupResult = {
 
 export type ChangePasswordResult = {
   user: SafeUser;
+  tokensInvalidated: boolean;
 };
 
 export type RequestMagicLinkResult = string;
