@@ -1,7 +1,7 @@
 # owlauth
 
 <p align="center">
-  <img src="https://restingowl.com/owl-logo.png?v=20260403" alt="owlauth logo" width="120" />
+  <img src="https://raw.githubusercontent.com/restingowlorg/OwlAuth/main/docs/assets/restingowl-logo.png" alt="owlauth logo" width="320" />
 </p>
 
 ---
