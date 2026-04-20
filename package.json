@@ -1,6 +1,6 @@
 {
   "name": "@restingowlorg/owlauth",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "owl-auth: OWASP-informed authentication primitives for Node.js",
   "publishConfig": {
     "access": "public"
