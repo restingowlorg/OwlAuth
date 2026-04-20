@@ -16,7 +16,8 @@ export class CredentialsAuthStrategy implements IAuthStrategy {
       db.userRepo,
       cryptoAdapter,
       auditLogger,
-      options.usernameValidator
+      options.usernameValidator,
+      db.magicLinkRepo
     );
 
     target.credentials = {

@@ -31,19 +31,18 @@ export class MongoUserRepo implements UserRepository {
     };
   }
 
-  async findByEmail(email: string): Promise<User | null> {
+  async findByEmail(email: string): Promise<SafeUser | null> {
     const user = await this.collection.findOne({ email });
     if (!user) return null;
 
     return {
       id: user._id?.toString() ?? "", // safe fallback just in case
       email: user.email,
-      username: user.username,
-      password: user.password
+      username: user.username
     };
   }
 
-  async findById(id: UserId): Promise<User | null> {
+  async findById(id: UserId): Promise<SafeUser | null> {
     let objectId: ObjectId;
     try {
       objectId = new ObjectId(id);
@@ -57,13 +56,42 @@ export class MongoUserRepo implements UserRepository {
     return {
       id: user._id?.toString() ?? "",
       email: user.email,
+      username: user.username
+    };
+  }
+
+  async findByUsername(username: string): Promise<SafeUser | null> {
+    const user = await this.collection.findOne({ username });
+    if (!user) return null;
+
+    return {
+      id: user._id?.toString() ?? "",
+      email: user.email,
+      username: user.username
+    };
+  }
+
+  async findWithPasswordByEmail(email: string): Promise<User | null> {
+    const user = await this.collection.findOne({ email });
+    if (!user) return null;
+
+    return {
+      id: user._id?.toString() ?? "", // safe fallback just in case
+      email: user.email,
       username: user.username,
       password: user.password
     };
   }
 
-  async findByUsername(username: string): Promise<User | null> {
-    const user = await this.collection.findOne({ username });
+  async findWithPasswordById(id: UserId): Promise<User | null> {
+    let objectId: ObjectId;
+    try {
+      objectId = new ObjectId(id);
+    } catch {
+      return null;
+    }
+
+    const user = await this.collection.findOne({ _id: objectId });
     if (!user) return null;
 
     return {

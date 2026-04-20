@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 export interface IMongoMagicLinkDoc {
   _id?: ObjectId;
   user_id: ObjectId;
+  lookup_key: string;
   token_hash: string;
   expires_at: Date;
   used_at: Date | null;
