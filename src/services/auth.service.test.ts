@@ -1,5 +1,5 @@
 import { AuthService } from "./auth.service";
-import { User, UserRepository } from "../repositories/contracts";
+import { User, UserRepository, MagicLinkRepository } from "../repositories/contracts";
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
@@ -16,9 +16,12 @@ describe("AuthService", () => {
   let mockUserRepo: jest.Mocked<UserRepository>;
   let mockCrypto: jest.Mocked<ICryptoAdapter>;
   let mockLogger: jest.Mocked<IAuditLogger>;
+  let mockMagicRepo: jest.Mocked<MagicLinkRepository>;
 
   beforeEach(() => {
     mockUserRepo = {
+      findWithPasswordByEmail: jest.fn(),
+      findWithPasswordById: jest.fn(),
       findById: jest.fn(),
       findByEmail: jest.fn(),
       findByUsername: jest.fn(),
@@ -40,8 +43,15 @@ describe("AuthService", () => {
       warn: jest.fn(),
       error: jest.fn()
     };
+    mockMagicRepo = {
+      create: jest.fn(),
+      findByLookupKey: jest.fn(),
+      consume: jest.fn(),
+      invalidateByUserId: jest.fn(),
+      deleteByUserId: jest.fn()
+    };
 
-    authService = new AuthService(mockUserRepo, mockCrypto, mockLogger);
+    authService = new AuthService(mockUserRepo, mockCrypto, mockLogger, undefined, mockMagicRepo);
   });
 
   describe("signup", () => {
@@ -84,6 +94,14 @@ describe("AuthService", () => {
       expect(mockLogger.audit).toHaveBeenCalledWith(
         expect.objectContaining({ type: "SIGNUP_FAILURE" })
       );
+    });
+
+    it("should fail if password exceeds maximum length", async () => {
+      const longPassword = "a".repeat(73);
+      const result = await authService.signup(signupData.email, signupData.username, longPassword);
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(400);
+      expect(result.message).toContain("72 characters or less");
     });
 
     it("should fail if username format is invalid", async () => {
@@ -173,7 +191,7 @@ describe("AuthService", () => {
       );
       expect(result.success).toBe(false);
       expect(result.httpCode).toBe(409);
-      expect(result.message).toBe("Username already taken.");
+      expect(result.message).toBe("Unable to create account.");
     });
 
     it("should fail if email is already registered", async () => {
@@ -190,7 +208,7 @@ describe("AuthService", () => {
       );
       expect(result.success).toBe(false);
       expect(result.httpCode).toBe(409);
-      expect(result.message).toBe("Email already registered.");
+      expect(result.message).toBe("Unable to create account.");
     });
 
     it("should return 503 SERVICE_UNAVAILABLE if pwned check fails and pwnedPasswordFailClosed is true", async () => {
@@ -319,7 +337,7 @@ describe("AuthService", () => {
     };
 
     it("should successfully log in a user", async () => {
-      mockUserRepo.findByEmail.mockResolvedValue({
+      mockUserRepo.findWithPasswordByEmail.mockResolvedValue({
         id: "1",
         email: loginData.email,
         password: "hashed_password"
@@ -343,7 +361,7 @@ describe("AuthService", () => {
     });
 
     it("should fail if user not found", async () => {
-      mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockUserRepo.findWithPasswordByEmail.mockResolvedValue(null);
       const result = await authService.login(loginData.email, loginData.password);
       expect(result.success).toBe(false);
       expect(result.httpCode).toBe(401);
@@ -354,7 +372,7 @@ describe("AuthService", () => {
     });
 
     it("should fail if password does not match", async () => {
-      mockUserRepo.findByEmail.mockResolvedValue({
+      mockUserRepo.findWithPasswordByEmail.mockResolvedValue({
         id: "1",
         email: loginData.email,
         password: "hashed_password"
@@ -375,7 +393,7 @@ describe("AuthService", () => {
       const correlationId = "login-trace-id";
 
       // 1. Audit log on failure
-      mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockUserRepo.findWithPasswordByEmail.mockResolvedValue(null);
       await authService.login(email, "pass", { correlationId });
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.audit).toHaveBeenCalledWith(
@@ -384,7 +402,7 @@ describe("AuthService", () => {
 
       // 2. Error log on exception
       const error = new Error("DB Error");
-      mockUserRepo.findByEmail.mockRejectedValue(error);
+      mockUserRepo.findWithPasswordByEmail.mockRejectedValue(error);
       await authService.login(email, "pass", { correlationId });
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.error).toHaveBeenCalledWith(
@@ -404,7 +422,7 @@ describe("AuthService", () => {
     };
 
     it("should successfully change password", async () => {
-      mockUserRepo.findById.mockResolvedValue({
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
         id: "1",
         email: "test@example.com",
         username: "testuser",
@@ -432,14 +450,14 @@ describe("AuthService", () => {
     });
 
     it("should fail if user not found", async () => {
-      mockUserRepo.findById.mockResolvedValue(null);
+      mockUserRepo.findWithPasswordById.mockResolvedValue(null);
       const result = await authService.changePassword("99", "pass", "newpass");
       expect(result.success).toBe(false);
       expect(result.httpCode).toBe(404);
     });
 
     it("should fail if current password is incorrect", async () => {
-      mockUserRepo.findById.mockResolvedValue({
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
         id: "1",
         password: "hashed_password"
       } as unknown as User);
@@ -450,8 +468,35 @@ describe("AuthService", () => {
       expect(result.httpCode).toBe(401);
     });
 
+    it("should fail if new password is the same as current password", async () => {
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
+        id: "1",
+        password: "hashed_password"
+      } as unknown as User);
+      mockCrypto.verifyPassword.mockResolvedValue(true);
+
+      const result = await authService.changePassword("1", "SamePassword123!", "SamePassword123!");
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(400);
+      expect(result.message).toContain("different from current password");
+    });
+
+    it("should fail if new password exceeds maximum length", async () => {
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
+        id: "1",
+        password: "hashed_password"
+      } as unknown as User);
+      mockCrypto.verifyPassword.mockResolvedValue(true);
+
+      const longPassword = "a".repeat(73);
+      const result = await authService.changePassword("1", "old", longPassword);
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(400);
+      expect(result.message).toContain("72 characters or less");
+    });
+
     it("should fail if new password is too weak", async () => {
-      mockUserRepo.findById.mockResolvedValue({
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
         id: "1",
         password: "hashed_password"
       } as unknown as User);
@@ -465,7 +510,7 @@ describe("AuthService", () => {
     });
 
     it("should fail if new password contains blocked terms", async () => {
-      mockUserRepo.findById.mockResolvedValue({
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
         id: "1",
         email: "test@example.com",
         username: "testuser",
@@ -480,7 +525,7 @@ describe("AuthService", () => {
     });
 
     it("should return 503 SERVICE_UNAVAILABLE during password change if fail-closed is enabled and check fails", async () => {
-      mockUserRepo.findById.mockResolvedValue({
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
         id: "1",
         email: "test@example.com",
         username: "testuser",
@@ -503,7 +548,7 @@ describe("AuthService", () => {
     });
 
     it("should fail with 400 if new password is found in a data breach", async () => {
-      mockUserRepo.findById.mockResolvedValue({
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
         id: "1",
         email: "test@example.com",
         username: "testuser",
@@ -522,7 +567,7 @@ describe("AuthService", () => {
     });
 
     it("should log a warning and proceed when HIBP is down and pwnedPasswordFailClosed is not set", async () => {
-      mockUserRepo.findById.mockResolvedValue({
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
         id: "1",
         email: "test@example.com",
         username: "testuser",
@@ -550,7 +595,7 @@ describe("AuthService", () => {
     });
 
     it("should return 500 when updatePassword returns false", async () => {
-      mockUserRepo.findById.mockResolvedValue({
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
         id: "1",
         email: "test@example.com",
         username: "testuser",
@@ -571,7 +616,7 @@ describe("AuthService", () => {
 
     it("should propagate correlationId to all logs during password change", async () => {
       const correlationId = "change-pwd-trace";
-      mockUserRepo.findById.mockRejectedValue(new Error("DB Error")); // Force exception for error log check
+      mockUserRepo.findWithPasswordById.mockRejectedValue(new Error("DB Error")); // Force exception for error log check
 
       await authService.changePassword("1", "old", "new", { correlationId });
 
@@ -582,6 +627,95 @@ describe("AuthService", () => {
         undefined,
         correlationId
       );
+    });
+
+    it("should invalidate magic link tokens after successful password change", async () => {
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
+        id: "1",
+        email: "test@example.com",
+        username: "testuser",
+        password: "old_hashed_password"
+      } as unknown as User);
+      mockCrypto.verifyPassword.mockResolvedValue(true);
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: false });
+      mockCrypto.hashPassword.mockResolvedValue("new_hashed_password");
+      mockUserRepo.updatePassword.mockResolvedValue(true);
+      mockMagicRepo.invalidateByUserId.mockResolvedValue(true);
+
+      const result = await authService.changePassword(
+        changePwdData.userId,
+        changePwdData.currentPassword,
+        changePwdData.newPassword
+      );
+
+      expect(result.success).toBe(true);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockMagicRepo.invalidateByUserId).toHaveBeenCalledWith("1");
+      expect(result.data?.tokensInvalidated).toBe(true);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "SESSION_INVALIDATION", userId: "1" })
+      );
+    });
+
+    it("should return tokensInvalidated: false when invalidation fails (best-effort)", async () => {
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
+        id: "1",
+        email: "test@example.com",
+        username: "testuser",
+        password: "old_hashed_password"
+      } as unknown as User);
+      mockCrypto.verifyPassword.mockResolvedValue(true);
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: false });
+      mockCrypto.hashPassword.mockResolvedValue("new_hashed_password");
+      mockUserRepo.updatePassword.mockResolvedValue(true);
+      mockMagicRepo.invalidateByUserId.mockRejectedValue(new Error("Repo error"));
+
+      const result = await authService.changePassword(
+        changePwdData.userId,
+        changePwdData.currentPassword,
+        changePwdData.newPassword
+      );
+
+      expect(result.success).toBe(true); // Still successful
+      expect(result.data?.tokensInvalidated).toBe(false);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("Failed to invalidate tokens"),
+        expect.anything(),
+        undefined
+      );
+    });
+
+    it("should not attempt invalidation when no MagicLinkRepository is provided", async () => {
+      const basicAuthService = new AuthService(mockUserRepo, mockCrypto, mockLogger);
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
+        id: "1",
+        email: "test@example.com",
+        username: "testuser",
+        password: "old_hashed_password"
+      } as unknown as User);
+      mockCrypto.verifyPassword.mockResolvedValue(true);
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: false });
+      mockCrypto.hashPassword.mockResolvedValue("new_hashed_password");
+      mockUserRepo.updatePassword.mockResolvedValue(true);
+
+      const result = await basicAuthService.changePassword(
+        changePwdData.userId,
+        changePwdData.currentPassword,
+        changePwdData.newPassword
+      );
+
+      expect(result.success).toBe(true);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockMagicRepo.invalidateByUserId).not.toHaveBeenCalled();
+      expect(result.data?.tokensInvalidated).toBe(false);
     });
   });
 });

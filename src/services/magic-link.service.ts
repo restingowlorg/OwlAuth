@@ -41,6 +41,7 @@ export class MagicLinkService {
 
       const token = this.crypto.generateToken();
       const tokenHash = await this.crypto.hashToken(token);
+      const lookupKey = token.substring(0, 16);
 
       // invalidate existing tokens for this user
       const invalidated = await this.magicLinks.invalidateByUserId(user.id);
@@ -62,6 +63,7 @@ export class MagicLinkService {
       // create new token
       const record = await this.magicLinks.create({
         userId: user.id,
+        lookupKey,
         tokenHash,
         expiresAt: new Date(Date.now() + 15 * 60 * 1000)
       });
@@ -87,10 +89,7 @@ export class MagicLinkService {
         correlationId: options?.correlationId
       });
 
-      const compositeToken = `${record.id}.${token}`;
-      const data = this.magicLinkBaseUrl
-        ? `${this.magicLinkBaseUrl}?token=${compositeToken}`
-        : compositeToken;
+      const data = this.magicLinkBaseUrl ? `${this.magicLinkBaseUrl}?token=${token}` : token;
 
       return {
         success: true,
@@ -117,8 +116,7 @@ export class MagicLinkService {
     options?: { correlationId?: string }
   ): Promise<AuthResult<VerifyMagicLinkResult>> {
     try {
-      const parts = token.split(".");
-      if (parts.length !== 2) {
+      if (!token || token.length < 16) {
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
           metadata: { reason: "Malformed token" },
@@ -132,8 +130,8 @@ export class MagicLinkService {
         };
       }
 
-      const [tokenId, tokenValue] = parts;
-      const record = await this.magicLinks.findById(tokenId);
+      const lookupKey = token.substring(0, 16);
+      const record = await this.magicLinks.findByLookupKey(lookupKey);
 
       if (!record || record.usedAt || record.expiresAt.getTime() < Date.now()) {
         this.logger.audit({
@@ -149,7 +147,7 @@ export class MagicLinkService {
         };
       }
 
-      const match = await this.crypto.verifyToken(tokenValue, record.tokenHash);
+      const match = await this.crypto.verifyToken(token, record.tokenHash);
       if (!match) {
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
@@ -168,7 +166,7 @@ export class MagicLinkService {
 
       return {
         success: true,
-        data: { isValid: true, userId: String(record.userId), tokenId: String(record.id) },
+        data: { isValid: true, userId: String(record.userId), lookupKey: String(record.lookupKey) },
         message: "Magic link is valid",
         httpCode: 200
       };
@@ -184,35 +182,70 @@ export class MagicLinkService {
     }
   }
 
-  /** Consume a magic link token */
   async consume(
     token: string,
     options?: { correlationId?: string }
   ): Promise<AuthResult<ConsumeMagicLinkResult>> {
     try {
-      const verifyResult = await this.verify(token, options);
-
-      if (!verifyResult.success) {
+      if (!token || token.length < 16) {
+        this.logger.audit({
+          type: "MAGIC_LINK_FAILURE",
+          metadata: { reason: "Malformed token" },
+          correlationId: options?.correlationId
+        });
         return {
           success: false,
           data: undefined,
-          message: verifyResult.message,
-          httpCode: verifyResult.httpCode
+          message: "Invalid or malformed magic link token",
+          httpCode: 400
         };
       }
 
-      const consumed = await this.magicLinks.consume(verifyResult.data.tokenId);
+      const lookupKey = token.substring(0, 16);
+      const record = await this.magicLinks.findByLookupKey(lookupKey);
 
-      if (!consumed) {
-        this.logger.error(
-          "Failed to consume magic link",
-          new Error("DB update failed"),
-          undefined,
-          options?.correlationId
-        );
+      if (!record || record.usedAt || record.expiresAt.getTime() < Date.now()) {
+        const reason = !record
+          ? "Token not found"
+          : record.usedAt
+            ? "Token already used"
+            : "Token expired";
+
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
-          metadata: { reason: "Token already used" },
+          metadata: { reason },
+          correlationId: options?.correlationId
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "Invalid or expired magic link",
+          httpCode: 401
+        };
+      }
+
+      const match = await this.crypto.verifyToken(token, record.tokenHash);
+      if (!match) {
+        this.logger.audit({
+          type: "MAGIC_LINK_FAILURE",
+          metadata: { reason: "Token mismatch" },
+          correlationId: options?.correlationId
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "Invalid or expired magic link",
+          httpCode: 401
+        };
+      }
+
+      const consumed = await this.magicLinks.consume(lookupKey);
+
+      if (!consumed) {
+        // This handles race conditions where the token was consumed between our read and update
+        this.logger.audit({
+          type: "MAGIC_LINK_FAILURE",
+          metadata: { reason: "Token already used (race)" },
           correlationId: options?.correlationId
         });
         return {
@@ -232,7 +265,7 @@ export class MagicLinkService {
 
       return {
         success: true,
-        data: { userId: verifyResult.data.userId },
+        data: { userId: String(record.userId) },
         message: "Magic link consumed",
         httpCode: 200
       };

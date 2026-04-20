@@ -1,7 +1,7 @@
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
-import { UserRepository } from "../repositories/contracts";
+import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
 import { AuthResult, LoginResult, SignupResult, ChangePasswordResult } from "../types";
 import { CreateUserInput } from "../repositories/contracts";
@@ -11,7 +11,8 @@ export class AuthService {
     private readonly users: UserRepository,
     private readonly crypto: ICryptoAdapter,
     private readonly logger: IAuditLogger,
-    private readonly usernameValidator?: (username: string) => boolean
+    private readonly usernameValidator?: (username: string) => boolean,
+    private readonly magicLinks?: MagicLinkRepository
   ) {}
 
   async signup(
@@ -37,6 +38,21 @@ export class AuthService {
           success: false,
           data: undefined,
           message: "Email, username, and password are required.",
+          httpCode: 400
+        };
+      }
+
+      if (password.length > 72) {
+        this.logger.audit({
+          type: "SIGNUP_FAILURE",
+          email,
+          metadata: { username, reason: "Password exceeds maximum length" },
+          correlationId: options?.correlationId
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "Password must be 72 characters or less.",
           httpCode: 400
         };
       }
@@ -139,7 +155,7 @@ export class AuthService {
           return {
             success: false,
             data: undefined,
-            message: "Username already taken.",
+            message: "Unable to create account.",
             httpCode: 409
           };
         }
@@ -157,7 +173,7 @@ export class AuthService {
         return {
           success: false,
           data: undefined,
-          message: "Email already registered.",
+          message: "Unable to create account.",
           httpCode: 409
         };
       }
@@ -235,7 +251,7 @@ export class AuthService {
       }
 
       // -------------------- Find User --------------------
-      const user = await this.users.findByEmail(email);
+      const user = await this.users.findWithPasswordByEmail(email);
       if (!user) {
         this.logger.audit({
           type: "LOGIN_FAILURE",
@@ -306,7 +322,7 @@ export class AuthService {
   ): Promise<AuthResult<ChangePasswordResult>> {
     try {
       // Fetch user
-      const user = await this.users.findById(userId);
+      const user = await this.users.findWithPasswordById(userId);
       if (!user) {
         return { success: false, data: undefined, message: "User not found", httpCode: 404 };
       }
@@ -325,6 +341,36 @@ export class AuthService {
           data: undefined,
           message: "Current password incorrect",
           httpCode: 401
+        };
+      }
+
+      if (currentPassword === newPassword) {
+        this.logger.audit({
+          type: "PASSWORD_CHANGE",
+          userId: user.id,
+          metadata: { success: false, reason: "New password is the same as current password" },
+          correlationId: options?.correlationId
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "New password must be different from current password.",
+          httpCode: 400
+        };
+      }
+
+      if (newPassword.length > 72) {
+        this.logger.audit({
+          type: "PASSWORD_CHANGE",
+          userId: user.id,
+          metadata: { success: false, reason: "Password exceeds maximum length" },
+          correlationId: options?.correlationId
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "Password must be 72 characters or less.",
+          httpCode: 400
         };
       }
 
@@ -410,6 +456,34 @@ export class AuthService {
         };
       }
 
+      // Invalidate all existing magic link tokens for this user
+      let tokensInvalidated = false;
+      if (this.magicLinks) {
+        try {
+          tokensInvalidated = await this.magicLinks.invalidateByUserId(userId);
+          if (tokensInvalidated) {
+            this.logger.audit({
+              type: "SESSION_INVALIDATION",
+              userId: user.id,
+              metadata: { reason: "Password changed" },
+              correlationId: options?.correlationId
+            });
+          } else {
+            this.logger.warn(
+              "Token invalidation returned false after password change. Tokens may not have been invalidated.",
+              { userId },
+              options?.correlationId
+            );
+          }
+        } catch (err) {
+          this.logger.warn(
+            "Failed to invalidate tokens after password change. Proceeding without invalidation.",
+            { userId, error: err instanceof Error ? err.message : "Unknown error" },
+            options?.correlationId
+          );
+        }
+      }
+
       this.logger.audit({
         type: "PASSWORD_CHANGE",
         userId: user.id,
@@ -425,7 +499,8 @@ export class AuthService {
             id: user.id,
             email: user.email,
             username: user.username
-          }
+          },
+          tokensInvalidated
         },
         httpCode: 200
       };

@@ -3,5 +3,13 @@ export const PostgresUserSchema = {
 };
 
 export const PostgresMagicLinkSchema = {
-  requiredColumns: ["id", "user_id", "token_hash", "expires_at", "used_at", "created_at"] as const
+  requiredColumns: [
+    "id",
+    "user_id",
+    "lookup_key",
+    "token_hash",
+    "expires_at",
+    "used_at",
+    "created_at"
+  ] as const
 };
