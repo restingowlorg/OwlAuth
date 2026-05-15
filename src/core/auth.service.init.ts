@@ -4,16 +4,39 @@ import { CredentialsAuthStrategy } from "../strategies/CredentialsStrategy";
 import { MagicLinkAuthStrategy } from "../strategies/MagicLinkStrategy";
 import { IAuthStrategy, Mutable } from "../strategies/types";
 import { AuthOptions, AuthType, IAuthMethods } from "./types";
+import { zxcvbnOptions } from "@zxcvbn-ts/core";
+import * as zxcvbnCommonPackage from "@zxcvbn-ts/language-common";
+import * as zxcvbnEnPackage from "@zxcvbn-ts/language-en";
 
 const authStrategies: Record<AuthType, IAuthStrategy> = {
   credentials: new CredentialsAuthStrategy(),
   magicLink: new MagicLinkAuthStrategy()
 };
 
+let isZxcvbnConfigured = false;
+
+function configureZxcvbn(): void {
+  if (isZxcvbnConfigured) {
+    return;
+  }
+
+  zxcvbnOptions.setOptions({
+    dictionary: {
+      ...zxcvbnCommonPackage.dictionary,
+      ...zxcvbnEnPackage.dictionary
+    },
+    graphs: zxcvbnCommonPackage.adjacencyGraphs
+  });
+
+  isZxcvbnConfigured = true;
+}
+
 export function initAuthServices(
   db: AuthDB,
   options: AuthOptions<AuthType>
 ): Partial<IAuthMethods> {
+  configureZxcvbn();
+
   const result: Mutable<Partial<IAuthMethods>> = {};
 
   const authTypes = options.authTypes ?? ["credentials"];

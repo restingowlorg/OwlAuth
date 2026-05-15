@@ -8,6 +8,8 @@ import {
 } from "../types/index";
 
 export class MagicLinkService {
+  private static readonly MIN_REQUEST_RESPONSE_TIME_MS = 300;
+
   constructor(
     private users: UserRepository,
     private magicLinks: MagicLinkRepository,
@@ -21,15 +23,24 @@ export class MagicLinkService {
     email: string,
     options?: { correlationId?: string }
   ): Promise<AuthResult<RequestMagicLinkResult>> {
+    const startedAt = Date.now();
+
     try {
       const user = await this.users.findByEmail(email);
 
       if (!user) {
+        // Simulate comparable crypto work for unknown accounts.
+        const pseudoToken = this.crypto.generateToken();
+        await this.crypto.hashToken(pseudoToken);
+
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
           metadata: { reason: "User not found" },
           correlationId: options?.correlationId
         });
+
+        await this.enforceMinimumRequestDuration(startedAt);
+
         // Return the same response as a successful request to prevent email enumeration.
         return {
           success: true,
@@ -91,6 +102,8 @@ export class MagicLinkService {
 
       const data = this.magicLinkBaseUrl ? `${this.magicLinkBaseUrl}?token=${token}` : token;
 
+      await this.enforceMinimumRequestDuration(startedAt);
+
       return {
         success: true,
         data,
@@ -101,12 +114,23 @@ export class MagicLinkService {
       const message = err instanceof Error ? err.message : "Unknown error";
       this.logger.error("Magic link request exception", err, { email }, options?.correlationId);
 
+      await this.enforceMinimumRequestDuration(startedAt);
+
       return {
         success: false,
         data: undefined,
         message: "Failed to request magic link: " + message,
         httpCode: 500
       };
+    }
+  }
+
+  private async enforceMinimumRequestDuration(startedAt: number): Promise<void> {
+    const elapsed = Date.now() - startedAt;
+    const remaining = MagicLinkService.MIN_REQUEST_RESPONSE_TIME_MS - elapsed;
+
+    if (remaining > 0) {
+      await new Promise((resolve) => setTimeout(resolve, remaining));
     }
   }
 
