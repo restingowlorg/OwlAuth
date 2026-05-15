@@ -85,6 +85,7 @@ export class MagicLinkService {
 
       this.logger.audit({
         type: "MAGIC_LINK_REQUESTED",
+        userId: user.id,
         email: user.email,
         correlationId: options?.correlationId
       });
@@ -162,7 +163,11 @@ export class MagicLinkService {
         };
       }
 
-      this.logger.audit({ type: "MAGIC_LINK_VERIFIED", correlationId: options?.correlationId });
+      this.logger.audit({
+        type: "MAGIC_LINK_VERIFIED",
+        userId: record.userId,
+        correlationId: options?.correlationId
+      });
 
       return {
         success: true,
@@ -256,9 +261,14 @@ export class MagicLinkService {
         };
       }
 
-      this.logger.audit({ type: "MAGIC_LINK_CONSUMED", correlationId: options?.correlationId });
+      this.logger.audit({
+        type: "MAGIC_LINK_CONSUMED",
+        userId: record.userId,
+        correlationId: options?.correlationId
+      });
       this.logger.audit({
         type: "LOGIN_SUCCESS",
+        userId: record.userId,
         metadata: { method: "magic-link" },
         correlationId: options?.correlationId
       });

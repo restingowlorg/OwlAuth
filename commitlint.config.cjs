@@ -22,7 +22,7 @@ module.exports = {
     "scope-enum": [
       2,
       "always",
-      ["api", "ui", "db", "auth", "core", "infra", "config", "test", "common", "docs"]
+      ["audit", "api", "ui", "db", "auth", "core", "infra", "config", "test", "common", "docs"]
     ],
     "header-min-length": [2, "always", 10],
     "header-max-length": [2, "always", 100],
