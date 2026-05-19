@@ -148,6 +148,7 @@ export class AuthService {
         if (existingUser) {
           this.logger.audit({
             type: "SIGNUP_FAILURE",
+            userId: existingUser.id,
             email,
             metadata: { username, reason: "Username already taken" },
             correlationId: options?.correlationId
@@ -166,6 +167,7 @@ export class AuthService {
       if (existingEmail) {
         this.logger.audit({
           type: "SIGNUP_FAILURE",
+          userId: existingEmail.id,
           email,
           metadata: { username, reason: "Email already registered" },
           correlationId: options?.correlationId
@@ -200,6 +202,7 @@ export class AuthService {
 
       this.logger.audit({
         type: "SIGNUP",
+        userId: user.id,
         email: user.email,
         correlationId: options?.correlationId
       });
@@ -285,7 +288,12 @@ export class AuthService {
       }
 
       // -------------------- Return Safe Response --------------------
-      this.logger.audit({ type: "LOGIN_SUCCESS", email, correlationId: options?.correlationId });
+      this.logger.audit({
+        type: "LOGIN_SUCCESS",
+        userId: user.id,
+        email,
+        correlationId: options?.correlationId
+      });
 
       return {
         success: true,

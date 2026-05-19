@@ -8,6 +8,8 @@ import {
 } from "../types/index";
 
 export class MagicLinkService {
+  private static readonly MIN_REQUEST_RESPONSE_TIME_MS = 300;
+
   constructor(
     private users: UserRepository,
     private magicLinks: MagicLinkRepository,
@@ -21,15 +23,24 @@ export class MagicLinkService {
     email: string,
     options?: { correlationId?: string }
   ): Promise<AuthResult<RequestMagicLinkResult>> {
+    const startedAt = Date.now();
+
     try {
       const user = await this.users.findByEmail(email);
 
       if (!user) {
+        // Simulate comparable crypto work for unknown accounts.
+        const pseudoToken = this.crypto.generateToken();
+        await this.crypto.hashToken(pseudoToken);
+
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
           metadata: { reason: "User not found" },
           correlationId: options?.correlationId
         });
+
+        await this.enforceMinimumRequestDuration(startedAt);
+
         // Return the same response as a successful request to prevent email enumeration.
         return {
           success: true,
@@ -85,21 +96,26 @@ export class MagicLinkService {
 
       this.logger.audit({
         type: "MAGIC_LINK_REQUESTED",
+        userId: user.id,
         email: user.email,
         correlationId: options?.correlationId
       });
 
       const data = this.magicLinkBaseUrl ? `${this.magicLinkBaseUrl}?token=${token}` : token;
 
+      await this.enforceMinimumRequestDuration(startedAt);
+
       return {
         success: true,
         data,
-        message: "Magic link created",
+        message: "If this email is registered, a magic link has been sent.",
         httpCode: 200
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       this.logger.error("Magic link request exception", err, { email }, options?.correlationId);
+
+      await this.enforceMinimumRequestDuration(startedAt);
 
       return {
         success: false,
@@ -107,6 +123,15 @@ export class MagicLinkService {
         message: "Failed to request magic link: " + message,
         httpCode: 500
       };
+    }
+  }
+
+  private async enforceMinimumRequestDuration(startedAt: number): Promise<void> {
+    const elapsed = Date.now() - startedAt;
+    const remaining = MagicLinkService.MIN_REQUEST_RESPONSE_TIME_MS - elapsed;
+
+    if (remaining > 0) {
+      await new Promise((resolve) => setTimeout(resolve, remaining));
     }
   }
 
@@ -162,7 +187,11 @@ export class MagicLinkService {
         };
       }
 
-      this.logger.audit({ type: "MAGIC_LINK_VERIFIED", correlationId: options?.correlationId });
+      this.logger.audit({
+        type: "MAGIC_LINK_VERIFIED",
+        userId: record.userId,
+        correlationId: options?.correlationId
+      });
 
       return {
         success: true,
@@ -256,9 +285,14 @@ export class MagicLinkService {
         };
       }
 
-      this.logger.audit({ type: "MAGIC_LINK_CONSUMED", correlationId: options?.correlationId });
+      this.logger.audit({
+        type: "MAGIC_LINK_CONSUMED",
+        userId: record.userId,
+        correlationId: options?.correlationId
+      });
       this.logger.audit({
         type: "LOGIN_SUCCESS",
+        userId: record.userId,
         metadata: { method: "magic-link" },
         correlationId: options?.correlationId
       });
