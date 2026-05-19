@@ -107,7 +107,7 @@ export class MagicLinkService {
       return {
         success: true,
         data,
-        message: "Magic link created",
+        message: "If this email is registered, a magic link has been sent.",
         httpCode: 200
       };
     } catch (err: unknown) {
