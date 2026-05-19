@@ -101,17 +101,17 @@ export class SecurityAuditLogger implements IAuditLogger {
   audit(event: SecurityEvent) {
     const { type, userId, email, correlationId, ...rest } = event;
 
+    const payload: Record<string, unknown> = {
+      ...rest,
+      timestamp: new Date().toISOString()
+    };
+
+    if (userId !== undefined) payload.userId = userId;
+    if (email !== undefined) payload.email = email;
+
     console.log(
       `${this.prefix} [AUDIT]${correlationId ? ` [${correlationId}]` : ""} - ${type}`,
-      maskSensitiveData(
-        {
-          userId,
-          email,
-          ...rest,
-          timestamp: new Date().toISOString()
-        },
-        this.customMaskingKeys
-      )
+      maskSensitiveData(payload, this.customMaskingKeys)
     );
   }
 }
