@@ -78,6 +78,9 @@ describe("MagicLinkService", () => {
 
     it("should return a neutral 200 response when user not found (anti-enumeration)", async () => {
       mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockCrypto.generateToken.mockReturnValue("pseudo_token");
+      mockCrypto.hashToken.mockResolvedValue("pseudo_hash");
+
       const result = await service.request(email);
       expect(result.success).toBe(true);
       expect(result.httpCode).toBe(200);
@@ -85,6 +88,26 @@ describe("MagicLinkService", () => {
         expect(result.data).toBe("");
         expect(result.message).toBe("If this email is registered, a magic link has been sent.");
       }
+
+      // Unknown-account path should still perform comparable crypto work.
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockCrypto.generateToken).toHaveBeenCalledTimes(1);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockCrypto.hashToken).toHaveBeenCalledWith("pseudo_token");
+    });
+
+    it("should enforce a minimum response time for unknown users", async () => {
+      mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockCrypto.generateToken.mockReturnValue("pseudo_token");
+      mockCrypto.hashToken.mockResolvedValue("pseudo_hash");
+
+      const startedAt = Date.now();
+      const promise = service.request(email);
+      const result = await promise;
+      const elapsed = Date.now() - startedAt;
+
+      expect(result.success).toBe(true);
+      expect(elapsed).toBeGreaterThanOrEqual(250);
     });
 
     it("should fail if invalidation fails", async () => {

@@ -78,6 +78,8 @@
   "type": "commonjs",
   "dependencies": {
     "@zxcvbn-ts/core": "^3.0.4",
+    "@zxcvbn-ts/language-common": "^3.0.4",
+    "@zxcvbn-ts/language-en": "^3.0.2",
     "bcryptjs": "^3.0.3",
     "mongodb": "^7.1.0",
     "pg": "^8.16.3"
