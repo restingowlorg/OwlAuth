@@ -1,7 +1,7 @@
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
-import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
+import { UserRepository, MagicLinkRepository, DuplicateUserError } from "../repositories/contracts";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
 import { AuthResult, LoginResult, SignupResult, ChangePasswordResult } from "../types";
 import { CreateUserInput } from "../repositories/contracts";
@@ -220,6 +220,21 @@ export class AuthService {
         httpCode: 201
       };
     } catch (err) {
+      if (err instanceof DuplicateUserError) {
+        this.logger.audit({
+          type: "SIGNUP_FAILURE",
+          email,
+          metadata: { username, reason: "Duplicate user rejected by datastore" },
+          correlationId: options?.correlationId
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "Unable to create account.",
+          httpCode: 409
+        };
+      }
+
       const message = err instanceof Error ? err.message : "Unknown error";
       this.logger.error("Signup exception", err, { email }, options?.correlationId);
       return {

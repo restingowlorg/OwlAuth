@@ -1,5 +1,10 @@
 import { AuthService } from "./auth.service";
-import { User, UserRepository, MagicLinkRepository } from "../repositories/contracts";
+import {
+  User,
+  UserRepository,
+  MagicLinkRepository,
+  DuplicateUserError
+} from "../repositories/contracts";
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
@@ -209,6 +214,38 @@ describe("AuthService", () => {
       expect(result.success).toBe(false);
       expect(result.httpCode).toBe(409);
       expect(result.message).toBe("Unable to create account.");
+    });
+
+    it("should return a safe conflict when a concurrent signup hits a unique constraint", async () => {
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: false });
+      (mockUserRepo.findByUsername as jest.Mock).mockResolvedValue(null);
+      mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockCrypto.hashPassword.mockResolvedValue("hashed_password");
+      mockUserRepo.create.mockRejectedValue(new DuplicateUserError());
+
+      const result = await authService.signup(
+        signupData.email,
+        signupData.username,
+        signupData.password
+      );
+
+      expect(result).toMatchObject({
+        success: false,
+        httpCode: 409,
+        message: "Unable to create account."
+      });
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "SIGNUP_FAILURE",
+          metadata: {
+            username: signupData.username,
+            reason: "Duplicate user rejected by datastore"
+          }
+        })
+      );
     });
 
     it("should return 503 SERVICE_UNAVAILABLE if pwned check fails and pwnedPasswordFailClosed is true", async () => {

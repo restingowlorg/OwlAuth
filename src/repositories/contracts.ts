@@ -29,6 +29,17 @@ export interface CreateUserInput {
   username: string;
 }
 
+/**
+ * Raised by a repository when a database uniqueness constraint rejects a user create.
+ * Services use this to return a safe conflict response when concurrent signups race.
+ */
+export class DuplicateUserError extends Error {
+  constructor() {
+    super("A user with this email or username already exists");
+    this.name = "DuplicateUserError";
+  }
+}
+
 export type AuthDB = {
   userRepo: UserRepository;
   magicLinkRepo?: MagicLinkRepository;
