@@ -1,5 +1,12 @@
 import { Pool } from "pg";
-import { User, CreateUserInput, UserRepository, SafeUser, UserId } from "../contracts";
+import {
+  User,
+  CreateUserInput,
+  UserRepository,
+  SafeUser,
+  UserId,
+  DuplicateUserError
+} from "../contracts";
 import { UserRow } from "../../infra/databases/postgresql/types";
 
 export class PostgresUserRepository implements UserRepository {
@@ -15,16 +22,28 @@ export class PostgresUserRepository implements UserRepository {
 
   async create(input: CreateUserInput): Promise<SafeUser> {
     const { email, username, passwordHash } = input;
-    const result = await this.pool.query<UserRow>(
-      `
-      INSERT INTO ${this.getTable()} (email, username, password)
-      VALUES ($1, $2, $3)
-      RETURNING id, email, username
-      `,
-      [email, username, passwordHash]
-    );
-    const r = result.rows[0];
-    return { id: String(r.id), email: r.email, username: r.username };
+    try {
+      const result = await this.pool.query<UserRow>(
+        `
+        INSERT INTO ${this.getTable()} (email, username, password)
+        VALUES ($1, $2, $3)
+        RETURNING id, email, username
+        `,
+        [email, username, passwordHash]
+      );
+      const r = result.rows[0];
+      return { id: String(r.id), email: r.email, username: r.username };
+    } catch (error: unknown) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "23505"
+      ) {
+        throw new DuplicateUserError();
+      }
+      throw error;
+    }
   }
 
   async findByEmail(email: string): Promise<SafeUser | null> {

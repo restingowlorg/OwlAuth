@@ -3,7 +3,14 @@ import { PostgresUserRepository } from "../../../repositories/postgresql/user.re
 import { PostgresMagicLinkRepository } from "../../../repositories/postgresql/magic.link.repo";
 import { PostgresMagicLinkSchema, PostgresUserSchema } from "./schema";
 import { AuthDB } from "../../../repositories/contracts";
-import { validateSchema, validateTable, validateColumns, validateForeignKey } from "./helpers";
+import {
+  validateSchema,
+  validateTable,
+  validateColumns,
+  validateNonNullableColumns,
+  validateForeignKey,
+  validateUniqueColumn
+} from "./helpers";
 import { InitPostgresOptions } from "./types";
 import { BaseAuthOptions } from "../../../core/types";
 
@@ -26,49 +33,57 @@ export async function initPostgres(
   if (!userTableName) throw new Error("[Auth:initPostgres] userTableName is required");
 
   const pool = new Pool({ connectionString: postgresUrl });
-  const isConnected = await pool.query("SELECT 1"); // Test connection
-  if (!isConnected) throw new Error("[Auth:initPostgres] Failed to connect to PostgreSQL");
+  try {
+    const isConnected = await pool.query("SELECT 1"); // Test connection
+    if (!isConnected) throw new Error("[Auth:initPostgres] Failed to connect to PostgreSQL");
 
-  const qualifiedUserTable = `${userSchema}.${userTableName}`;
+    const qualifiedUserTable = `${userSchema}.${userTableName}`;
 
-  // Core User table validations
-  await Promise.all([
-    validateSchema(pool, userSchema),
-    validateTable(pool, qualifiedUserTable),
-    validateColumns(pool, userSchema, userTableName, PostgresUserSchema.requiredColumns)
-  ]);
-
-  // Magic link table validations (if enabled)
-  let magicRepo: PostgresMagicLinkRepository | undefined;
-
-  if (authTypes?.includes("magicLink")) {
-    const magicTable = magicLinkTableName ?? "magic_links";
-    const qualifiedMagicTable = `${magicLinkSchema}.${magicTable}`;
-
+    // Core User table validations
     await Promise.all([
-      validateSchema(pool, magicLinkSchema),
-      validateTable(pool, qualifiedMagicTable),
-      validateColumns(pool, magicLinkSchema, magicTable, PostgresMagicLinkSchema.requiredColumns),
-      validateForeignKey(
-        pool,
-        magicLinkSchema,
-        magicTable,
-        userSchema,
-        userTableName,
-        "user_id",
-        "id"
-      )
+      validateSchema(pool, userSchema),
+      validateTable(pool, qualifiedUserTable),
+      validateColumns(pool, userSchema, userTableName, PostgresUserSchema.requiredColumns),
+      validateNonNullableColumns(pool, userSchema, userTableName, ["email", "username"]),
+      validateUniqueColumn(pool, userSchema, userTableName, "email"),
+      validateUniqueColumn(pool, userSchema, userTableName, "username")
     ]);
 
-    magicRepo = new PostgresMagicLinkRepository(magicLinkSchema, magicTable, pool);
-  }
+    // Magic link table validations (if enabled)
+    let magicRepo: PostgresMagicLinkRepository | undefined;
 
-  // Return repositories
-  return {
-    userRepo: new PostgresUserRepository(userSchema, userTableName, pool),
-    magicLinkRepo: magicRepo,
-    close: async () => {
-      await pool.end();
+    if (authTypes?.includes("magicLink")) {
+      const magicTable = magicLinkTableName ?? "magic_links";
+      const qualifiedMagicTable = `${magicLinkSchema}.${magicTable}`;
+
+      await Promise.all([
+        validateSchema(pool, magicLinkSchema),
+        validateTable(pool, qualifiedMagicTable),
+        validateColumns(pool, magicLinkSchema, magicTable, PostgresMagicLinkSchema.requiredColumns),
+        validateForeignKey(
+          pool,
+          magicLinkSchema,
+          magicTable,
+          userSchema,
+          userTableName,
+          "user_id",
+          "id"
+        )
+      ]);
+
+      magicRepo = new PostgresMagicLinkRepository(magicLinkSchema, magicTable, pool);
     }
-  };
+
+    // Return repositories
+    return {
+      userRepo: new PostgresUserRepository(userSchema, userTableName, pool),
+      magicLinkRepo: magicRepo,
+      close: async () => {
+        await pool.end();
+      }
+    };
+  } catch (error) {
+    await pool.end();
+    throw error;
+  }
 }

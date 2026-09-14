@@ -110,6 +110,30 @@ const auth = await createAuthManager({
 });
 ```
 
+### Required User-Identity Constraints
+
+The built-in adapters validate these requirements during initialization. Create the constraints before deploying a version that includes this validation. If the table or collection already contains duplicate values, resolve those duplicates before creating the unique index.
+
+PostgreSQL requires `id`, `email`, `username`, `password`, and `updated_at` columns. `email` and `username` must be `NOT NULL` and each must have their own non-partial, single-column unique constraint or index:
+
+```sql
+ALTER TABLE public.users
+  ALTER COLUMN email SET NOT NULL,
+  ALTER COLUMN username SET NOT NULL;
+
+CREATE UNIQUE INDEX users_email_unique_idx ON public.users (email);
+CREATE UNIQUE INDEX users_username_unique_idx ON public.users (username);
+```
+
+MongoDB requires non-partial, non-sparse, unique single-field indexes on both fields. The application must ensure every user document has both fields:
+
+```js
+db.users.createIndex({ email: 1 }, { unique: true, name: "users_email_unique_idx" });
+db.users.createIndex({ username: 1 }, { unique: true, name: "users_username_unique_idx" });
+```
+
+These constraints are the final protection against concurrent signup requests. OwlAuth still performs pre-checks to return a useful response, but it also converts a datastore duplicate-key race into the same safe `409 Unable to create account.` response.
+
 ## Cryptography
 
 owlauth ships with a default `BcryptAdapter` (10 rounds). You can customize it or provide your own implementation of `ICryptoAdapter`.
@@ -214,25 +238,25 @@ if (requested.success) {
 }
 ```
 
-`request()` returns a composite token string in the format `{recordId}.{rawToken}`. Both parts are required — `verify()` and `consume()` expect the full composite value as-is. Putting it in a URL, sending the email, and handling delivery is your application's job. owlauth does not touch any of that.
+`request()` returns a high-entropy raw token string. Pass this exact token to `verify()` and `consume()`; do not split, transform, or decode it. OwlAuth stores only a SHA-256 hash of the token. Internally, the first 16 characters are used as a database lookup key before the full token hash is verified.
 
-> **Note:** The `recordId` segment is the database record's primary key. It is not sensitive, but treat the full composite token as a secret: it grants one-time login access and must only be transmitted over TLS.
+> **Note:** Treat the complete token as a secret: it grants one-time login access and must only be transmitted over TLS. Putting the token in a URL, sending the email, and handling delivery is your application's job. OwlAuth does not send email.
 
 ## Configuration Options
 
 ### Shared Options
 
-| Option                    | Type                               | Purpose                                                                                                                                                                                                  |
-| ------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `authTypes`               | `("credentials" \| "magicLink")[]` | Enables one or both supported auth flows. Defaults to credentials only.                                                                                                                                  |
-| `blockedPasswords`        | `string[]`                         | Rejects passwords containing the user's email, username, or any supplied blocked terms.                                                                                                                  |
-| `magicLinkBaseUrl`        | `string`                           | Base URL for magic link emails. When set, `request()` returns a ready-to-use URL in the format `{baseUrl}?token={token}`. When omitted, the raw composite token is returned for manual URL construction. |
-| `cryptoAdapter`           | `ICryptoAdapter`                   | Replaces the default bcrypt-based crypto implementation.                                                                                                                                                 |
-| `customMaskingKeys`       | `string[]`                         | Adds case-insensitive keys to the audit logger masking list.                                                                                                                                             |
-| `pwnedPasswordFailClosed` | `boolean`                          | Rejects signups and password changes when the breached-password API cannot be reached.                                                                                                                   |
-| `usernameValidator`       | `(username: string) => boolean`    | Overrides the default username validation rule. Default: `3–20 chars, alphanumeric + underscore only` (`/^[a-zA-Z0-9_]{3,20}$/`). Return `true` to accept, `false` to reject.                            |
+| Option                    | Type                               | Purpose                                                                                                                                                                                        |
+| ------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `authTypes`               | `("credentials" \| "magicLink")[]` | Enables one or both supported auth flows. Defaults to credentials only.                                                                                                                        |
+| `blockedPasswords`        | `string[]`                         | Rejects passwords containing the user's email, username, or any supplied blocked terms.                                                                                                        |
+| `magicLinkBaseUrl`        | `string`                           | Base URL for magic link emails. When set, `request()` returns a ready-to-use URL in the format `{baseUrl}?token={token}`. When omitted, the raw token is returned for manual URL construction. |
+| `cryptoAdapter`           | `ICryptoAdapter`                   | Replaces the default bcrypt-based crypto implementation.                                                                                                                                       |
+| `customMaskingKeys`       | `string[]`                         | Adds case-insensitive keys to the audit logger masking list.                                                                                                                                   |
+| `pwnedPasswordFailClosed` | `boolean`                          | Rejects signups and password changes when the breached-password API cannot be reached.                                                                                                         |
+| `usernameValidator`       | `(username: string) => boolean`    | Overrides the default username validation rule. Default: `3–20 chars, alphanumeric + underscore only` (`/^[a-zA-Z0-9_]{3,20}$/`). Return `true` to accept, `false` to reject.                  |
 
-> **Note:** The built-in `PostgresAdapter` and `MongoAdapter` implement `findByUsername` and enforce username uniqueness at signup. If you supply a custom `UserRepository` that does not implement `findByUsername`, duplicate-username detection is skipped silently. Implement the method if your application requires unique usernames.
+> **Important:** The built-in adapters require database-level, non-partial, single-field unique indexes or constraints for both `email` and `username`. OwlAuth verifies those requirements while connecting. This is essential: application-level duplicate checks improve the user experience but cannot prevent concurrent signups from creating duplicate identities. Custom repositories must provide equivalent database-level uniqueness guarantees.
 
 ### Method-Level Options
 
@@ -258,7 +282,7 @@ Result payloads are:
 - `SignupResult`: `{ user: SafeUser }` — where `SafeUser = { id, email, username }`
 - `LoginResult`: `{ user: SafeUser }`
 - `ChangePasswordResult`: `{ user: SafeUser ; tokensInvalidated: boolean}`
-- `RequestMagicLinkResult`: `string` — when `magicLinkBaseUrl` is configured: full URL `"{baseUrl}?token={recordId}.{rawToken}"` ready to embed in an email. Without `magicLinkBaseUrl`: raw composite `"{recordId}.{rawToken}"` for manual URL construction. Pass the token portion directly to `verify()` and `consume()`.
+- `RequestMagicLinkResult`: `string` — when `magicLinkBaseUrl` is configured: full URL `"{baseUrl}?token={rawToken}"` ready to embed in an email. Without `magicLinkBaseUrl`: the raw token for manual URL construction. Pass the complete raw token directly to `verify()` and `consume()`.
 - `VerifyMagicLinkResult`: `{ isValid: boolean; userId: UserId; lookupKey: string; }`
 - `ConsumeMagicLinkResult`: `{ userId: UserId }`
 

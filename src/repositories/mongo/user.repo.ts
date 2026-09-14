@@ -1,5 +1,12 @@
 import { Collection, ObjectId, InsertOneResult } from "mongodb";
-import { CreateUserInput, User, UserRepository, SafeUser, UserId } from "../contracts";
+import {
+  CreateUserInput,
+  User,
+  UserRepository,
+  SafeUser,
+  UserId,
+  DuplicateUserError
+} from "../contracts";
 import { IMongoUserDoc } from "../../infra/databases/mongo/types";
 
 /**
@@ -16,13 +23,21 @@ export class MongoUserRepo implements UserRepository {
     const { email, username, passwordHash } = input;
 
     const now = new Date();
-    const result: InsertOneResult<IMongoUserDoc> = await this.collection.insertOne({
-      email,
-      username,
-      password: passwordHash,
-      created_at: now,
-      updated_at: now
-    });
+    let result: InsertOneResult<IMongoUserDoc>;
+    try {
+      result = await this.collection.insertOne({
+        email,
+        username,
+        password: passwordHash,
+        created_at: now,
+        updated_at: now
+      });
+    } catch (error: unknown) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === 11000) {
+        throw new DuplicateUserError();
+      }
+      throw error;
+    }
 
     return {
       id: result.insertedId.toString(),

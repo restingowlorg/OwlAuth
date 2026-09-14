@@ -121,7 +121,23 @@ npm run typecheck
 npm run build
 npm run format
 npm run format:check
+npm run test:unit
+npm run test:integration
 ```
+
+### Database Integration Tests
+
+`npm run test:integration` runs adapter tests against real PostgreSQL and MongoDB instances. It needs both services running and uses these environment variables:
+
+```bash
+export POSTGRES_TEST_URL="postgresql://owlauth:owlauth_test_password@localhost:5432/owlauth_test"
+export MONGODB_TEST_URI="mongodb://localhost:27017/owlauth_test"
+npm run test:integration
+```
+
+The tests create and remove only their own `owlauth_integration` PostgreSQL schema and MongoDB database. Do not point either variable at a shared or production database. Pull-request CI runs these tests against PostgreSQL 16 and MongoDB 7 service containers.
+
+The production build excludes all `*.test.ts` files. `npm run build` clears and recreates the generated `dist/` directory, so test code is not included in the published package.
 
 Before opening a PR:
 
