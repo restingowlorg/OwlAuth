@@ -3,6 +3,9 @@ import {
   User,
   UserRepository,
   MagicLinkRepository,
+  AccountSecurityRepository,
+  AccountSecurityRecord,
+  AccountStatus,
   DuplicateUserError
 } from "../repositories/contracts";
 import { zxcvbn } from "@zxcvbn-ts/core";
@@ -753,6 +756,185 @@ describe("AuthService", () => {
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockMagicRepo.invalidateByUserId).not.toHaveBeenCalled();
       expect(result.data?.tokensInvalidated).toBe(false);
+    });
+  });
+
+  describe("account identity state", () => {
+    let mockAccountSecurityRepo: jest.Mocked<AccountSecurityRepository>;
+    let accountAuthService: AuthService;
+
+    const existingUser: User = {
+      id: "user_1",
+      email: "test@example.com",
+      username: "testuser",
+      password: "hashed_password"
+    };
+
+    beforeEach(() => {
+      mockAccountSecurityRepo = {
+        create: jest.fn(),
+        findByUserId: jest.fn()
+      };
+
+      accountAuthService = new AuthService(
+        mockUserRepo,
+        mockCrypto,
+        mockLogger,
+        undefined,
+        mockMagicRepo,
+        mockAccountSecurityRepo
+      );
+    });
+
+    function buildRecord(status: AccountStatus): AccountSecurityRecord {
+      return {
+        userId: existingUser.id,
+        status,
+        emailVerifiedAt: null,
+        updatedAt: new Date()
+      };
+    }
+
+    function arrangeSuccessfulSignup(): void {
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: false });
+      (mockUserRepo.findByUsername as jest.Mock).mockResolvedValue(null);
+      mockUserRepo.findByEmail.mockResolvedValue(null);
+      mockCrypto.hashPassword.mockResolvedValue("hashed_password");
+      mockUserRepo.create.mockResolvedValue({
+        id: existingUser.id,
+        email: existingUser.email,
+        username: existingUser.username
+      });
+    }
+
+    describe("signup", () => {
+      it("creates an active record for a new account", async () => {
+        arrangeSuccessfulSignup();
+        mockAccountSecurityRepo.create.mockResolvedValue(buildRecord("active"));
+
+        const result = await accountAuthService.signup(
+          existingUser.email,
+          existingUser.username,
+          "Password123!"
+        );
+
+        expect(result.success).toBe(true);
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockAccountSecurityRepo.create).toHaveBeenCalledWith({
+          userId: existingUser.id,
+          status: "active",
+          emailVerifiedAt: null
+        });
+      });
+
+      it("still succeeds when the account security write fails", async () => {
+        arrangeSuccessfulSignup();
+        mockAccountSecurityRepo.create.mockRejectedValue(new Error("insert failed"));
+
+        const result = await accountAuthService.signup(
+          existingUser.email,
+          existingUser.username,
+          "Password123!"
+        );
+
+        expect(result.success).toBe(true);
+        expect(result.httpCode).toBe(201);
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+          expect.stringContaining("Failed to create account security record"),
+          expect.objectContaining({ userId: existingUser.id }),
+          undefined
+        );
+      });
+
+      it("does not touch the repository when the feature is disabled", async () => {
+        arrangeSuccessfulSignup();
+
+        const result = await authService.signup(
+          existingUser.email,
+          existingUser.username,
+          "Password123!"
+        );
+
+        expect(result.success).toBe(true);
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockAccountSecurityRepo.create).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("login", () => {
+      beforeEach(() => {
+        mockUserRepo.findWithPasswordByEmail.mockResolvedValue(existingUser);
+        mockCrypto.verifyPassword.mockResolvedValue(true);
+      });
+
+      it("denies a disabled account with the generic invalid-credentials response", async () => {
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(buildRecord("disabled"));
+
+        const result = await accountAuthService.login(existingUser.email, "Password123!");
+
+        expect(result.success).toBe(false);
+        expect(result.httpCode).toBe(401);
+        // Byte-identical to the wrong-password response, so status cannot be probed.
+        expect(result.message).toBe("Invalid credentials.");
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockLogger.audit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "LOGIN_FAILURE",
+            metadata: { reason: "Account disabled" }
+          })
+        );
+      });
+
+      it("checks status only after the password is verified", async () => {
+        mockCrypto.verifyPassword.mockResolvedValue(false);
+
+        const result = await accountAuthService.login(existingUser.email, "WrongPassword!");
+
+        expect(result.success).toBe(false);
+        expect(result.message).toBe("Invalid credentials.");
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockAccountSecurityRepo.findByUserId).not.toHaveBeenCalled();
+      });
+
+      it("allows an active account", async () => {
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(buildRecord("active"));
+
+        const result = await accountAuthService.login(existingUser.email, "Password123!");
+
+        expect(result.success).toBe(true);
+        expect(result.httpCode).toBe(200);
+      });
+
+      it("allows an account awaiting email verification", async () => {
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(
+          buildRecord("pending_email_verification")
+        );
+
+        const result = await accountAuthService.login(existingUser.email, "Password123!");
+
+        expect(result.success).toBe(true);
+        expect(result.httpCode).toBe(200);
+      });
+
+      it("allows a user that has no record", async () => {
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(null);
+
+        const result = await accountAuthService.login(existingUser.email, "Password123!");
+
+        expect(result.success).toBe(true);
+        expect(result.httpCode).toBe(200);
+      });
+
+      it("does not touch the repository when the feature is disabled", async () => {
+        const result = await authService.login(existingUser.email, "Password123!");
+
+        expect(result.success).toBe(true);
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockAccountSecurityRepo.findByUserId).not.toHaveBeenCalled();
+      });
     });
   });
 });

@@ -1,9 +1,17 @@
 import { AuthType, IAuthMethods } from "../core/types";
 import { ICryptoAdapter } from "../infra/security/types";
-import { UserRepository, MagicLinkRepository, AuthDB } from "../repositories/contracts";
+import {
+  UserRepository,
+  MagicLinkRepository,
+  AccountSecurityRepository,
+  AuthDB
+} from "../repositories/contracts";
+import { MagicLinkService } from "../services/magic-link.service";
 import { MagicLinkAuthStrategy } from "./MagicLinkStrategy";
 import { Mutable } from "./types";
 import { AuthOptions } from "../core/types";
+
+jest.mock("../services/magic-link.service");
 
 describe("MagicLinkAuthStrategy", () => {
   let strategy: MagicLinkAuthStrategy;
@@ -45,5 +53,35 @@ describe("MagicLinkAuthStrategy", () => {
     expect(() => strategy.register(target, dbWithoutRepo, mockOptions)).toThrow(
       "MagicLinkRepository is required for MagicLinkAuthStrategy"
     );
+  });
+
+  describe("account security repository wiring", () => {
+    it("should pass the repository to MagicLinkService when the adapter provides one", () => {
+      const accountSecurityRepo = {} as AccountSecurityRepository;
+
+      strategy.register({}, { ...mockDb, accountSecurityRepo }, mockOptions);
+
+      expect(MagicLinkService).toHaveBeenCalledWith(
+        mockDb.userRepo,
+        mockDb.magicLinkRepo,
+        expect.anything(),
+        expect.anything(),
+        undefined,
+        accountSecurityRepo
+      );
+    });
+
+    it("should pass undefined when the adapter provides none", () => {
+      strategy.register({}, mockDb, mockOptions);
+
+      expect(MagicLinkService).toHaveBeenCalledWith(
+        mockDb.userRepo,
+        mockDb.magicLinkRepo,
+        expect.anything(),
+        expect.anything(),
+        undefined,
+        undefined
+      );
+    });
   });
 });

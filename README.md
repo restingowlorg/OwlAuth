@@ -134,6 +134,36 @@ db.users.createIndex({ username: 1 }, { unique: true, name: "users_username_uniq
 
 These constraints are the final protection against concurrent signup requests. OwlAuth still performs pre-checks to return a useful response, but it also converts a datastore duplicate-key race into the same safe `409 Unable to create account.` response.
 
+### Account Identity State
+
+Optional, and off by default. When enabled, OwlAuth tracks whether an account is `active`, `pending_email_verification`, or `disabled`, and refuses to authenticate a disabled account.
+
+```ts
+const auth = await createAuthManager({
+  adapter: new PostgresAdapter({
+    postgresUrl: process.env.POSTGRES_URL!,
+    userTableName: "users",
+    accountSecurityTableName: "account_security" // Mongo: accountSecurityCollectionName
+  }),
+  authTypes: ["credentials"],
+  accountSecurity: true
+});
+```
+
+| Status                       | Effect on authentication                                                                                                        |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `active`                     | Authenticates normally.                                                                                                         |
+| `pending_email_verification` | Authenticates normally. Stored for your application to act on.                                                                  |
+| `disabled`                   | Denied. Login returns the same `401 Invalid credentials.` as a wrong password, and magic links are neither issued nor accepted. |
+
+`signup()` records a new account as `active`. Applications set `disabled` with their own database write; OwlAuth exposes no status-management API. A user with no record is treated as `active`, so existing accounts keep working — the [migration](docs/migrations/ROOS-34-account-identity-state.md) backfills them.
+
+The status check runs **after** password verification and reuses the generic failure response, so the endpoint cannot be used to discover which accounts are disabled.
+
+> **Note:** `disabled` is durable account policy, not brute-force lockout. OwlAuth stores no failed-attempt counters, source addresses, or lockout timers. Throttle your endpoints separately.
+
+Enabling this requires the table or collection to exist first — OwlAuth validates its schema while connecting. See the [migration and rollback guide](docs/migrations/ROOS-34-account-identity-state.md).
+
 ## Cryptography
 
 owlauth ships with a default `BcryptAdapter` (10 rounds). You can customize it or provide your own implementation of `ICryptoAdapter`.
@@ -255,6 +285,7 @@ if (requested.success) {
 | `customMaskingKeys`       | `string[]`                         | Adds case-insensitive keys to the audit logger masking list.                                                                                                                                   |
 | `pwnedPasswordFailClosed` | `boolean`                          | Rejects signups and password changes when the breached-password API cannot be reached.                                                                                                         |
 | `usernameValidator`       | `(username: string) => boolean`    | Overrides the default username validation rule. Default: `3–20 chars, alphanumeric + underscore only` (`/^[a-zA-Z0-9_]{3,20}$/`). Return `true` to accept, `false` to reject.                  |
+| `accountSecurity`         | `boolean`                          | Enables account identity state. Denies authentication for `disabled` accounts and records new signups as `active`. Requires the account security table or collection. Defaults to `false`.     |
 
 > **Important:** The built-in adapters require database-level, non-partial, single-field unique indexes or constraints for both `email` and `username`. OwlAuth verifies those requirements while connecting. This is essential: application-level duplicate checks improve the user experience but cannot prevent concurrent signups from creating duplicate identities. Custom repositories must provide equivalent database-level uniqueness guarantees.
 

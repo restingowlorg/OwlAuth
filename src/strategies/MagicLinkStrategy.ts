@@ -20,7 +20,8 @@ export class MagicLinkAuthStrategy implements IAuthStrategy {
       db.magicLinkRepo,
       cryptoAdapter,
       auditLogger,
-      options.magicLinkBaseUrl
+      options.magicLinkBaseUrl,
+      db.accountSecurityRepo
     );
 
     target.magicLink = {

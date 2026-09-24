@@ -1,7 +1,12 @@
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
-import { UserRepository, MagicLinkRepository, DuplicateUserError } from "../repositories/contracts";
+import {
+  UserRepository,
+  MagicLinkRepository,
+  AccountSecurityRepository,
+  DuplicateUserError
+} from "../repositories/contracts";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
 import { AuthResult, LoginResult, SignupResult, ChangePasswordResult } from "../types";
 import { CreateUserInput } from "../repositories/contracts";
@@ -12,7 +17,8 @@ export class AuthService {
     private readonly crypto: ICryptoAdapter,
     private readonly logger: IAuditLogger,
     private readonly usernameValidator?: (username: string) => boolean,
-    private readonly magicLinks?: MagicLinkRepository
+    private readonly magicLinks?: MagicLinkRepository,
+    private readonly accountSecurity?: AccountSecurityRepository
   ) {}
 
   async signup(
@@ -200,6 +206,25 @@ export class AuthService {
         };
       }
 
+      // Record the initial account state when the feature is enabled.
+      if (this.accountSecurity) {
+        try {
+          await this.accountSecurity.create({
+            userId: user.id,
+            status: "active",
+            emailVerifiedAt: null
+          });
+        } catch (err) {
+          // A missing record already resolves to "active", so the effective policy is
+          // unchanged. Failing the signup here would leave the user created but unusable.
+          this.logger.warn(
+            "Failed to create account security record after signup. Proceeding without it.",
+            { userId: user.id, error: err instanceof Error ? err.message : "Unknown error" },
+            options?.correlationId
+          );
+        }
+      }
+
       this.logger.audit({
         type: "SIGNUP",
         userId: user.id,
@@ -300,6 +325,29 @@ export class AuthService {
           message: "Invalid credentials.",
           httpCode: 401
         };
+      }
+
+      // -------------------- Account State Policy --------------------
+      // Checked after password verification and answered with the same generic response as a
+      // bad password, so the endpoint cannot be used to discover which accounts are disabled.
+      if (this.accountSecurity) {
+        const accountState = await this.accountSecurity.findByUserId(user.id);
+
+        if (accountState?.status === "disabled") {
+          this.logger.audit({
+            type: "LOGIN_FAILURE",
+            userId: user.id,
+            email,
+            metadata: { reason: "Account disabled" },
+            correlationId: options?.correlationId
+          });
+          return {
+            success: false,
+            data: undefined,
+            message: "Invalid credentials.",
+            httpCode: 401
+          };
+        }
       }
 
       // -------------------- Return Safe Response --------------------

@@ -1,8 +1,14 @@
 import { MongoClient, Collection, Document } from "mongodb";
 import { MongoMagicLinkRepo } from "../../../repositories/mongo/magicLink.repo";
 import { MongoUserRepo } from "../../../repositories/mongo/user.repo";
+import { MongoAccountSecurityRepo } from "../../../repositories/mongo/accountSecurity.repo";
 import { AuthDB } from "../../../repositories/contracts";
-import { IMongoMagicLinkDoc, IMongoUserDoc, InitMongoOptions } from "./types";
+import {
+  IMongoAccountSecurityDoc,
+  IMongoMagicLinkDoc,
+  IMongoUserDoc,
+  InitMongoOptions
+} from "./types";
 import { BaseAuthOptions } from "../../../core/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -21,7 +27,7 @@ function isMongoIndexMetadata(value: unknown): value is {
 async function validateUniqueIndex<T extends Document>(
   collection: Collection<T>,
   collectionName: string,
-  field: "email" | "username"
+  field: string
 ): Promise<void> {
   let indexes: unknown;
 
@@ -68,7 +74,14 @@ async function validateUniqueIndex<T extends Document>(
  * Connect to MongoDB and initialize repositories
  */
 export async function connectMongo(options: InitMongoOptions & BaseAuthOptions): Promise<AuthDB> {
-  const { mongoUri, userCollectionName, magicLinkCollectionName, authTypes } = options;
+  const {
+    mongoUri,
+    userCollectionName,
+    magicLinkCollectionName,
+    accountSecurityCollectionName,
+    authTypes,
+    accountSecurity
+  } = options;
 
   if (!mongoUri) throw new Error("[Auth:connectMongo] mongoUri is required");
   if (!userCollectionName) throw new Error("[Auth:connectMongo] userCollectionName is required");
@@ -97,10 +110,28 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
       magicColl = db.collection<IMongoMagicLinkDoc>(magicLinkCollectionName);
     }
 
+    // Account security collection
+    let accountSecurityColl: Collection<IMongoAccountSecurityDoc> | undefined;
+    if (accountSecurity) {
+      if (!accountSecurityCollectionName) {
+        throw new Error(
+          `[Auth:connectMongo] Account security requested but 'accountSecurityCollectionName' is not provided`
+        );
+      }
+
+      accountSecurityColl = db.collection<IMongoAccountSecurityDoc>(accountSecurityCollectionName);
+
+      // One state record per user.
+      await validateUniqueIndex(accountSecurityColl, accountSecurityCollectionName, "user_id");
+    }
+
     // Initialize repositories
     return {
       userRepo: new MongoUserRepo(userColl),
       magicLinkRepo: magicColl ? new MongoMagicLinkRepo(magicColl) : undefined,
+      accountSecurityRepo: accountSecurityColl
+        ? new MongoAccountSecurityRepo(accountSecurityColl)
+        : undefined,
       close: async () => {
         await client.close();
       }

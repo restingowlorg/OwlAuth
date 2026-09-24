@@ -2,6 +2,10 @@ export const PostgresUserSchema = {
   requiredColumns: ["id", "email", "username", "password", "updated_at"] as const
 };
 
+export const PostgresAccountSecuritySchema = {
+  requiredColumns: ["id", "user_id", "status", "email_verified_at", "updated_at"] as const
+};
+
 export const PostgresMagicLinkSchema = {
   requiredColumns: [
     "id",

@@ -1,4 +1,8 @@
-import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
+import {
+  UserRepository,
+  MagicLinkRepository,
+  AccountSecurityRepository
+} from "../repositories/contracts";
 import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
 import {
   AuthResult,
@@ -15,8 +19,17 @@ export class MagicLinkService {
     private magicLinks: MagicLinkRepository,
     private crypto: ICryptoAdapter,
     private logger: IAuditLogger,
-    private magicLinkBaseUrl?: string
+    private magicLinkBaseUrl?: string,
+    private accountSecurity?: AccountSecurityRepository
   ) {}
+
+  /** A disabled account must not be issued or accepted an authentication credential. */
+  private async isAccountDisabled(userId: string): Promise<boolean> {
+    if (!this.accountSecurity) return false;
+
+    const accountState = await this.accountSecurity.findByUserId(userId);
+    return accountState?.status === "disabled";
+  }
 
   /** Request a magic link (passwordless login) */
   async request(
@@ -42,6 +55,25 @@ export class MagicLinkService {
         await this.enforceMinimumRequestDuration(startedAt);
 
         // Return the same response as a successful request to prevent email enumeration.
+        return {
+          success: true,
+          data: "",
+          message: "If this email is registered, a magic link has been sent.",
+          httpCode: 200
+        };
+      }
+
+      if (await this.isAccountDisabled(user.id)) {
+        // Do not mint a credential for a disabled account, and do not reveal that it exists.
+        this.logger.audit({
+          type: "MAGIC_LINK_FAILURE",
+          userId: user.id,
+          metadata: { reason: "Account disabled" },
+          correlationId: options?.correlationId
+        });
+
+        await this.enforceMinimumRequestDuration(startedAt);
+
         return {
           success: true,
           data: "",
@@ -187,6 +219,21 @@ export class MagicLinkService {
         };
       }
 
+      if (await this.isAccountDisabled(String(record.userId))) {
+        this.logger.audit({
+          type: "MAGIC_LINK_FAILURE",
+          userId: record.userId,
+          metadata: { reason: "Account disabled" },
+          correlationId: options?.correlationId
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "Invalid or expired magic link",
+          httpCode: 401
+        };
+      }
+
       this.logger.audit({
         type: "MAGIC_LINK_VERIFIED",
         userId: record.userId,
@@ -258,6 +305,22 @@ export class MagicLinkService {
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
           metadata: { reason: "Token mismatch" },
+          correlationId: options?.correlationId
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "Invalid or expired magic link",
+          httpCode: 401
+        };
+      }
+
+      if (await this.isAccountDisabled(String(record.userId))) {
+        // Deny before consuming, so the token is left untouched.
+        this.logger.audit({
+          type: "MAGIC_LINK_FAILURE",
+          userId: record.userId,
+          metadata: { reason: "Account disabled" },
           correlationId: options?.correlationId
         });
         return {

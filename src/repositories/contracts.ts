@@ -23,6 +23,22 @@ export type MagicLinkToken = {
   createdAt: Date;
 };
 
+/**
+ * Durable account policy state.
+ *
+ * `disabled` is an administrative decision that denies authentication until it is reversed.
+ * It is not a temporary brute-force lockout: OwlAuth stores no failed-attempt counters,
+ * source addresses, or lockout timers. Apply throttling at the endpoint instead.
+ */
+export type AccountStatus = "active" | "pending_email_verification" | "disabled";
+
+export type AccountSecurityRecord = {
+  userId: UserId;
+  status: AccountStatus;
+  emailVerifiedAt: Date | null;
+  updatedAt: Date;
+};
+
 export interface CreateUserInput {
   email: string;
   passwordHash: string;
@@ -43,6 +59,7 @@ export class DuplicateUserError extends Error {
 export type AuthDB = {
   userRepo: UserRepository;
   magicLinkRepo?: MagicLinkRepository;
+  accountSecurityRepo?: AccountSecurityRepository;
   close: () => Promise<void>;
 };
 
@@ -54,6 +71,20 @@ export interface UserRepository {
   findWithPasswordByEmail(email: string): Promise<User | null>;
   findWithPasswordById(id: UserId): Promise<User | null>;
   updatePassword(userId: UserId, passwordHash: string): Promise<boolean>;
+}
+
+/**
+ * Optional store for account identity state. When it is absent, OwlAuth applies no
+ * account-status policy and behaves exactly as it does without the feature.
+ */
+export interface AccountSecurityRepository {
+  create(input: {
+    userId: UserId;
+    status: AccountStatus;
+    emailVerifiedAt?: Date | null;
+  }): Promise<AccountSecurityRecord>;
+
+  findByUserId(userId: UserId): Promise<AccountSecurityRecord | null>;
 }
 
 export interface MagicLinkRepository {

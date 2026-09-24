@@ -85,6 +85,7 @@ export type BaseAuthOptions<T extends AuthType = AuthType> = {
   customMaskingKeys?: string[];
   pwnedPasswordFailClosed?: boolean;
   usernameValidator?: (username: string) => boolean;
+  accountSecurity?: boolean;
 };
 
 export type AuthOptions<T extends AuthType = AuthType> = BaseAuthOptions<T> & {

@@ -1,6 +1,6 @@
 import { CredentialsAuthStrategy } from "./CredentialsStrategy";
 import { AuthService } from "../services/auth.service";
-import { AuthDB, UserRepository } from "../repositories/contracts";
+import { AccountSecurityRepository, AuthDB, UserRepository } from "../repositories/contracts";
 import { AuthOptions, IAuthMethods } from "../core/types";
 import { ICryptoAdapter } from "../infra/security/types";
 import { Mutable } from "./types";
@@ -53,6 +53,37 @@ describe("CredentialsAuthStrategy", () => {
       expect(target.credentials.changePassword).toBeDefined();
       expect(typeof target.credentials.signup).toBe("function");
     }
+  });
+
+  describe("account security repository wiring", () => {
+    it("should pass the repository to AuthService when the adapter provides one", () => {
+      const accountSecurityRepo = {} as AccountSecurityRepository;
+      mockDb = { ...mockDb, accountSecurityRepo };
+
+      strategy.register({}, mockDb, mockOptions);
+
+      expect(AuthService).toHaveBeenCalledWith(
+        mockDb.userRepo,
+        expect.anything(),
+        expect.anything(),
+        undefined,
+        undefined,
+        accountSecurityRepo
+      );
+    });
+
+    it("should pass undefined when the adapter provides none", () => {
+      strategy.register({}, mockDb, mockOptions);
+
+      expect(AuthService).toHaveBeenCalledWith(
+        mockDb.userRepo,
+        expect.anything(),
+        expect.anything(),
+        undefined,
+        undefined,
+        undefined
+      );
+    });
   });
 
   describe("option merging", () => {
