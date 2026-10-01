@@ -432,10 +432,24 @@ describe("MagicLinkService", () => {
         expect(mockLogger.audit).toHaveBeenCalledWith(
           expect.objectContaining({
             type: "MAGIC_LINK_FAILURE",
-            metadata: { reason: "Account disabled" }
+            metadata: { reason: "Account status does not permit authentication" }
           })
         );
         /* eslint-enable @typescript-eslint/unbound-method */
+      });
+
+      it("mints no token for an unrecognised status", async () => {
+        mockUserRepo.findByEmail.mockResolvedValue({ id: "1", email } as unknown as User);
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(
+          buildRecord("disable" as AccountStatus)
+        );
+
+        const result = await accountService.request(email);
+
+        expect(result.success).toBe(true);
+        expect(result.data).toBe("");
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockMagicLinkRepo.create).not.toHaveBeenCalled();
       });
 
       it("issues a token for an active account", async () => {
@@ -473,6 +487,19 @@ describe("MagicLinkService", () => {
 
         expect(result.success).toBe(true);
         expect(result.data?.isValid).toBe(true);
+      });
+
+      it("rejects an unrecognised status", async () => {
+        arrangeValidToken();
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(
+          buildRecord("disable" as AccountStatus)
+        );
+
+        const result = await accountService.verify(token);
+
+        expect(result.success).toBe(false);
+        expect(result.httpCode).toBe(401);
+        expect(result.message).toBe("Invalid or expired magic link");
       });
     });
 
@@ -512,6 +539,24 @@ describe("MagicLinkService", () => {
 
         expect(result.success).toBe(true);
       });
+
+      // Matching only "disabled" would let each of these consume a magic link.
+      it.each([["disable"], ["DISABLED"], ["banned"], [""]])(
+        "rejects an unrecognised status %p without consuming the token",
+        async (status) => {
+          arrangeValidToken();
+          mockAccountSecurityRepo.findByUserId.mockResolvedValue(
+            buildRecord(status as AccountStatus)
+          );
+
+          const result = await accountService.consume(token);
+
+          expect(result.success).toBe(false);
+          expect(result.httpCode).toBe(401);
+          // eslint-disable-next-line @typescript-eslint/unbound-method
+          expect(mockMagicLinkRepo.consume).not.toHaveBeenCalled();
+        }
+      );
 
       it("does not touch the repository when the feature is disabled", async () => {
         arrangeValidToken();

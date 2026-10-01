@@ -10,6 +10,7 @@ import {
   VerifyMagicLinkResult,
   ConsumeMagicLinkResult
 } from "../types/index";
+import { isAuthenticationPermitted } from "../utils/account-status";
 
 export class MagicLinkService {
   private static readonly MIN_REQUEST_RESPONSE_TIME_MS = 300;
@@ -23,12 +24,16 @@ export class MagicLinkService {
     private accountSecurity?: AccountSecurityRepository
   ) {}
 
-  /** A disabled account must not be issued or accepted an authentication credential. */
-  private async isAccountDisabled(userId: string): Promise<boolean> {
+  /**
+   * An account whose status does not permit authentication must not be issued or
+   * accepted an authentication credential. A record with an unrecognised status blocks;
+   * only an absent record falls back to permitting.
+   */
+  private async isAuthenticationBlocked(userId: string): Promise<boolean> {
     if (!this.accountSecurity) return false;
 
     const accountState = await this.accountSecurity.findByUserId(userId);
-    return accountState?.status === "disabled";
+    return !!accountState && !isAuthenticationPermitted(accountState.status);
   }
 
   /** Request a magic link (passwordless login) */
@@ -63,12 +68,12 @@ export class MagicLinkService {
         };
       }
 
-      if (await this.isAccountDisabled(user.id)) {
-        // Do not mint a credential for a disabled account, and do not reveal that it exists.
+      if (await this.isAuthenticationBlocked(user.id)) {
+        // Do not mint a credential for a blocked account, and do not reveal that it exists.
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
           userId: user.id,
-          metadata: { reason: "Account disabled" },
+          metadata: { reason: "Account status does not permit authentication" },
           correlationId: options?.correlationId
         });
 
@@ -219,11 +224,11 @@ export class MagicLinkService {
         };
       }
 
-      if (await this.isAccountDisabled(String(record.userId))) {
+      if (await this.isAuthenticationBlocked(String(record.userId))) {
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
           userId: record.userId,
-          metadata: { reason: "Account disabled" },
+          metadata: { reason: "Account status does not permit authentication" },
           correlationId: options?.correlationId
         });
         return {
@@ -315,12 +320,12 @@ export class MagicLinkService {
         };
       }
 
-      if (await this.isAccountDisabled(String(record.userId))) {
+      if (await this.isAuthenticationBlocked(String(record.userId))) {
         // Deny before consuming, so the token is left untouched.
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
           userId: record.userId,
-          metadata: { reason: "Account disabled" },
+          metadata: { reason: "Account status does not permit authentication" },
           correlationId: options?.correlationId
         });
         return {

@@ -13,8 +13,9 @@ migration is required**. Run this only when you intend to turn the feature on.
 | `email_verified_at` | When the mailbox was confirmed, or `NULL`             |
 | `updated_at`        | When the record last changed                          |
 
-Only `disabled` denies authentication. `pending_email_verification` is stored but does not
-block login — the email-verification flow is a separate feature.
+`active` and `pending_email_verification` permit authentication. Everything else denies it,
+including `disabled` and any value owlauth does not recognise. `pending_email_verification` is
+stored but does not block login — the email-verification flow is a separate feature.
 
 A user with **no record** is treated as `active`, so the backfill below is what actually moves
 your existing users into the feature. It is included in both migrations.
@@ -60,9 +61,15 @@ Adjust `public` and `users` to match your `accountSecuritySchema`, `accountSecur
 
 owlauth validates at startup that the table exists, has the columns
 `id, user_id, status, email_verified_at, updated_at`, that `user_id`, `status`, and
-`updated_at` are `NOT NULL`, that `user_id` has a non-partial single-column unique index, and
-that `user_id` is a foreign key to your users table. The `CHECK` constraint is recommended but
-not verified.
+`updated_at` are `NOT NULL`, that `user_id` has a non-partial single-column unique index, that
+`user_id` is a foreign key to your users table, and that a `CHECK` constraint restricts
+`status` to the three valid values.
+
+**The `CHECK` constraint is required, not optional.** Without it the column accepts any
+string, so a mistyped status such as `'disable'` could be stored where `'disabled'` was
+intended. owlauth refuses to authenticate an account whose status it does not recognise, so
+such a typo fails safe rather than re-enabling a suspended account — but the constraint stops
+the bad value being stored in the first place.
 
 ### Down
 

@@ -8,6 +8,7 @@ import {
   DuplicateUserError
 } from "../repositories/contracts";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
+import { isAuthenticationPermitted } from "../utils/account-status";
 import { AuthResult, LoginResult, SignupResult, ChangePasswordResult } from "../types";
 import { CreateUserInput } from "../repositories/contracts";
 
@@ -333,12 +334,17 @@ export class AuthService {
       if (this.accountSecurity) {
         const accountState = await this.accountSecurity.findByUserId(user.id);
 
-        if (accountState?.status === "disabled") {
+        // A record with an unrecognised status denies authentication. Only an absent
+        // record falls back to permitting it.
+        if (accountState && !isAuthenticationPermitted(accountState.status)) {
           this.logger.audit({
             type: "LOGIN_FAILURE",
             userId: user.id,
             email,
-            metadata: { reason: "Account disabled" },
+            metadata: {
+              reason: "Account status does not permit authentication",
+              status: accountState.status
+            },
             correlationId: options?.correlationId
           });
           return {

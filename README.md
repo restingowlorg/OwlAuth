@@ -155,6 +155,7 @@ const auth = await createAuthManager({
 | `active`                     | Authenticates normally.                                                                                                         |
 | `pending_email_verification` | Authenticates normally. Stored for your application to act on.                                                                  |
 | `disabled`                   | Denied. Login returns the same `401 Invalid credentials.` as a wrong password, and magic links are neither issued nor accepted. |
+| anything else                | Denied. A status owlauth does not recognise — a typo or case mismatch — fails safe rather than permitting authentication.       |
 
 `signup()` records a new account as `active`. Applications set `disabled` with their own database write; OwlAuth exposes no status-management API. A user with no record is treated as `active`, so existing accounts keep working — the [migration](docs/migrations/ROOS-34-account-identity-state.md) backfills them.
 

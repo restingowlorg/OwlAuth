@@ -112,6 +112,57 @@ export async function validateUniqueColumn(
   }
 }
 
+/**
+ * Verify that a CHECK constraint restricts a column to an expected set of values.
+ *
+ * Without such a constraint a `TEXT` column accepts any string, so a typo or case
+ * mismatch can be stored where a meaningful status was intended. The service layer
+ * denies unrecognised values at runtime; this check surfaces the misconfiguration at
+ * startup instead of leaving it to be discovered during an authentication attempt.
+ *
+ * This inspects the constraint definition rendered by `pg_get_constraintdef`, which
+ * normalises `IN (...)` to `= ANY (ARRAY[...])`. It therefore confirms that a CHECK
+ * constraint on the column mentions every expected value. It is not a SQL parser: a
+ * hand-written constraint that lists all expected values while also permitting another
+ * would pass here. The runtime allow-list is what makes that case safe.
+ */
+export async function validateEnumCheckConstraint(
+  pool: Pool,
+  schema: string,
+  table: string,
+  column: string,
+  allowedValues: readonly string[]
+): Promise<void> {
+  const res = await pool.query<{ definition: string }>(
+    `
+      SELECT pg_get_constraintdef(constraint_meta.oid) AS definition
+      FROM pg_constraint AS constraint_meta
+      INNER JOIN pg_class AS table_class ON table_class.oid = constraint_meta.conrelid
+      INNER JOIN pg_namespace AS table_namespace ON table_namespace.oid = table_class.relnamespace
+      WHERE table_namespace.nspname = $1
+        AND table_class.relname = $2
+        AND constraint_meta.contype = 'c'
+    `,
+    [schema, table]
+  );
+
+  const hasEnumConstraint = res.rows.some((row) => {
+    const definition = row.definition;
+    if (!definition.includes(column)) {
+      return false;
+    }
+    return allowedValues.every((value) => definition.includes(`'${value}'`));
+  });
+
+  if (!hasEnumConstraint) {
+    throw new Error(
+      `[Auth:validateEnumCheckConstraint] Table '${schema}.${table}' must have a CHECK constraint restricting '${column}' to (${allowedValues
+        .map((value) => `'${value}'`)
+        .join(", ")})`
+    );
+  }
+}
+
 export async function validateForeignKey(
   pool: Pool,
   schema: string,

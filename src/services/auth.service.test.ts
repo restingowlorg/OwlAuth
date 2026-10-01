@@ -883,7 +883,10 @@ describe("AuthService", () => {
         expect(mockLogger.audit).toHaveBeenCalledWith(
           expect.objectContaining({
             type: "LOGIN_FAILURE",
-            metadata: { reason: "Account disabled" }
+            metadata: {
+              reason: "Account status does not permit authentication",
+              status: "disabled"
+            }
           })
         );
       });
@@ -926,6 +929,49 @@ describe("AuthService", () => {
 
         expect(result.success).toBe(true);
         expect(result.httpCode).toBe(200);
+      });
+
+      // A status column without a CHECK constraint accepts any string. Matching only
+      // "disabled" would treat each of these as permitted and re-enable the account.
+      it.each([["disable"], ["DISABLED"], ["Disabled"], [" disabled "], ["banned"], [""]])(
+        "denies an unrecognised status %p with the generic response",
+        async (status) => {
+          mockAccountSecurityRepo.findByUserId.mockResolvedValue({
+            userId: existingUser.id,
+            status: status as AccountStatus,
+            emailVerifiedAt: null,
+            updatedAt: new Date()
+          });
+
+          const result = await accountAuthService.login(existingUser.email, "Password123!");
+
+          expect(result.success).toBe(false);
+          expect(result.httpCode).toBe(401);
+          expect(result.message).toBe("Invalid credentials.");
+        }
+      );
+
+      it("records the offending status in the audit log", async () => {
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue({
+          userId: existingUser.id,
+          status: "disable" as AccountStatus,
+          emailVerifiedAt: null,
+          updatedAt: new Date()
+        });
+
+        await accountAuthService.login(existingUser.email, "Password123!");
+
+        // Operators need the stored value to spot a typo.
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockLogger.audit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "LOGIN_FAILURE",
+            metadata: {
+              reason: "Account status does not permit authentication",
+              status: "disable"
+            }
+          })
+        );
       });
 
       it("does not touch the repository when the feature is disabled", async () => {

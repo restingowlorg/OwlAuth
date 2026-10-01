@@ -32,6 +32,16 @@ export type MagicLinkToken = {
  */
 export type AccountStatus = "active" | "pending_email_verification" | "disabled";
 
+/**
+ * Every valid account status. Kept beside the type so the two cannot drift. Used to
+ * validate the datastore constraint that restricts the stored column.
+ */
+export const ACCOUNT_STATUSES: readonly AccountStatus[] = [
+  "active",
+  "pending_email_verification",
+  "disabled"
+];
+
 export type AccountSecurityRecord = {
   userId: UserId;
   status: AccountStatus;

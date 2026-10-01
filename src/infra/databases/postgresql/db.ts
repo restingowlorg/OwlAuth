@@ -7,14 +7,15 @@ import {
   PostgresMagicLinkSchema,
   PostgresUserSchema
 } from "./schema";
-import { AuthDB } from "../../../repositories/contracts";
+import { ACCOUNT_STATUSES, AuthDB } from "../../../repositories/contracts";
 import {
   validateSchema,
   validateTable,
   validateColumns,
   validateNonNullableColumns,
   validateForeignKey,
-  validateUniqueColumn
+  validateUniqueColumn,
+  validateEnumCheckConstraint
 } from "./helpers";
 import { InitPostgresOptions } from "./types";
 import { BaseAuthOptions } from "../../../core/types";
@@ -105,6 +106,15 @@ export async function initPostgres(
         ]),
         // One state record per user.
         validateUniqueColumn(pool, accountSecuritySchema, accountSecurityTable, "user_id"),
+        // Without this constraint the column accepts any string, so a typo could be
+        // stored where a meaningful status was intended.
+        validateEnumCheckConstraint(
+          pool,
+          accountSecuritySchema,
+          accountSecurityTable,
+          "status",
+          ACCOUNT_STATUSES
+        ),
         validateForeignKey(
           pool,
           accountSecuritySchema,

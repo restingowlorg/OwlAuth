@@ -46,18 +46,23 @@ integrationDescribe("PostgreSQL adapter integration", () => {
   async function createAccountSecurityTable(options?: {
     userIdUnique?: boolean;
     withForeignKey?: boolean;
+    withStatusCheck?: boolean;
   }): Promise<void> {
     const foreignKey =
       (options?.withForeignKey ?? true)
         ? `REFERENCES ${schema}.${userTable}(id) ON DELETE CASCADE`
         : "";
 
+    const statusCheck =
+      (options?.withStatusCheck ?? true)
+        ? `CHECK (status IN ('active','pending_email_verification','disabled'))`
+        : "";
+
     await pool.query(`
       CREATE TABLE ${schema}.${accountSecurityTable} (
         id                BIGSERIAL PRIMARY KEY,
         user_id           BIGINT NOT NULL ${foreignKey},
-        status            TEXT NOT NULL
-                            CHECK (status IN ('active','pending_email_verification','disabled')),
+        status            TEXT NOT NULL ${statusCheck},
         email_verified_at TIMESTAMPTZ NULL,
         updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
@@ -172,6 +177,54 @@ integrationDescribe("PostgreSQL adapter integration", () => {
       await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
         `must have a foreign key 'user_id' referencing '${schema}.${userTable}.id'`
       );
+    });
+
+    it("rejects a status column with no CHECK constraint", async () => {
+      await createAccountSecurityTable({ withStatusCheck: false });
+
+      await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "must have a CHECK constraint restricting 'status'"
+      );
+    });
+
+    it("confirms an unconstrained column really would accept an invalid status", async () => {
+      // Demonstrates why the startup check exists: without the constraint the datastore
+      // happily stores a typo, which the service layer must then refuse to honour.
+      await createAccountSecurityTable({ withStatusCheck: false });
+
+      const users = new PostgresUserRepository(schema, userTable, pool);
+      const user = await users.create({
+        email: "typo@example.com",
+        username: "typo_user",
+        passwordHash: "hash"
+      });
+
+      await expect(
+        pool.query(
+          `INSERT INTO ${schema}.${accountSecurityTable} (user_id, status, updated_at)
+           VALUES ($1, 'disable', NOW())`,
+          [user.id]
+        )
+      ).resolves.toBeDefined();
+    });
+
+    it("rejects an invalid status once the CHECK constraint is present", async () => {
+      await createAccountSecurityTable();
+
+      const users = new PostgresUserRepository(schema, userTable, pool);
+      const user = await users.create({
+        email: "checked@example.com",
+        username: "checked_user",
+        passwordHash: "hash"
+      });
+
+      await expect(
+        pool.query(
+          `INSERT INTO ${schema}.${accountSecurityTable} (user_id, status, updated_at)
+           VALUES ($1, 'disable', NOW())`,
+          [user.id]
+        )
+      ).rejects.toThrow();
     });
 
     it("round-trips an account security record", async () => {
