@@ -41,6 +41,19 @@ export function initAuthServices(
 
   const authTypes = options.authTypes ?? ["credentials"];
 
+  // `AuthDB.accountSecurityRepo` is optional so that existing adapters keep working, which
+  // means an enabled feature with no repository would otherwise start up and silently
+  // enforce nothing. Fail loudly instead: a caller that asked for account policy must not
+  // be left believing it is active.
+  if (options.accountSecurity && !db.accountSecurityRepo) {
+    throw new Error(
+      "[Auth:initAuthServices] accountSecurity is enabled but the adapter did not provide an " +
+        "account security repository. Built-in adapters require 'accountSecurityTableName' " +
+        "(PostgreSQL) or 'accountSecurityCollectionName' (MongoDB); a custom adapter must " +
+        "return 'accountSecurityRepo' from connect()."
+    );
+  }
+
   if (options.customMaskingKeys) {
     auditLogger.setCustomMaskingKeys(options.customMaskingKeys);
   }

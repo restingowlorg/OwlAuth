@@ -15,13 +15,17 @@ export class MagicLinkAuthStrategy implements IAuthStrategy {
     if (!db.magicLinkRepo) {
       throw new Error("MagicLinkRepository is required for MagicLinkAuthStrategy");
     }
+    // Enforcement follows the option, not the mere presence of a repository. A custom
+    // adapter that returns one while the feature is disabled must not switch policy on.
+    const accountSecurityRepo = options.accountSecurity ? db.accountSecurityRepo : undefined;
+
     const service = new MagicLinkService(
       db.userRepo,
       db.magicLinkRepo,
       cryptoAdapter,
       auditLogger,
       options.magicLinkBaseUrl,
-      db.accountSecurityRepo
+      accountSecurityRepo
     );
 
     target.magicLink = {

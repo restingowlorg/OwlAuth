@@ -56,32 +56,57 @@ describe("MagicLinkAuthStrategy", () => {
   });
 
   describe("account security repository wiring", () => {
-    it("should pass the repository to MagicLinkService when the adapter provides one", () => {
-      const accountSecurityRepo = {} as AccountSecurityRepository;
+    const accountSecurityRepo = {} as AccountSecurityRepository;
 
-      strategy.register({}, { ...mockDb, accountSecurityRepo }, mockOptions);
-
+    function expectRepoPassed(expected: AccountSecurityRepository | undefined): void {
       expect(MagicLinkService).toHaveBeenCalledWith(
         mockDb.userRepo,
         mockDb.magicLinkRepo,
         expect.anything(),
         expect.anything(),
         undefined,
-        accountSecurityRepo
+        expected
       );
+    }
+
+    it("passes the repository when the option is enabled and the adapter provides one", () => {
+      strategy.register(
+        {},
+        { ...mockDb, accountSecurityRepo },
+        {
+          ...mockOptions,
+          accountSecurity: true
+        }
+      );
+
+      expectRepoPassed(accountSecurityRepo);
     });
 
-    it("should pass undefined when the adapter provides none", () => {
+    // A custom adapter may return a repository regardless of configuration. Enforcement
+    // must still follow the option, otherwise policy switches on without being asked for.
+    it("ignores a supplied repository when the option is disabled", () => {
+      strategy.register(
+        {},
+        { ...mockDb, accountSecurityRepo },
+        {
+          ...mockOptions,
+          accountSecurity: false
+        }
+      );
+
+      expectRepoPassed(undefined);
+    });
+
+    it("ignores a supplied repository when the option is absent", () => {
+      strategy.register({}, { ...mockDb, accountSecurityRepo }, mockOptions);
+
+      expectRepoPassed(undefined);
+    });
+
+    it("passes undefined when neither the option nor a repository is present", () => {
       strategy.register({}, mockDb, mockOptions);
 
-      expect(MagicLinkService).toHaveBeenCalledWith(
-        mockDb.userRepo,
-        mockDb.magicLinkRepo,
-        expect.anything(),
-        expect.anything(),
-        undefined,
-        undefined
-      );
+      expectRepoPassed(undefined);
     });
   });
 });

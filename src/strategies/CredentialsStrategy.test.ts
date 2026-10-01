@@ -56,33 +56,49 @@ describe("CredentialsAuthStrategy", () => {
   });
 
   describe("account security repository wiring", () => {
-    it("should pass the repository to AuthService when the adapter provides one", () => {
-      const accountSecurityRepo = {} as AccountSecurityRepository;
+    const accountSecurityRepo = {} as AccountSecurityRepository;
+
+    function expectRepoPassed(expected: AccountSecurityRepository | undefined): void {
+      expect(AuthService).toHaveBeenCalledWith(
+        mockDb.userRepo,
+        expect.anything(),
+        expect.anything(),
+        undefined,
+        undefined,
+        expected
+      );
+    }
+
+    it("passes the repository when the option is enabled and the adapter provides one", () => {
+      mockDb = { ...mockDb, accountSecurityRepo };
+
+      strategy.register({}, mockDb, { ...mockOptions, accountSecurity: true });
+
+      expectRepoPassed(accountSecurityRepo);
+    });
+
+    // A custom adapter may return a repository regardless of configuration. Enforcement
+    // must still follow the option, otherwise policy switches on without being asked for.
+    it("ignores a supplied repository when the option is disabled", () => {
+      mockDb = { ...mockDb, accountSecurityRepo };
+
+      strategy.register({}, mockDb, { ...mockOptions, accountSecurity: false });
+
+      expectRepoPassed(undefined);
+    });
+
+    it("ignores a supplied repository when the option is absent", () => {
       mockDb = { ...mockDb, accountSecurityRepo };
 
       strategy.register({}, mockDb, mockOptions);
 
-      expect(AuthService).toHaveBeenCalledWith(
-        mockDb.userRepo,
-        expect.anything(),
-        expect.anything(),
-        undefined,
-        undefined,
-        accountSecurityRepo
-      );
+      expectRepoPassed(undefined);
     });
 
-    it("should pass undefined when the adapter provides none", () => {
+    it("passes undefined when neither the option nor a repository is present", () => {
       strategy.register({}, mockDb, mockOptions);
 
-      expect(AuthService).toHaveBeenCalledWith(
-        mockDb.userRepo,
-        expect.anything(),
-        expect.anything(),
-        undefined,
-        undefined,
-        undefined
-      );
+      expectRepoPassed(undefined);
     });
   });
 

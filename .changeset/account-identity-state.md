@@ -8,4 +8,6 @@ Authentication is permitted only for `active` and `pending_email_verification`. 
 
 The built-in PostgreSQL and MongoDB adapters validate the account security schema at startup when the feature is enabled. PostgreSQL additionally requires a `CHECK` constraint restricting `status` to the three valid values. Behaviour is unchanged for consumers that leave it disabled, and no migration is required in that case.
 
+Enforcement follows the `accountSecurity` option rather than the presence of a repository: a repository supplied while the option is disabled is ignored, and enabling the option without one is a configuration error raised at startup instead of silently enforcing nothing.
+
 Before enabling, create the table or collection and backfill existing users using `docs/migrations/ROOS-34-account-identity-state.md`, which also documents rollback.

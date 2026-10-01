@@ -161,6 +161,8 @@ const auth = await createAuthManager({
 
 The status check runs **after** password verification and reuses the generic failure response, so the endpoint cannot be used to discover which accounts are disabled.
 
+Enforcement follows the `accountSecurity` option, not the presence of a repository. A custom adapter that returns an account security repository while the option is disabled changes nothing. Conversely, enabling the option without a repository is a configuration error and fails at startup rather than silently enforcing nothing — so a custom adapter must return `accountSecurityRepo` from `connect()` when the option is enabled.
+
 > **Note:** `disabled` is durable account policy, not brute-force lockout. OwlAuth stores no failed-attempt counters, source addresses, or lockout timers. Throttle your endpoints separately.
 
 Enabling this requires the table or collection to exist first — OwlAuth validates its schema while connecting. See the [migration and rollback guide](docs/migrations/ROOS-34-account-identity-state.md).
