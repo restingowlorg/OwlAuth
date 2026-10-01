@@ -829,6 +829,9 @@ describe("AuthService", () => {
         });
       });
 
+      // The user row is already committed when this write fails, so reporting failure would
+      // misrepresent an account that exists and works. A missing record resolves to "active",
+      // which is what the write would have stored, so the effective policy is unchanged.
       it("still succeeds when the account security write fails", async () => {
         arrangeSuccessfulSignup();
         mockAccountSecurityRepo.create.mockRejectedValue(new Error("insert failed"));
@@ -841,12 +844,56 @@ describe("AuthService", () => {
 
         expect(result.success).toBe(true);
         expect(result.httpCode).toBe(201);
-        // eslint-disable-next-line @typescript-eslint/unbound-method
-        expect(mockLogger.warn).toHaveBeenCalledWith(
+      });
+
+      it("reports the failed write at error severity so it reaches alerting", async () => {
+        arrangeSuccessfulSignup();
+        const cause = new Error("insert failed");
+        mockAccountSecurityRepo.create.mockRejectedValue(cause);
+
+        await accountAuthService.signup(existingUser.email, existingUser.username, "Password123!");
+
+        /* eslint-disable @typescript-eslint/unbound-method */
+        expect(mockLogger.error).toHaveBeenCalledWith(
           expect.stringContaining("Failed to create account security record"),
-          expect.objectContaining({ userId: existingUser.id }),
+          cause,
+          { userId: existingUser.id },
           undefined
         );
+        expect(mockLogger.warn).not.toHaveBeenCalled();
+        /* eslint-enable @typescript-eslint/unbound-method */
+      });
+
+      it("names the recovery path in the failure log", async () => {
+        arrangeSuccessfulSignup();
+        mockAccountSecurityRepo.create.mockRejectedValue(new Error("insert failed"));
+
+        await accountAuthService.signup(existingUser.email, existingUser.username, "Password123!");
+
+        // An operator reading the log must know the datastore needs repairing and how.
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          expect.stringContaining("Re-run the account security backfill"),
+          expect.anything(),
+          expect.anything(),
+          undefined
+        );
+      });
+
+      it("leaves the account usable after a failed write", async () => {
+        arrangeSuccessfulSignup();
+        mockAccountSecurityRepo.create.mockRejectedValue(new Error("insert failed"));
+        await accountAuthService.signup(existingUser.email, existingUser.username, "Password123!");
+
+        // No record exists, which must resolve to active rather than locking the user out.
+        mockUserRepo.findWithPasswordByEmail.mockResolvedValue(existingUser);
+        mockCrypto.verifyPassword.mockResolvedValue(true);
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(null);
+
+        const login = await accountAuthService.login(existingUser.email, "Password123!");
+
+        expect(login.success).toBe(true);
+        expect(login.httpCode).toBe(200);
       });
 
       it("does not touch the repository when the feature is disabled", async () => {

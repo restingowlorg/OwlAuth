@@ -20,6 +20,18 @@ stored but does not block login — the email-verification flow is a separate fe
 A user with **no record** is treated as `active`, so the backfill below is what actually moves
 your existing users into the feature. It is included in both migrations.
 
+## Repairing unprovisioned accounts
+
+`signup()` writes the initial record itself. If that write fails — a dropped connection, a
+datastore outage — the signup still reports success, because the user row is already committed
+and the account is usable: a missing record resolves to `active`, exactly what the write would
+have stored. owlauth logs this at **error** severity so it reaches alerting.
+
+The backfill statements below are idempotent (`ON CONFLICT DO NOTHING` on PostgreSQL,
+`$setOnInsert` with `upsert` on MongoDB), so re-running one is the repair: it provisions any
+account that is missing a record and leaves every existing record untouched. Safe to schedule
+periodically if you want the gap closed without manual intervention.
+
 ## Order of operations
 
 1. Run the migration (including the backfill).

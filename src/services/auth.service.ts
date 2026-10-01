@@ -216,11 +216,19 @@ export class AuthService {
             emailVerifiedAt: null
           });
         } catch (err) {
-          // A missing record already resolves to "active", so the effective policy is
-          // unchanged. Failing the signup here would leave the user created but unusable.
-          this.logger.warn(
-            "Failed to create account security record after signup. Proceeding without it.",
-            { userId: user.id, error: err instanceof Error ? err.message : "Unknown error" },
+          // The user row is already committed and cannot be rolled back from here, so the
+          // signup is reported as the success it was. The account remains usable because a
+          // missing record resolves to "active", which is exactly what this write would have
+          // stored — the account is unprovisioned, not broken or silently privileged.
+          //
+          // Logged at error severity rather than warn so it reaches alerting: the datastore
+          // is in a state an operator should repair, even though no user is affected.
+          this.logger.error(
+            "Failed to create account security record after signup. The account is usable " +
+              "because a missing record is treated as active. Re-run the account security " +
+              "backfill to provision it.",
+            err,
+            { userId: user.id },
             options?.correlationId
           );
         }
