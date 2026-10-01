@@ -84,7 +84,22 @@ DROP TABLE public.account_security;
 ### Up
 
 ```js
-db.createCollection("account_security");
+// The validator is required. owlauth inspects it at startup and refuses to connect
+// without it, because MongoDB has no columns to constrain otherwise.
+db.createCollection("account_security", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["user_id", "status", "email_verified_at", "updated_at"],
+      properties: {
+        user_id: { bsonType: "objectId" },
+        status: { enum: ["active", "pending_email_verification", "disabled"] },
+        email_verified_at: { bsonType: ["date", "null"] },
+        updated_at: { bsonType: "date" }
+      }
+    }
+  }
+});
 
 // One state record per user. owlauth validates this index at startup.
 db.account_security.createIndex(
@@ -114,6 +129,25 @@ db.users
 
 `user_id` must be the user's `ObjectId`, not its string form. The index must be unique,
 non-partial, and non-sparse; owlauth rejects the connection otherwise.
+
+owlauth validates at startup that the collection exists, carries a `$jsonSchema` validator
+listing all four fields as required, declares `user_id` as `objectId` and the two timestamps as
+`date`, restricts `status` to **exactly** the three known values, and has a unique `user_id`
+index. A `status` enum containing a fourth value is rejected — it would reintroduce the very
+gap the validator exists to close.
+
+To add the validator to a collection that already exists, use `collMod`:
+
+```js
+db.runCommand({
+  collMod: "account_security",
+  validator: {
+    /* the $jsonSchema shown above */
+  },
+  validationLevel: "strict",
+  validationAction: "error"
+});
+```
 
 ### Down
 

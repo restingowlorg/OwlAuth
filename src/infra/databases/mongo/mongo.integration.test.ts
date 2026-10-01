@@ -1,4 +1,4 @@
-import { Collection, MongoClient } from "mongodb";
+import { Collection, MongoClient, ObjectId } from "mongodb";
 import { connectMongo } from "./db";
 import { IMongoAccountSecurityDoc, IMongoUserDoc } from "./types";
 import { MongoUserRepo } from "../../../repositories/mongo/user.repo";
@@ -111,11 +111,29 @@ integrationDescribe("MongoDB adapter integration", () => {
   });
 
   describe("account identity state", () => {
+    const accountSecurityValidator = {
+      $jsonSchema: {
+        bsonType: "object",
+        required: ["user_id", "status", "email_verified_at", "updated_at"],
+        properties: {
+          user_id: { bsonType: "objectId" },
+          status: { enum: ["active", "pending_email_verification", "disabled"] },
+          email_verified_at: { bsonType: ["date", "null"] },
+          updated_at: { bsonType: "date" }
+        }
+      }
+    };
+
     async function createAccountSecurityCollection(options?: {
       userIdUnique?: boolean;
+      validator?: Record<string, unknown> | null;
     }): Promise<Collection<IMongoAccountSecurityDoc>> {
+      const validator =
+        options?.validator === undefined ? accountSecurityValidator : options.validator;
+
       const collection = await database.createCollection<IMongoAccountSecurityDoc>(
-        accountSecurityCollectionName
+        accountSecurityCollectionName,
+        validator === null ? undefined : { validator }
       );
 
       if (options?.userIdUnique ?? true) {
@@ -154,6 +172,106 @@ integrationDescribe("MongoDB adapter integration", () => {
       await expect(connectMongo({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
         "must have a non-partial, non-sparse, single-field unique index on 'user_id'"
       );
+    });
+
+    it("rejects a collection with no validator at all", async () => {
+      await createAccountSecurityCollection({ validator: null });
+
+      await expect(connectMongo({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "must have a $jsonSchema validator"
+      );
+    });
+
+    it("rejects a collection that does not exist", async () => {
+      await expect(connectMongo({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "does not exist"
+      );
+    });
+
+    it("rejects a validator that omits a required field", async () => {
+      await createAccountSecurityCollection({
+        validator: {
+          $jsonSchema: {
+            ...accountSecurityValidator.$jsonSchema,
+            required: ["user_id", "status"]
+          }
+        }
+      });
+
+      await expect(connectMongo({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        /must list 'email_verified_at', 'updated_at' as required/
+      );
+    });
+
+    it("rejects a validator with no status enum", async () => {
+      await createAccountSecurityCollection({
+        validator: {
+          $jsonSchema: {
+            ...accountSecurityValidator.$jsonSchema,
+            properties: {
+              ...accountSecurityValidator.$jsonSchema.properties,
+              status: { bsonType: "string" }
+            }
+          }
+        }
+      });
+
+      await expect(connectMongo({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "must restrict 'status' to exactly the known statuses"
+      );
+    });
+
+    // An enum permitting an extra value reintroduces exactly the problem the validator
+    // exists to prevent, so a superset is rejected rather than tolerated.
+    it("rejects a status enum that permits an extra value", async () => {
+      await createAccountSecurityCollection({
+        validator: {
+          $jsonSchema: {
+            ...accountSecurityValidator.$jsonSchema,
+            properties: {
+              ...accountSecurityValidator.$jsonSchema.properties,
+              status: {
+                enum: ["active", "pending_email_verification", "disabled", "suspended"]
+              }
+            }
+          }
+        }
+      });
+
+      await expect(connectMongo({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "must restrict 'status' to exactly the known statuses"
+      );
+    });
+
+    it("rejects a validator declaring user_id as a string", async () => {
+      await createAccountSecurityCollection({
+        validator: {
+          $jsonSchema: {
+            ...accountSecurityValidator.$jsonSchema,
+            properties: {
+              ...accountSecurityValidator.$jsonSchema.properties,
+              user_id: { bsonType: "string" }
+            }
+          }
+        }
+      });
+
+      await expect(connectMongo({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "must declare 'user_id' as bsonType 'objectId'"
+      );
+    });
+
+    it("lets the validator reject a mistyped status at write time", async () => {
+      const collection = await createAccountSecurityCollection();
+
+      await expect(
+        collection.insertOne({
+          user_id: new ObjectId(),
+          status: "disable",
+          email_verified_at: null,
+          updated_at: new Date()
+        } as unknown as IMongoAccountSecurityDoc)
+      ).rejects.toThrow();
     });
 
     it("rejects an enabled feature with no collection name", async () => {

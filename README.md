@@ -165,7 +165,7 @@ Enforcement follows the `accountSecurity` option, not the presence of a reposito
 
 > **Note:** `disabled` is durable account policy, not brute-force lockout. OwlAuth stores no failed-attempt counters, source addresses, or lockout timers. Throttle your endpoints separately.
 
-Enabling this requires the table or collection to exist first — OwlAuth validates its schema while connecting. See the [migration and rollback guide](docs/migrations/ROOS-34-account-identity-state.md).
+Enabling this requires the table or collection to exist first — OwlAuth validates its schema while connecting. PostgreSQL must carry a `CHECK` constraint restricting `status`; MongoDB must carry an equivalent `$jsonSchema` collection validator, since there are no columns to constrain. Both are rejected at startup if absent. See the [migration and rollback guide](docs/migrations/ROOS-34-account-identity-state.md).
 
 ## Cryptography
 
