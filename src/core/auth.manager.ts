@@ -15,7 +15,18 @@ export async function createAuthManager<T extends AuthType = "credentials">(
   const db = await options.adapter.connect(options as AuthOptions<AuthType>);
 
   // Auth Services
-  const services = initAuthServices(db, options as AuthOptions<AuthType>);
+  //
+  // The adapter is connected by this point and this function owns it, so anything thrown
+  // while wiring up services must release it first. Without this a caller that catches and
+  // retries initialisation leaks one pool or socket per attempt.
+  let services;
+  try {
+    services = initAuthServices(db, options as AuthOptions<AuthType>);
+  } catch (error) {
+    // A failure to close must not mask the configuration error that caused it.
+    await db.close().catch(() => undefined);
+    throw error;
+  }
 
   return Object.freeze({
     ...services,
