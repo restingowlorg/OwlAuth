@@ -121,10 +121,14 @@ export async function validateUniqueColumn(
  * startup instead of leaving it to be discovered during an authentication attempt.
  *
  * This inspects the constraint definition rendered by `pg_get_constraintdef`, which
- * normalises `IN (...)` to `= ANY (ARRAY[...])`. It therefore confirms that a CHECK
- * constraint on the column mentions every expected value. It is not a SQL parser: a
- * hand-written constraint that lists all expected values while also permitting another
- * would pass here. The runtime allow-list is what makes that case safe.
+ * normalises `IN (...)` to `= ANY (ARRAY[...])`, and compares the complete set of string
+ * literals it contains against the expected values. The sets must match exactly: a
+ * constraint permitting a fourth value is rejected, because accepting it would make the
+ * schema contradict what the migration and documentation promise.
+ *
+ * A consequence worth knowing: a compound constraint such as
+ * `CHECK (status IN (...) AND note <> 'x')` is rejected, because `'x'` joins the literal
+ * set. The contract here is a plain enum constraint on the column.
  */
 export async function validateEnumCheckConstraint(
   pool: Pool,
@@ -151,14 +155,27 @@ export async function validateEnumCheckConstraint(
     if (!definition.includes(column)) {
       return false;
     }
-    return allowedValues.every((value) => definition.includes(`'${value}'`));
+
+    // Every single-quoted literal in the definition, with PostgreSQL's doubled-quote
+    // escaping ('' inside a literal) collapsed back to a single quote.
+    const literals = new Set<string>(
+      Array.from(definition.matchAll(/'((?:[^']|'')*)'/g), (match) =>
+        (match[1] ?? "").replace(/''/g, "'")
+      )
+    );
+
+    // Exact set equality. A subset means a promised value cannot be stored; a superset
+    // means an unsupported one can.
+    return (
+      literals.size === allowedValues.length && allowedValues.every((value) => literals.has(value))
+    );
   });
 
   if (!hasEnumConstraint) {
     throw new Error(
-      `[Auth:validateEnumCheckConstraint] Table '${schema}.${table}' must have a CHECK constraint restricting '${column}' to (${allowedValues
+      `[Auth:validateEnumCheckConstraint] Table '${schema}.${table}' must have a CHECK constraint restricting '${column}' to exactly (${allowedValues
         .map((value) => `'${value}'`)
-        .join(", ")})`
+        .join(", ")}). A constraint permitting any other value is rejected.`
     );
   }
 }

@@ -124,6 +124,58 @@ describe("validateEnumCheckConstraint", () => {
     await expect(call()).rejects.toThrow("must have a CHECK constraint restricting 'status'");
   });
 
+  // Containing all three is not enough: a fourth value makes the schema contradict what
+  // the migration and documentation promise.
+  it("rejects a constraint that permits an unsupported fourth value", async () => {
+    (pool.query as jest.Mock).mockResolvedValue({
+      rows: [
+        {
+          definition:
+            "CHECK ((status = ANY (ARRAY['active'::text, 'pending_email_verification'::text, 'disabled'::text, 'suspended'::text])))"
+        }
+      ]
+    });
+
+    await expect(call()).rejects.toThrow("to exactly ('active', 'pending_email_verification',");
+  });
+
+  it("rejects a compound constraint that introduces an extra literal", async () => {
+    (pool.query as jest.Mock).mockResolvedValue({
+      rows: [
+        {
+          definition:
+            "CHECK (((status = ANY (ARRAY['active'::text, 'pending_email_verification'::text, 'disabled'::text])) AND (note <> 'x'::text)))"
+        }
+      ]
+    });
+
+    await expect(call()).rejects.toThrow("must have a CHECK constraint restricting 'status'");
+  });
+
+  it("accepts an exact constraint alongside an unrelated one on another column", async () => {
+    (pool.query as jest.Mock).mockResolvedValue({
+      rows: [
+        { definition: "CHECK ((char_length(note) < 100))" },
+        {
+          definition:
+            "CHECK ((status = ANY (ARRAY['active'::text, 'pending_email_verification'::text, 'disabled'::text])))"
+        }
+      ]
+    });
+
+    await expect(call()).resolves.toBeUndefined();
+  });
+
+  it("handles a literal containing an escaped quote", async () => {
+    (pool.query as jest.Mock).mockResolvedValue({
+      rows: [{ definition: "CHECK ((status = ANY (ARRAY['it''s'::text])))" }]
+    });
+
+    await expect(
+      validateEnumCheckConstraint(pool, "public", "account_security", "status", ["it's"])
+    ).resolves.toBeUndefined();
+  });
+
   it("ignores a CHECK constraint on an unrelated column", async () => {
     (pool.query as jest.Mock).mockResolvedValue({
       rows: [{ definition: "CHECK ((char_length(note) < 100))" }]

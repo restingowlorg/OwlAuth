@@ -47,15 +47,22 @@ integrationDescribe("PostgreSQL adapter integration", () => {
     userIdUnique?: boolean;
     withForeignKey?: boolean;
     withStatusCheck?: boolean;
+    statusValues?: readonly string[];
   }): Promise<void> {
     const foreignKey =
       (options?.withForeignKey ?? true)
         ? `REFERENCES ${schema}.${userTable}(id) ON DELETE CASCADE`
         : "";
 
+    const statusValues = options?.statusValues ?? [
+      "active",
+      "pending_email_verification",
+      "disabled"
+    ];
+
     const statusCheck =
       (options?.withStatusCheck ?? true)
-        ? `CHECK (status IN ('active','pending_email_verification','disabled'))`
+        ? `CHECK (status IN (${statusValues.map((value) => `'${value}'`).join(",")}))`
         : "";
 
     await pool.query(`
@@ -185,6 +192,51 @@ integrationDescribe("PostgreSQL adapter integration", () => {
       await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
         "must have a CHECK constraint restricting 'status'"
       );
+    });
+
+    // An otherwise-valid constraint that permits a fourth status still contradicts what the
+    // migration and documentation promise, so startup must reject it.
+    it("rejects an otherwise-valid four-value CHECK constraint", async () => {
+      await createAccountSecurityTable({
+        statusValues: ["active", "pending_email_verification", "disabled", "suspended"]
+      });
+
+      await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "must have a CHECK constraint restricting 'status' to exactly"
+      );
+    });
+
+    it("rejects a CHECK constraint missing one of the three values", async () => {
+      await createAccountSecurityTable({
+        statusValues: ["active", "disabled"]
+      });
+
+      await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "must have a CHECK constraint restricting 'status' to exactly"
+      );
+    });
+
+    it("confirms a four-value constraint really would store the unsupported status", async () => {
+      // Demonstrates what the startup check is protecting against: the datastore accepts
+      // 'suspended', which the service layer then has to deny at runtime.
+      await createAccountSecurityTable({
+        statusValues: ["active", "pending_email_verification", "disabled", "suspended"]
+      });
+
+      const users = new PostgresUserRepository(schema, userTable, pool);
+      const user = await users.create({
+        email: "superset@example.com",
+        username: "superset_user",
+        passwordHash: "hash"
+      });
+
+      await expect(
+        pool.query(
+          `INSERT INTO ${schema}.${accountSecurityTable} (user_id, status, updated_at)
+           VALUES ($1, 'suspended', NOW())`,
+          [user.id]
+        )
+      ).resolves.toBeDefined();
     });
 
     it("confirms an unconstrained column really would accept an invalid status", async () => {

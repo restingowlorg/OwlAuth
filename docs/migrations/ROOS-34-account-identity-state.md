@@ -77,11 +77,17 @@ owlauth validates at startup that the table exists, has the columns
 `user_id` is a foreign key to your users table, and that a `CHECK` constraint restricts
 `status` to the three valid values.
 
-**The `CHECK` constraint is required, not optional.** Without it the column accepts any
-string, so a mistyped status such as `'disable'` could be stored where `'disabled'` was
-intended. owlauth refuses to authenticate an account whose status it does not recognise, so
-such a typo fails safe rather than re-enabling a suspended account — but the constraint stops
-the bad value being stored in the first place.
+**The `CHECK` constraint is required, and must permit exactly these three values.** Without it
+the column accepts any string, so a mistyped status such as `'disable'` could be stored where
+`'disabled'` was intended. A constraint that also permits a fourth value is rejected too: it
+would let an unsupported status reach the datastore, contradicting what this document and the
+README promise. owlauth refuses to authenticate an account whose status it does not recognise,
+so either case fails safe at runtime — but the constraint stops the bad value being stored at
+all.
+
+Note the constraint is read as a plain enum on the column. A compound form such as
+`CHECK (status IN (...) AND note <> 'x')` is rejected, because the extra literal makes the
+permitted set ambiguous.
 
 ### Down
 
@@ -121,22 +127,20 @@ db.account_security.createIndex(
 
 // Backfill: every existing user becomes active.
 const now = new Date();
-db.users
-  .find({}, { _id: 1 })
-  .forEach((user) =>
-    db.account_security.updateOne(
-      { user_id: user._id },
-      {
-        $setOnInsert: {
-          user_id: user._id,
-          status: "active",
-          email_verified_at: null,
-          updated_at: now
-        }
-      },
-      { upsert: true }
-    )
-  );
+db.users.find({}, { _id: 1 }).forEach((user) =>
+  db.account_security.updateOne(
+    { user_id: user._id },
+    {
+      $setOnInsert: {
+        user_id: user._id,
+        status: "active",
+        email_verified_at: null,
+        updated_at: now
+      }
+    },
+    { upsert: true }
+  )
+);
 ```
 
 `user_id` must be the user's `ObjectId`, not its string form. The index must be unique,
