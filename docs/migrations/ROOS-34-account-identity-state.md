@@ -47,6 +47,21 @@ matched, so nothing is revealed, and the verification runs on every duplicate si
 timing does not differ either. An account that already has a record is left untouched, so a
 `disabled` account is never reactivated by a signup attempt.
 
+Three limits are worth knowing, and they are why the backfill below remains the dependable
+repair rather than the retry:
+
+- Because both responses are deliberately generic, the caller is never told that a retry
+  provisioned the account. Someone whose signup failed has no signal to retry with the same
+  details, and changing the email, username or password means the retry no longer matches.
+- A retry still passes the usual password checks first, so a password that has since appeared
+  in a breach corpus is rejected before provisioning is reached.
+- A signup rejected by the datastore's own uniqueness constraint — the narrow race where a
+  concurrent request created the user first — returns the duplicate response without
+  attempting provisioning.
+
+In each case the account stays unprovisioned and unable to authenticate, which is the safe
+outcome; running the backfill resolves it.
+
 > **Do not disable an account by deleting its record.** A deleted record is
 > indistinguishable from a signup that never finished, so the next signup attempt for that
 > address would recreate it as `active`. Set `status` to `disabled` instead, which owlauth

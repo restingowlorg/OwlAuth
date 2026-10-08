@@ -1124,6 +1124,22 @@ describe("AuthService", () => {
           });
         });
 
+        // The ownership check costs a lookup and a bcrypt verify, which consumers without
+        // the feature must not pay on every duplicate signup.
+        it("does no ownership work when the feature is disabled", async () => {
+          const result = await authService.signup(
+            existingUser.email,
+            existingUser.username,
+            "Password123!"
+          );
+
+          expect(result.httpCode).toBe(409);
+          /* eslint-disable @typescript-eslint/unbound-method */
+          expect(mockUserRepo.findWithPasswordById).not.toHaveBeenCalled();
+          expect(mockCrypto.verifyPassword).not.toHaveBeenCalled();
+          /* eslint-enable @typescript-eslint/unbound-method */
+        });
+
         // Two retries can race: both read no record, both insert, and the unique index
         // rejects the second. The record exists either way, so that is not a failure.
         it("treats a concurrent provisioning race as success", async () => {
