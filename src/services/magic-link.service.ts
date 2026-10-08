@@ -1,4 +1,8 @@
-import { UserRepository, MagicLinkRepository } from "../repositories/contracts";
+import {
+  UserRepository,
+  MagicLinkRepository,
+  AccountSecurityRepository
+} from "../repositories/contracts";
 import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
 import {
   AuthResult,
@@ -6,6 +10,7 @@ import {
   VerifyMagicLinkResult,
   ConsumeMagicLinkResult
 } from "../types/index";
+import { isAuthenticationPermitted } from "../utils/account-status";
 
 export class MagicLinkService {
   private static readonly MIN_REQUEST_RESPONSE_TIME_MS = 300;
@@ -15,8 +20,24 @@ export class MagicLinkService {
     private magicLinks: MagicLinkRepository,
     private crypto: ICryptoAdapter,
     private logger: IAuditLogger,
-    private magicLinkBaseUrl?: string
+    private magicLinkBaseUrl?: string,
+    private accountSecurity?: AccountSecurityRepository
   ) {}
+
+  /**
+   * An account whose status does not permit authentication must not be issued or accepted
+   * an authentication credential.
+   *
+   * A magic link is an authentication credential, so it requires the same durable state
+   * record that a password login does. An absent record means the account was never
+   * provisioned and blocks; an unrecognised status blocks; only the permitted statuses pass.
+   */
+  private async isAuthenticationBlocked(userId: string): Promise<boolean> {
+    if (!this.accountSecurity) return false;
+
+    const accountState = await this.accountSecurity.findByUserId(userId);
+    return !accountState || !isAuthenticationPermitted(accountState.status);
+  }
 
   /** Request a magic link (passwordless login) */
   async request(
@@ -42,6 +63,25 @@ export class MagicLinkService {
         await this.enforceMinimumRequestDuration(startedAt);
 
         // Return the same response as a successful request to prevent email enumeration.
+        return {
+          success: true,
+          data: "",
+          message: "If this email is registered, a magic link has been sent.",
+          httpCode: 200
+        };
+      }
+
+      if (await this.isAuthenticationBlocked(user.id)) {
+        // Do not mint a credential for a blocked account, and do not reveal that it exists.
+        this.logger.audit({
+          type: "MAGIC_LINK_FAILURE",
+          userId: user.id,
+          metadata: { reason: "Account status does not permit authentication" },
+          correlationId: options?.correlationId
+        });
+
+        await this.enforceMinimumRequestDuration(startedAt);
+
         return {
           success: true,
           data: "",
@@ -187,6 +227,21 @@ export class MagicLinkService {
         };
       }
 
+      if (await this.isAuthenticationBlocked(String(record.userId))) {
+        this.logger.audit({
+          type: "MAGIC_LINK_FAILURE",
+          userId: record.userId,
+          metadata: { reason: "Account status does not permit authentication" },
+          correlationId: options?.correlationId
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "Invalid or expired magic link",
+          httpCode: 401
+        };
+      }
+
       this.logger.audit({
         type: "MAGIC_LINK_VERIFIED",
         userId: record.userId,
@@ -258,6 +313,22 @@ export class MagicLinkService {
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
           metadata: { reason: "Token mismatch" },
+          correlationId: options?.correlationId
+        });
+        return {
+          success: false,
+          data: undefined,
+          message: "Invalid or expired magic link",
+          httpCode: 401
+        };
+      }
+
+      if (await this.isAuthenticationBlocked(String(record.userId))) {
+        // Deny before consuming, so the token is left untouched.
+        this.logger.audit({
+          type: "MAGIC_LINK_FAILURE",
+          userId: record.userId,
+          metadata: { reason: "Account status does not permit authentication" },
           correlationId: options?.correlationId
         });
         return {

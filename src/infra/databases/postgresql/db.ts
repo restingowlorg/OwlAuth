@@ -1,15 +1,21 @@
 import { Pool } from "pg";
 import { PostgresUserRepository } from "../../../repositories/postgresql/user.repo";
 import { PostgresMagicLinkRepository } from "../../../repositories/postgresql/magic.link.repo";
-import { PostgresMagicLinkSchema, PostgresUserSchema } from "./schema";
-import { AuthDB } from "../../../repositories/contracts";
+import { PostgresAccountSecurityRepository } from "../../../repositories/postgresql/account.security.repo";
+import {
+  PostgresAccountSecuritySchema,
+  PostgresMagicLinkSchema,
+  PostgresUserSchema
+} from "./schema";
+import { ACCOUNT_STATUSES, AuthDB } from "../../../repositories/contracts";
 import {
   validateSchema,
   validateTable,
   validateColumns,
   validateNonNullableColumns,
   validateForeignKey,
-  validateUniqueColumn
+  validateUniqueColumn,
+  validateColumnDomain
 } from "./helpers";
 import { InitPostgresOptions } from "./types";
 import { BaseAuthOptions } from "../../../core/types";
@@ -26,7 +32,10 @@ export async function initPostgres(
     userSchema = "public",
     magicLinkTableName,
     magicLinkSchema = "public",
-    authTypes
+    accountSecurityTableName,
+    accountSecuritySchema = "public",
+    authTypes,
+    accountSecurity
   } = options;
 
   if (!postgresUrl) throw new Error("[Auth:initPostgres] postgresUrl is required");
@@ -74,10 +83,61 @@ export async function initPostgres(
       magicRepo = new PostgresMagicLinkRepository(magicLinkSchema, magicTable, pool);
     }
 
+    // Account security table validations (if enabled)
+    let accountSecurityRepo: PostgresAccountSecurityRepository | undefined;
+
+    if (accountSecurity) {
+      const accountSecurityTable = accountSecurityTableName ?? "account_security";
+      const qualifiedAccountSecurityTable = `${accountSecuritySchema}.${accountSecurityTable}`;
+
+      await Promise.all([
+        validateSchema(pool, accountSecuritySchema),
+        validateTable(pool, qualifiedAccountSecurityTable),
+        validateColumns(
+          pool,
+          accountSecuritySchema,
+          accountSecurityTable,
+          PostgresAccountSecuritySchema.requiredColumns
+        ),
+        validateNonNullableColumns(pool, accountSecuritySchema, accountSecurityTable, [
+          "user_id",
+          "status",
+          "updated_at"
+        ]),
+        // One state record per user.
+        validateUniqueColumn(pool, accountSecuritySchema, accountSecurityTable, "user_id"),
+        // Without this constraint the column accepts any string, so a typo could be
+        // stored where a meaningful status was intended.
+        validateColumnDomain(
+          pool,
+          accountSecuritySchema,
+          accountSecurityTable,
+          "status",
+          ACCOUNT_STATUSES
+        ),
+        validateForeignKey(
+          pool,
+          accountSecuritySchema,
+          accountSecurityTable,
+          userSchema,
+          userTableName,
+          "user_id",
+          "id"
+        )
+      ]);
+
+      accountSecurityRepo = new PostgresAccountSecurityRepository(
+        accountSecuritySchema,
+        accountSecurityTable,
+        pool
+      );
+    }
+
     // Return repositories
     return {
       userRepo: new PostgresUserRepository(userSchema, userTableName, pool),
       magicLinkRepo: magicRepo,
+      accountSecurityRepo,
       close: async () => {
         await pool.end();
       }

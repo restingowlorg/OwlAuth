@@ -1,8 +1,15 @@
-import { MongoClient, Collection, Document } from "mongodb";
+import { MongoClient, Collection, Db, Document } from "mongodb";
 import { MongoMagicLinkRepo } from "../../../repositories/mongo/magicLink.repo";
 import { MongoUserRepo } from "../../../repositories/mongo/user.repo";
-import { AuthDB } from "../../../repositories/contracts";
-import { IMongoMagicLinkDoc, IMongoUserDoc, InitMongoOptions } from "./types";
+import { MongoAccountSecurityRepo } from "../../../repositories/mongo/accountSecurity.repo";
+import { ACCOUNT_STATUSES, AuthDB } from "../../../repositories/contracts";
+import { MongoAccountSecuritySchema } from "./schema";
+import {
+  IMongoAccountSecurityDoc,
+  IMongoMagicLinkDoc,
+  IMongoUserDoc,
+  InitMongoOptions
+} from "./types";
 import { BaseAuthOptions } from "../../../core/types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -18,10 +25,135 @@ function isMongoIndexMetadata(value: unknown): value is {
   return isRecord(value) && isRecord(value.key);
 }
 
+function nestedRecord(value: unknown, key: string): Record<string, unknown> | undefined {
+  if (!isRecord(value)) return undefined;
+  const nested = value[key];
+  return isRecord(nested) ? nested : undefined;
+}
+
+function stringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items: unknown[] = value;
+  const strings = items.filter((item): item is string => typeof item === "string");
+  return strings.length === items.length ? strings : undefined;
+}
+
+/** `bsonType` accepts either a single type or a list of them. */
+function bsonTypesOf(property: Record<string, unknown> | undefined): string[] {
+  if (!property) return [];
+  const bsonType = property["bsonType"];
+  if (typeof bsonType === "string") return [bsonType];
+  return stringArray(bsonType) ?? [];
+}
+
+/**
+ * Verify the account security collection carries a `$jsonSchema` validator covering the
+ * required fields and restricting `status` to the known values.
+ *
+ * MongoDB has no columns to inspect, so without a collection validator the store accepts a
+ * document with a missing field, a `user_id` of the wrong BSON type, or a mistyped status.
+ * The service layer refuses to honour a status it does not recognise, but a validator stops
+ * the bad value being written at all — the same role the `CHECK` constraint plays in
+ * PostgreSQL.
+ */
+async function validateAccountSecuritySchema(
+  database: Db,
+  collectionName: string,
+  requiredFields: readonly string[],
+  allowedStatuses: readonly string[]
+): Promise<void> {
+  const fail = (detail: string): never => {
+    throw new Error(
+      `[Auth:connectMongo] Collection '${collectionName}' ${detail}. Create it with a $jsonSchema validator that requires ${requiredFields
+        .map((field) => `'${field}'`)
+        .join(", ")} and restricts 'status' to ${allowedStatuses
+        .map((status) => `'${status}'`)
+        .join(", ")}`
+    );
+  };
+
+  let collections: unknown[];
+  try {
+    collections = await database.listCollections({ name: collectionName }).toArray();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    throw new Error(
+      `[Auth:connectMongo] Failed to inspect collection '${collectionName}': ${message}`
+    );
+  }
+
+  const info = collections[0];
+  if (info === undefined) {
+    fail("does not exist");
+    return;
+  }
+
+  // listCollections reports the validator under `options.validator.$jsonSchema`.
+  const collectionOptions = nestedRecord(info, "options");
+  const jsonSchema = nestedRecord(nestedRecord(collectionOptions, "validator"), "$jsonSchema");
+  if (!jsonSchema) {
+    fail("must have a $jsonSchema validator");
+    return;
+  }
+
+  // A declared validator does not mean an enforced one. `validationAction: "warn"` logs
+  // violations and stores the document anyway, and `validationLevel: "off"` skips the rules
+  // entirely — either leaves the collection accepting a status the schema claims to forbid.
+  // Both default to the strict values, so only an explicit downgrade is rejected.
+  const validationAction = collectionOptions?.["validationAction"];
+  if (validationAction !== undefined && validationAction !== "error") {
+    fail(
+      `has validationAction '${String(validationAction)}', which does not reject invalid ` +
+        `documents; it must be 'error'`
+    );
+  }
+
+  const validationLevel = collectionOptions?.["validationLevel"];
+  if (validationLevel !== undefined && validationLevel !== "strict") {
+    fail(
+      `has validationLevel '${String(validationLevel)}', which does not apply the validator ` +
+        `to every write; it must be 'strict'`
+    );
+  }
+
+  const required = stringArray(jsonSchema["required"]) ?? [];
+  const missing = requiredFields.filter((field) => !required.includes(field));
+  if (missing.length > 0) {
+    fail(`validator must list ${missing.map((field) => `'${field}'`).join(", ")} as required`);
+  }
+
+  const properties = nestedRecord(jsonSchema, "properties");
+  const statusEnum = stringArray(nestedRecord(properties, "status")?.["enum"]);
+
+  // An enum permitting anything beyond the known statuses reintroduces the problem the
+  // validator exists to prevent, so the sets must match exactly.
+  const statusEnumMatches =
+    statusEnum !== undefined &&
+    statusEnum.length === allowedStatuses.length &&
+    allowedStatuses.every((status) => statusEnum.includes(status));
+
+  if (!statusEnumMatches) {
+    fail("validator must restrict 'status' to exactly the known statuses");
+  }
+
+  if (!bsonTypesOf(nestedRecord(properties, "user_id")).includes("objectId")) {
+    // The repository queries by ObjectId; a string would silently never match.
+    fail("validator must declare 'user_id' as bsonType 'objectId'");
+  }
+
+  for (const dateField of ["email_verified_at", "updated_at"]) {
+    if (requiredFields.includes(dateField)) {
+      if (!bsonTypesOf(nestedRecord(properties, dateField)).includes("date")) {
+        fail(`validator must declare '${dateField}' as bsonType 'date'`);
+      }
+    }
+  }
+}
+
 async function validateUniqueIndex<T extends Document>(
   collection: Collection<T>,
   collectionName: string,
-  field: "email" | "username"
+  field: string
 ): Promise<void> {
   let indexes: unknown;
 
@@ -68,7 +200,14 @@ async function validateUniqueIndex<T extends Document>(
  * Connect to MongoDB and initialize repositories
  */
 export async function connectMongo(options: InitMongoOptions & BaseAuthOptions): Promise<AuthDB> {
-  const { mongoUri, userCollectionName, magicLinkCollectionName, authTypes } = options;
+  const {
+    mongoUri,
+    userCollectionName,
+    magicLinkCollectionName,
+    accountSecurityCollectionName,
+    authTypes,
+    accountSecurity
+  } = options;
 
   if (!mongoUri) throw new Error("[Auth:connectMongo] mongoUri is required");
   if (!userCollectionName) throw new Error("[Auth:connectMongo] userCollectionName is required");
@@ -97,10 +236,36 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
       magicColl = db.collection<IMongoMagicLinkDoc>(magicLinkCollectionName);
     }
 
+    // Account security collection
+    let accountSecurityColl: Collection<IMongoAccountSecurityDoc> | undefined;
+    if (accountSecurity) {
+      if (!accountSecurityCollectionName) {
+        throw new Error(
+          `[Auth:connectMongo] Account security requested but 'accountSecurityCollectionName' is not provided`
+        );
+      }
+
+      accountSecurityColl = db.collection<IMongoAccountSecurityDoc>(accountSecurityCollectionName);
+
+      // Checked before the index so a missing collection reports itself clearly.
+      await validateAccountSecuritySchema(
+        db,
+        accountSecurityCollectionName,
+        MongoAccountSecuritySchema.requiredFields,
+        ACCOUNT_STATUSES
+      );
+
+      // One state record per user.
+      await validateUniqueIndex(accountSecurityColl, accountSecurityCollectionName, "user_id");
+    }
+
     // Initialize repositories
     return {
       userRepo: new MongoUserRepo(userColl),
       magicLinkRepo: magicColl ? new MongoMagicLinkRepo(magicColl) : undefined,
+      accountSecurityRepo: accountSecurityColl
+        ? new MongoAccountSecurityRepo(accountSecurityColl)
+        : undefined,
       close: async () => {
         await client.close();
       }

@@ -8,8 +8,9 @@ export class MongoAdapter implements IDatabaseAdapter {
   constructor(private readonly config: InitMongoOptions) {}
 
   async connect(options: BaseAuthOptions): Promise<AuthDB> {
-    const { mongoUri, userCollectionName, magicLinkCollectionName } = this.config;
-    const { authTypes } = options;
+    const { mongoUri, userCollectionName, magicLinkCollectionName, accountSecurityCollectionName } =
+      this.config;
+    const { authTypes, accountSecurity } = options;
 
     if (!mongoUri) throw new Error("[Auth:MongoAdapter] mongoUri is required for MongoAdapter");
     if (!userCollectionName)
@@ -19,7 +20,9 @@ export class MongoAdapter implements IDatabaseAdapter {
       mongoUri,
       userCollectionName,
       magicLinkCollectionName,
-      authTypes
+      accountSecurityCollectionName,
+      authTypes,
+      accountSecurity
     });
   }
 }

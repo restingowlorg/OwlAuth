@@ -3,6 +3,9 @@ import {
   UserRepository,
   MagicLinkRepository,
   MagicLinkToken,
+  AccountSecurityRepository,
+  AccountSecurityRecord,
+  AccountStatus,
   User
 } from "../repositories/contracts";
 import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
@@ -368,6 +371,219 @@ describe("MagicLinkService", () => {
         undefined,
         correlationId
       );
+    });
+  });
+
+  describe("account identity state", () => {
+    const email = "test@example.com";
+    const token = "a".repeat(64);
+    const lookupKey = token.substring(0, 16);
+
+    let mockAccountSecurityRepo: jest.Mocked<AccountSecurityRepository>;
+    let accountService: MagicLinkService;
+
+    beforeEach(() => {
+      mockAccountSecurityRepo = {
+        create: jest.fn(),
+        findByUserId: jest.fn()
+      };
+
+      accountService = new MagicLinkService(
+        mockUserRepo,
+        mockMagicLinkRepo,
+        mockCrypto,
+        mockLogger,
+        undefined,
+        mockAccountSecurityRepo
+      );
+    });
+
+    function buildRecord(status: AccountStatus): AccountSecurityRecord {
+      return { userId: "1", status, emailVerifiedAt: null, updatedAt: new Date() };
+    }
+
+    function arrangeValidToken(): void {
+      mockMagicLinkRepo.findByLookupKey.mockResolvedValue({
+        id: "1",
+        userId: "1",
+        lookupKey,
+        tokenHash: "hashed_token",
+        expiresAt: new Date(Date.now() + 60_000),
+        usedAt: null,
+        createdAt: new Date()
+      });
+      (mockCrypto.verifyToken as jest.Mock).mockResolvedValue(true);
+    }
+
+    describe("request", () => {
+      it("mints no token for a disabled account but returns the neutral response", async () => {
+        mockUserRepo.findByEmail.mockResolvedValue({ id: "1", email } as unknown as User);
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(buildRecord("disabled"));
+
+        const result = await accountService.request(email);
+
+        // Identical to the unknown-email response, so the account is not revealed.
+        expect(result.success).toBe(true);
+        expect(result.httpCode).toBe(200);
+        expect(result.data).toBe("");
+        expect(result.message).toBe("If this email is registered, a magic link has been sent.");
+        /* eslint-disable @typescript-eslint/unbound-method */
+        expect(mockMagicLinkRepo.create).not.toHaveBeenCalled();
+        expect(mockLogger.audit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "MAGIC_LINK_FAILURE",
+            metadata: { reason: "Account status does not permit authentication" }
+          })
+        );
+        /* eslint-enable @typescript-eslint/unbound-method */
+      });
+
+      it("mints no token for an unrecognised status", async () => {
+        mockUserRepo.findByEmail.mockResolvedValue({ id: "1", email } as unknown as User);
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(
+          buildRecord("disable" as AccountStatus)
+        );
+
+        const result = await accountService.request(email);
+
+        expect(result.success).toBe(true);
+        expect(result.data).toBe("");
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockMagicLinkRepo.create).not.toHaveBeenCalled();
+      });
+
+      it("issues a token for an active account", async () => {
+        mockUserRepo.findByEmail.mockResolvedValue({ id: "1", email } as unknown as User);
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(buildRecord("active"));
+        mockMagicLinkRepo.invalidateByUserId.mockResolvedValue(true);
+        mockCrypto.generateToken.mockReturnValue("raw_token");
+        (mockCrypto.hashToken as jest.Mock).mockResolvedValue("hashed_token");
+        mockMagicLinkRepo.create.mockResolvedValue({ id: "1" } as unknown as MagicLinkToken);
+
+        const result = await accountService.request(email);
+
+        expect(result.success).toBe(true);
+        expect(result.data).toBe("raw_token");
+      });
+    });
+
+    describe("verify", () => {
+      it("rejects a disabled account with the generic response", async () => {
+        arrangeValidToken();
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(buildRecord("disabled"));
+
+        const result = await accountService.verify(token);
+
+        expect(result.success).toBe(false);
+        expect(result.httpCode).toBe(401);
+        expect(result.message).toBe("Invalid or expired magic link");
+      });
+
+      it("accepts an active account", async () => {
+        arrangeValidToken();
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(buildRecord("active"));
+
+        const result = await accountService.verify(token);
+
+        expect(result.success).toBe(true);
+        expect(result.data?.isValid).toBe(true);
+      });
+
+      it("rejects an unrecognised status", async () => {
+        arrangeValidToken();
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(
+          buildRecord("disable" as AccountStatus)
+        );
+
+        const result = await accountService.verify(token);
+
+        expect(result.success).toBe(false);
+        expect(result.httpCode).toBe(401);
+        expect(result.message).toBe("Invalid or expired magic link");
+      });
+    });
+
+    describe("consume", () => {
+      it("rejects a disabled account without consuming the token", async () => {
+        arrangeValidToken();
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(buildRecord("disabled"));
+
+        const result = await accountService.consume(token);
+
+        expect(result.success).toBe(false);
+        expect(result.httpCode).toBe(401);
+        expect(result.message).toBe("Invalid or expired magic link");
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockMagicLinkRepo.consume).not.toHaveBeenCalled();
+      });
+
+      it("consumes the token for an account awaiting email verification", async () => {
+        arrangeValidToken();
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(
+          buildRecord("pending_email_verification")
+        );
+        mockMagicLinkRepo.consume.mockResolvedValue(true);
+
+        const result = await accountService.consume(token);
+
+        expect(result.success).toBe(true);
+        expect(result.data?.userId).toBe("1");
+      });
+
+      // A magic link is an authentication credential, so it needs the same durable state
+      // record a password login does. No record means the account was never provisioned.
+      it("rejects a user that has no record without consuming the token", async () => {
+        arrangeValidToken();
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(null);
+
+        const result = await accountService.consume(token);
+
+        expect(result.success).toBe(false);
+        expect(result.httpCode).toBe(401);
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockMagicLinkRepo.consume).not.toHaveBeenCalled();
+      });
+
+      it("mints no token for a user that has no record", async () => {
+        mockUserRepo.findByEmail.mockResolvedValue({ id: "1", email } as unknown as User);
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(null);
+
+        const result = await accountService.request(email);
+
+        expect(result.success).toBe(true);
+        expect(result.data).toBe("");
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockMagicLinkRepo.create).not.toHaveBeenCalled();
+      });
+
+      // Matching only "disabled" would let each of these consume a magic link.
+      it.each([["disable"], ["DISABLED"], ["banned"], [""]])(
+        "rejects an unrecognised status %p without consuming the token",
+        async (status) => {
+          arrangeValidToken();
+          mockAccountSecurityRepo.findByUserId.mockResolvedValue(
+            buildRecord(status as AccountStatus)
+          );
+
+          const result = await accountService.consume(token);
+
+          expect(result.success).toBe(false);
+          expect(result.httpCode).toBe(401);
+          // eslint-disable-next-line @typescript-eslint/unbound-method
+          expect(mockMagicLinkRepo.consume).not.toHaveBeenCalled();
+        }
+      );
+
+      it("does not touch the repository when the feature is disabled", async () => {
+        arrangeValidToken();
+        mockMagicLinkRepo.consume.mockResolvedValue(true);
+
+        const result = await service.consume(token);
+
+        expect(result.success).toBe(true);
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockAccountSecurityRepo.findByUserId).not.toHaveBeenCalled();
+      });
     });
   });
 });

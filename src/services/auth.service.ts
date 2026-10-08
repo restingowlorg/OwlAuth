@@ -1,10 +1,18 @@
 import { zxcvbn } from "@zxcvbn-ts/core";
 import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
 import { isBreachedPassword } from "../infra/security/pwned-passwords";
-import { UserRepository, MagicLinkRepository, DuplicateUserError } from "../repositories/contracts";
+import {
+  UserRepository,
+  MagicLinkRepository,
+  AccountSecurityRepository,
+  AccountSecurityRecordExistsError,
+  CreateUserInput,
+  SafeUser,
+  DuplicateUserError
+} from "../repositories/contracts";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
+import { isAuthenticationPermitted } from "../utils/account-status";
 import { AuthResult, LoginResult, SignupResult, ChangePasswordResult } from "../types";
-import { CreateUserInput } from "../repositories/contracts";
 
 export class AuthService {
   constructor(
@@ -12,8 +20,86 @@ export class AuthService {
     private readonly crypto: ICryptoAdapter,
     private readonly logger: IAuditLogger,
     private readonly usernameValidator?: (username: string) => boolean,
-    private readonly magicLinks?: MagicLinkRepository
+    private readonly magicLinks?: MagicLinkRepository,
+    private readonly accountSecurity?: AccountSecurityRepository
   ) {}
+
+  /**
+   * Complete provisioning when a duplicate signup is a genuine retry of one that failed.
+   *
+   * Requires proof of ownership. Email and username are identifiers, not secrets, so a
+   * matching pair shows only that the caller knows who the account belongs to — anyone able
+   * to guess both could otherwise make an unprovisioned account reachable. The supplied
+   * password must verify against the stored hash, which only the person who created the
+   * account can produce. It is never stored or updated here; the original password stands.
+   *
+   * The verification runs before the identity comparison so a duplicate signup costs the
+   * same regardless of which field collided, leaving no timing signal for whether both
+   * belong to one account. The caller returns the same generic 409 either way.
+   *
+   * Either duplicate check can be the one that fires, so both call this — the username check
+   * runs first, and a real retry repeats both fields.
+   */
+  private async completeProvisioningForRetry(
+    existing: SafeUser,
+    email: string,
+    username: string,
+    password: string,
+    options?: { correlationId?: string }
+  ): Promise<boolean> {
+    // Consumers with the feature off must not pay for a password verification here.
+    if (!this.accountSecurity) return false;
+
+    const withPassword = await this.users.findWithPasswordById(existing.id);
+    const ownsAccount = withPassword
+      ? await this.crypto.verifyPassword(password, withPassword.password)
+      : false;
+
+    if (existing.email !== email || existing.username !== username) return false;
+    if (!ownsAccount) return false;
+
+    return await this.completeProvisioning(existing.id, options?.correlationId);
+  }
+
+  /**
+   * Finish provisioning an account whose state record was never written.
+   *
+   * Idempotent and best-effort: an account that already has a record is left untouched, and
+   * a failure here is logged rather than thrown, because the caller's own outcome does not
+   * depend on it. Nothing is made reachable that should not be — an unprovisioned account
+   * cannot authenticate, so completing it only restores the state signup intended.
+   *
+   * Note this means deleting a record is **not** a way to suspend an account: the next
+   * signup attempt for that address would recreate it as `active`. Set `status` to
+   * `disabled` instead, which this leaves untouched.
+   */
+  private async completeProvisioning(userId: string, correlationId?: string): Promise<boolean> {
+    if (!this.accountSecurity) return false;
+
+    try {
+      const existing = await this.accountSecurity.findByUserId(userId);
+      if (existing) return false;
+
+      await this.accountSecurity.create({
+        userId,
+        status: "active",
+        emailVerifiedAt: null
+      });
+
+      return true;
+    } catch (err) {
+      // A concurrent retry winning the race is the outcome this wanted, not a failure.
+      if (err instanceof AccountSecurityRecordExistsError) return false;
+
+      this.logger.error(
+        "Failed to complete account provisioning on signup retry",
+        err,
+        { userId },
+        correlationId
+      );
+      return false;
+    }
+  }
 
   async signup(
     email: string,
@@ -146,11 +232,25 @@ export class AuthService {
       if (this.users.findByUsername) {
         const existingUser = await this.users.findByUsername(username);
         if (existingUser) {
+          // Reported on the one failure event rather than a separate SIGNUP, which would
+          // put a success and a failure for the same request in the audit trail.
+          const provisioned = await this.completeProvisioningForRetry(
+            existingUser,
+            email,
+            username,
+            password,
+            options
+          );
+
           this.logger.audit({
             type: "SIGNUP_FAILURE",
             userId: existingUser.id,
             email,
-            metadata: { username, reason: "Username already taken" },
+            metadata: {
+              username,
+              reason: "Username already taken",
+              ...(provisioned ? { provisioningCompleted: true } : {})
+            },
             correlationId: options?.correlationId
           });
           return {
@@ -165,11 +265,23 @@ export class AuthService {
       // Email uniqueness
       const existingEmail = await this.users.findByEmail(email);
       if (existingEmail) {
+        const provisioned = await this.completeProvisioningForRetry(
+          existingEmail,
+          email,
+          username,
+          password,
+          options
+        );
+
         this.logger.audit({
           type: "SIGNUP_FAILURE",
           userId: existingEmail.id,
           email,
-          metadata: { username, reason: "Email already registered" },
+          metadata: {
+            username,
+            reason: "Email already registered",
+            ...(provisioned ? { provisioningCompleted: true } : {})
+          },
           correlationId: options?.correlationId
         });
         return {
@@ -198,6 +310,54 @@ export class AuthService {
           message: "Failed to create user",
           httpCode: 500
         };
+      }
+
+      // Provision the initial account state when the feature is enabled.
+      //
+      // The user row is already committed and cannot be rolled back from here, but it is
+      // not reachable: with the feature on, authentication requires a durable state record,
+      // so an account whose provisioning did not finish cannot be used. The absence of the
+      // record is itself the provisioning marker. Signup reports the failure, and a retry
+      // completes provisioning rather than being refused as a duplicate.
+      if (this.accountSecurity) {
+        try {
+          const provisioned = await this.accountSecurity.create({
+            userId: user.id,
+            status: "active",
+            emailVerifiedAt: null
+          });
+
+          // A repository that resolves without a record has not durably stored anything,
+          // so treat it the same as a thrown failure rather than reporting success.
+          if (!provisioned) {
+            throw new Error("Account security create returned no record");
+          }
+        } catch (err) {
+          // A record already present for this user means provisioning is done, however it
+          // got there, so the account is reachable and the signup succeeded.
+          if (!(err instanceof AccountSecurityRecordExistsError)) {
+            this.logger.error(
+              "Failed to provision account security record after signup. The account cannot " +
+                "authenticate until provisioning completes; retrying signup will finish it.",
+              err,
+              { userId: user.id },
+              options?.correlationId
+            );
+            this.logger.audit({
+              type: "SIGNUP_FAILURE",
+              userId: user.id,
+              email,
+              metadata: { username, reason: "Account provisioning failed" },
+              correlationId: options?.correlationId
+            });
+            return {
+              success: false,
+              data: undefined,
+              message: "Unable to create account. Please try again.",
+              httpCode: 500
+            };
+          }
+        }
       }
 
       this.logger.audit({
@@ -302,6 +462,47 @@ export class AuthService {
         };
       }
 
+      // -------------------- Account State Policy --------------------
+      // Checked after password verification and answered with the same generic response as a
+      // bad password, so the endpoint cannot be used to discover which accounts are disabled.
+      if (this.accountSecurity) {
+        const accountState = await this.accountSecurity.findByUserId(user.id);
+
+        // Authentication requires a durable state record. An absent record means the
+        // account was never provisioned — a signup that did not finish, or a user the
+        // migration backfill missed — and an unrecognised status means the stored value
+        // cannot be trusted. Both deny.
+        if (!accountState) {
+          this.logger.warn(
+            "Denied authentication for an account with no security record. Run the account " +
+              "security backfill if this account predates the feature.",
+            { userId: user.id },
+            options?.correlationId
+          );
+        }
+
+        if (!accountState || !isAuthenticationPermitted(accountState.status)) {
+          this.logger.audit({
+            type: "LOGIN_FAILURE",
+            userId: user.id,
+            email,
+            metadata: accountState
+              ? {
+                  reason: "Account status does not permit authentication",
+                  status: accountState.status
+                }
+              : { reason: "Account has no security record (not provisioned)" },
+            correlationId: options?.correlationId
+          });
+          return {
+            success: false,
+            data: undefined,
+            message: "Invalid credentials.",
+            httpCode: 401
+          };
+        }
+      }
+
       // -------------------- Return Safe Response --------------------
       this.logger.audit({
         type: "LOGIN_SUCCESS",
@@ -365,6 +566,33 @@ export class AuthService {
           message: "Current password incorrect",
           httpCode: 401
         };
+      }
+
+      // An account that may not authenticate may not rotate its own credentials either.
+      // Checked after the current password, and answered with the same response, so this
+      // cannot be used to discover which accounts are suspended.
+      if (this.accountSecurity) {
+        const accountState = await this.accountSecurity.findByUserId(user.id);
+
+        if (!accountState || !isAuthenticationPermitted(accountState.status)) {
+          this.logger.audit({
+            type: "PASSWORD_CHANGE",
+            userId: user.id,
+            metadata: {
+              success: false,
+              reason: accountState
+                ? "Account status does not permit authentication"
+                : "Account has no security record (not provisioned)"
+            },
+            correlationId: options?.correlationId
+          });
+          return {
+            success: false,
+            data: undefined,
+            message: "Current password incorrect",
+            httpCode: 401
+          };
+        }
       }
 
       if (currentPassword === newPassword) {

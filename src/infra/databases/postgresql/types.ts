@@ -7,6 +7,14 @@ export type UserRow = {
   password: string;
 };
 
+export type AccountSecurityRow = {
+  id: number | string;
+  user_id: number | string;
+  status: string;
+  email_verified_at: Date | null;
+  updated_at: Date;
+};
+
 export type MagicLinkRow = {
   id: number | string;
   user_id: number | string;
@@ -54,4 +62,6 @@ export interface InitPostgresOptions {
   userSchema?: string;
   magicLinkTableName?: string;
   magicLinkSchema?: string;
+  accountSecurityTableName?: string;
+  accountSecuritySchema?: string;
 }

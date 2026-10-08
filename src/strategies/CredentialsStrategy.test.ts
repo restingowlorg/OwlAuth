@@ -1,6 +1,6 @@
 import { CredentialsAuthStrategy } from "./CredentialsStrategy";
 import { AuthService } from "../services/auth.service";
-import { AuthDB, UserRepository } from "../repositories/contracts";
+import { AccountSecurityRepository, AuthDB, UserRepository } from "../repositories/contracts";
 import { AuthOptions, IAuthMethods } from "../core/types";
 import { ICryptoAdapter } from "../infra/security/types";
 import { Mutable } from "./types";
@@ -53,6 +53,53 @@ describe("CredentialsAuthStrategy", () => {
       expect(target.credentials.changePassword).toBeDefined();
       expect(typeof target.credentials.signup).toBe("function");
     }
+  });
+
+  describe("account security repository wiring", () => {
+    const accountSecurityRepo = {} as AccountSecurityRepository;
+
+    function expectRepoPassed(expected: AccountSecurityRepository | undefined): void {
+      expect(AuthService).toHaveBeenCalledWith(
+        mockDb.userRepo,
+        expect.anything(),
+        expect.anything(),
+        undefined,
+        undefined,
+        expected
+      );
+    }
+
+    it("passes the repository when the option is enabled and the adapter provides one", () => {
+      mockDb = { ...mockDb, accountSecurityRepo };
+
+      strategy.register({}, mockDb, { ...mockOptions, accountSecurity: true });
+
+      expectRepoPassed(accountSecurityRepo);
+    });
+
+    // A custom adapter may return a repository regardless of configuration. Enforcement
+    // must still follow the option, otherwise policy switches on without being asked for.
+    it("ignores a supplied repository when the option is disabled", () => {
+      mockDb = { ...mockDb, accountSecurityRepo };
+
+      strategy.register({}, mockDb, { ...mockOptions, accountSecurity: false });
+
+      expectRepoPassed(undefined);
+    });
+
+    it("ignores a supplied repository when the option is absent", () => {
+      mockDb = { ...mockDb, accountSecurityRepo };
+
+      strategy.register({}, mockDb, mockOptions);
+
+      expectRepoPassed(undefined);
+    });
+
+    it("passes undefined when neither the option nor a repository is present", () => {
+      strategy.register({}, mockDb, mockOptions);
+
+      expectRepoPassed(undefined);
+    });
   });
 
   describe("option merging", () => {

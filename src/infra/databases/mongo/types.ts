@@ -20,8 +20,17 @@ export interface IMongoUserDoc {
   updated_at?: Date;
 }
 
+export interface IMongoAccountSecurityDoc {
+  _id?: ObjectId;
+  user_id: ObjectId;
+  status: string;
+  email_verified_at: Date | null;
+  updated_at: Date;
+}
+
 export type InitMongoOptions = {
   mongoUri: string;
   magicLinkCollectionName?: string;
   userCollectionName: string;
+  accountSecurityCollectionName?: string;
 };

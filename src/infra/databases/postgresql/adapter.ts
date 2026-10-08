@@ -8,9 +8,16 @@ export class PostgresAdapter implements IDatabaseAdapter {
   constructor(private readonly config: InitPostgresOptions) {}
 
   async connect(options: BaseAuthOptions): Promise<AuthDB> {
-    const { postgresUrl, userTableName, userSchema, magicLinkTableName, magicLinkSchema } =
-      this.config;
-    const { authTypes } = options;
+    const {
+      postgresUrl,
+      userTableName,
+      userSchema,
+      magicLinkTableName,
+      magicLinkSchema,
+      accountSecurityTableName,
+      accountSecuritySchema
+    } = this.config;
+    const { authTypes, accountSecurity } = options;
 
     if (!postgresUrl)
       throw new Error("[Auth:PostgresAdapter] postgresUrl is required for PostgresAdapter");
@@ -23,7 +30,10 @@ export class PostgresAdapter implements IDatabaseAdapter {
       userSchema,
       magicLinkTableName,
       magicLinkSchema,
-      authTypes
+      accountSecurityTableName,
+      accountSecuritySchema,
+      authTypes,
+      accountSecurity
     });
   }
 }

@@ -1,7 +1,11 @@
 import { Pool } from "pg";
 import { initPostgres } from "./db";
 import { PostgresUserRepository } from "../../../repositories/postgresql/user.repo";
+import { PostgresAccountSecurityRepository } from "../../../repositories/postgresql/account.security.repo";
 import { DuplicateUserError } from "../../../repositories/contracts";
+import { createAuthManager } from "../../../core/auth.manager";
+import { PostgresAdapter } from "./adapter";
+import { BcryptAdapter } from "../../security/bcrypt.adapter";
 
 const configuredPostgresUrl = process.env.POSTGRES_TEST_URL;
 const postgresUrl = configuredPostgresUrl ?? "postgresql://127.0.0.1:5432/owlauth_test";
@@ -9,6 +13,7 @@ const runIntegrationTests = process.env.RUN_DATABASE_INTEGRATION_TESTS === "true
 const integrationDescribe = runIntegrationTests ? describe : describe.skip;
 const schema = "owlauth_integration";
 const userTable = "users";
+const accountSecurityTable = "account_security";
 
 if (runIntegrationTests && !configuredPostgresUrl) {
   throw new Error("POSTGRES_TEST_URL is required when RUN_DATABASE_INTEGRATION_TESTS is true");
@@ -37,6 +42,46 @@ integrationDescribe("PostgreSQL adapter integration", () => {
     if (options?.usernameUnique ?? true) {
       await pool.query(
         `CREATE UNIQUE INDEX users_username_unique_idx ON ${schema}.${userTable} (username)`
+      );
+    }
+  }
+
+  async function createAccountSecurityTable(options?: {
+    userIdUnique?: boolean;
+    withForeignKey?: boolean;
+    withStatusCheck?: boolean;
+    statusValues?: readonly string[];
+  }): Promise<void> {
+    const foreignKey =
+      (options?.withForeignKey ?? true)
+        ? `REFERENCES ${schema}.${userTable}(id) ON DELETE CASCADE`
+        : "";
+
+    const statusValues = options?.statusValues ?? [
+      "active",
+      "pending_email_verification",
+      "disabled"
+    ];
+
+    const statusCheck =
+      (options?.withStatusCheck ?? true)
+        ? `CHECK (status IN (${statusValues.map((value) => `'${value}'`).join(",")}))`
+        : "";
+
+    await pool.query(`
+      CREATE TABLE ${schema}.${accountSecurityTable} (
+        id                BIGSERIAL PRIMARY KEY,
+        user_id           BIGINT NOT NULL ${foreignKey},
+        status            TEXT NOT NULL ${statusCheck},
+        email_verified_at TIMESTAMPTZ NULL,
+        updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    if (options?.userIdUnique ?? true) {
+      await pool.query(
+        `CREATE UNIQUE INDEX account_security_user_id_unique_idx
+           ON ${schema}.${accountSecurityTable} (user_id)`
       );
     }
   }
@@ -94,5 +139,307 @@ integrationDescribe("PostgreSQL adapter integration", () => {
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
     expect(rejected[0].reason).toBeInstanceOf(DuplicateUserError);
+  });
+
+  describe("account identity state", () => {
+    const connectOptions = {
+      postgresUrl,
+      userSchema: schema,
+      userTableName: userTable,
+      accountSecuritySchema: schema,
+      accountSecurityTableName: accountSecurityTable,
+      authTypes: ["credentials" as const]
+    };
+
+    it("connects when the account security schema is valid", async () => {
+      await createAccountSecurityTable();
+
+      const db = await initPostgres({ ...connectOptions, accountSecurity: true });
+
+      expect(db.accountSecurityRepo).toBeDefined();
+      await db.close();
+    });
+
+    it("does not build the repository when the feature is disabled", async () => {
+      const db = await initPostgres({ ...connectOptions, accountSecurity: false });
+
+      expect(db.accountSecurityRepo).toBeUndefined();
+      await db.close();
+    });
+
+    it("rejects a missing account security table", async () => {
+      await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        `Table '${schema}.${accountSecurityTable}' does not exist`
+      );
+    });
+
+    it("rejects a schema that is missing the user_id unique index", async () => {
+      await createAccountSecurityTable({ userIdUnique: false });
+
+      await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "must have a non-partial single-column unique index or constraint on 'user_id'"
+      );
+    });
+
+    it("rejects a schema that is missing the user_id foreign key", async () => {
+      await createAccountSecurityTable({ withForeignKey: false });
+
+      await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        `must have a foreign key 'user_id' referencing '${schema}.${userTable}.id'`
+      );
+    });
+
+    it("rejects a status column with no CHECK constraint", async () => {
+      await createAccountSecurityTable({ withStatusCheck: false });
+
+      await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "must restrict 'status' to exactly"
+      );
+    });
+
+    // An otherwise-valid constraint that permits a fourth status still contradicts what the
+    // migration and documentation promise, so startup must reject it.
+    it("rejects an otherwise-valid four-value CHECK constraint", async () => {
+      await createAccountSecurityTable({
+        statusValues: ["active", "pending_email_verification", "disabled", "suspended"]
+      });
+
+      await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "must restrict 'status' to exactly"
+      );
+    });
+
+    // Contains exactly the three expected literals, but leaves `status` unconstrained:
+    // status = 'suspended', note = 'disabled' satisfies it.
+    it("rejects a compound constraint that only appears to restrict status", async () => {
+      await pool.query(`
+        CREATE TABLE ${schema}.${accountSecurityTable} (
+          id                BIGSERIAL PRIMARY KEY,
+          user_id           BIGINT NOT NULL REFERENCES ${schema}.${userTable}(id) ON DELETE CASCADE,
+          status            TEXT NOT NULL,
+          note              TEXT NULL,
+          email_verified_at TIMESTAMPTZ NULL,
+          updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT account_security_status_check
+            CHECK (status = 'active' OR note IN ('pending_email_verification','disabled'))
+        )
+      `);
+      await pool.query(
+        `CREATE UNIQUE INDEX account_security_user_id_unique_idx
+           ON ${schema}.${accountSecurityTable} (user_id)`
+      );
+
+      await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "must restrict 'status' to exactly"
+      );
+    });
+
+    it("accepts a native enum column with exactly the three labels", async () => {
+      await pool.query(
+        `CREATE TYPE ${schema}.account_status AS ENUM ('active','pending_email_verification','disabled')`
+      );
+      await pool.query(`
+        CREATE TABLE ${schema}.${accountSecurityTable} (
+          id                BIGSERIAL PRIMARY KEY,
+          user_id           BIGINT NOT NULL REFERENCES ${schema}.${userTable}(id) ON DELETE CASCADE,
+          status            ${schema}.account_status NOT NULL,
+          email_verified_at TIMESTAMPTZ NULL,
+          updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await pool.query(
+        `CREATE UNIQUE INDEX account_security_user_id_unique_idx
+           ON ${schema}.${accountSecurityTable} (user_id)`
+      );
+
+      const db = await initPostgres({ ...connectOptions, accountSecurity: true });
+
+      expect(db.accountSecurityRepo).toBeDefined();
+      await db.close();
+    });
+
+    it("rejects a native enum carrying an extra label", async () => {
+      await pool.query(
+        `CREATE TYPE ${schema}.account_status AS ENUM ('active','pending_email_verification','disabled','suspended')`
+      );
+      await pool.query(`
+        CREATE TABLE ${schema}.${accountSecurityTable} (
+          id                BIGSERIAL PRIMARY KEY,
+          user_id           BIGINT NOT NULL REFERENCES ${schema}.${userTable}(id) ON DELETE CASCADE,
+          status            ${schema}.account_status NOT NULL,
+          email_verified_at TIMESTAMPTZ NULL,
+          updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await pool.query(
+        `CREATE UNIQUE INDEX account_security_user_id_unique_idx
+           ON ${schema}.${accountSecurityTable} (user_id)`
+      );
+
+      await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "must restrict 'status' to exactly"
+      );
+    });
+
+    it("rejects a CHECK constraint missing one of the three values", async () => {
+      await createAccountSecurityTable({
+        statusValues: ["active", "disabled"]
+      });
+
+      await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "must restrict 'status' to exactly"
+      );
+    });
+
+    it("confirms a four-value constraint really would store the unsupported status", async () => {
+      // Demonstrates what the startup check is protecting against: the datastore accepts
+      // 'suspended', which the service layer then has to deny at runtime.
+      await createAccountSecurityTable({
+        statusValues: ["active", "pending_email_verification", "disabled", "suspended"]
+      });
+
+      const users = new PostgresUserRepository(schema, userTable, pool);
+      const user = await users.create({
+        email: "superset@example.com",
+        username: "superset_user",
+        passwordHash: "hash"
+      });
+
+      await expect(
+        pool.query(
+          `INSERT INTO ${schema}.${accountSecurityTable} (user_id, status, updated_at)
+           VALUES ($1, 'suspended', NOW())`,
+          [user.id]
+        )
+      ).resolves.toBeDefined();
+    });
+
+    it("confirms an unconstrained column really would accept an invalid status", async () => {
+      // Demonstrates why the startup check exists: without the constraint the datastore
+      // happily stores a typo, which the service layer must then refuse to honour.
+      await createAccountSecurityTable({ withStatusCheck: false });
+
+      const users = new PostgresUserRepository(schema, userTable, pool);
+      const user = await users.create({
+        email: "typo@example.com",
+        username: "typo_user",
+        passwordHash: "hash"
+      });
+
+      await expect(
+        pool.query(
+          `INSERT INTO ${schema}.${accountSecurityTable} (user_id, status, updated_at)
+           VALUES ($1, 'disable', NOW())`,
+          [user.id]
+        )
+      ).resolves.toBeDefined();
+    });
+
+    it("rejects an invalid status once the CHECK constraint is present", async () => {
+      await createAccountSecurityTable();
+
+      const users = new PostgresUserRepository(schema, userTable, pool);
+      const user = await users.create({
+        email: "checked@example.com",
+        username: "checked_user",
+        passwordHash: "hash"
+      });
+
+      await expect(
+        pool.query(
+          `INSERT INTO ${schema}.${accountSecurityTable} (user_id, status, updated_at)
+           VALUES ($1, 'disable', NOW())`,
+          [user.id]
+        )
+      ).rejects.toThrow();
+    });
+
+    it("round-trips an account security record", async () => {
+      await createAccountSecurityTable();
+
+      const users = new PostgresUserRepository(schema, userTable, pool);
+      const user = await users.create({
+        email: "state@example.com",
+        username: "state_user",
+        passwordHash: "hash"
+      });
+
+      const accountSecurity = new PostgresAccountSecurityRepository(
+        schema,
+        accountSecurityTable,
+        pool
+      );
+
+      const created = await accountSecurity.create({
+        userId: user.id,
+        status: "active",
+        emailVerifiedAt: null
+      });
+      expect(created.status).toBe("active");
+      expect(created.userId).toBe(user.id);
+
+      const found = await accountSecurity.findByUserId(user.id);
+      expect(found?.status).toBe("active");
+      expect(found?.emailVerifiedAt).toBeNull();
+      expect(found?.updatedAt).toBeInstanceOf(Date);
+    });
+
+    // The guarantee the feature rests on, end to end against a real database: a user with
+    // no state record cannot authenticate, and gains access the moment one exists.
+    it("denies authentication until a state record exists", async () => {
+      await createAccountSecurityTable();
+
+      const crypto = new BcryptAdapter();
+      const password = "CorrectHorseBatteryStaple!2026";
+      const users = new PostgresUserRepository(schema, userTable, pool);
+      const user = await users.create({
+        email: "unprovisioned@example.com",
+        username: "unprovisioned",
+        passwordHash: await crypto.hashPassword(password)
+      });
+
+      const auth = await createAuthManager({
+        adapter: new PostgresAdapter({
+          postgresUrl,
+          userSchema: schema,
+          userTableName: userTable,
+          accountSecuritySchema: schema,
+          accountSecurityTableName: accountSecurityTable
+        }),
+        authTypes: ["credentials"],
+        accountSecurity: true
+      });
+
+      try {
+        const denied = await auth.credentials.login("unprovisioned@example.com", password);
+        expect(denied.success).toBe(false);
+        expect(denied.httpCode).toBe(401);
+        expect(denied.message).toBe("Invalid credentials.");
+
+        await pool.query(
+          `INSERT INTO ${schema}.${accountSecurityTable} (user_id, status, updated_at)
+           VALUES ($1, 'active', NOW())`,
+          [user.id]
+        );
+
+        const allowed = await auth.credentials.login("unprovisioned@example.com", password);
+        expect(allowed.success).toBe(true);
+        expect(allowed.httpCode).toBe(200);
+      } finally {
+        await auth.disconnectDB();
+      }
+    });
+
+    it("returns null for a user that has no record", async () => {
+      await createAccountSecurityTable();
+
+      const accountSecurity = new PostgresAccountSecurityRepository(
+        schema,
+        accountSecurityTable,
+        pool
+      );
+
+      await expect(accountSecurity.findByUserId("999999")).resolves.toBeNull();
+    });
   });
 });
