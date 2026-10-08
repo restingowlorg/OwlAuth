@@ -89,13 +89,31 @@ async function validateAccountSecuritySchema(
   }
 
   // listCollections reports the validator under `options.validator.$jsonSchema`.
-  const jsonSchema = nestedRecord(
-    nestedRecord(nestedRecord(info, "options"), "validator"),
-    "$jsonSchema"
-  );
+  const collectionOptions = nestedRecord(info, "options");
+  const jsonSchema = nestedRecord(nestedRecord(collectionOptions, "validator"), "$jsonSchema");
   if (!jsonSchema) {
     fail("must have a $jsonSchema validator");
     return;
+  }
+
+  // A declared validator does not mean an enforced one. `validationAction: "warn"` logs
+  // violations and stores the document anyway, and `validationLevel: "off"` skips the rules
+  // entirely — either leaves the collection accepting a status the schema claims to forbid.
+  // Both default to the strict values, so only an explicit downgrade is rejected.
+  const validationAction = collectionOptions?.["validationAction"];
+  if (validationAction !== undefined && validationAction !== "error") {
+    fail(
+      `has validationAction '${String(validationAction)}', which does not reject invalid ` +
+        `documents; it must be 'error'`
+    );
+  }
+
+  const validationLevel = collectionOptions?.["validationLevel"];
+  if (validationLevel !== undefined && validationLevel !== "strict") {
+    fail(
+      `has validationLevel '${String(validationLevel)}', which does not apply the validator ` +
+        `to every write; it must be 'strict'`
+    );
   }
 
   const required = stringArray(jsonSchema["required"]) ?? [];

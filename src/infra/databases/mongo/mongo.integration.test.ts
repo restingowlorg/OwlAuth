@@ -127,13 +127,21 @@ integrationDescribe("MongoDB adapter integration", () => {
     async function createAccountSecurityCollection(options?: {
       userIdUnique?: boolean;
       validator?: Record<string, unknown> | null;
+      validationAction?: "error" | "warn";
+      validationLevel?: "strict" | "moderate" | "off";
     }): Promise<Collection<IMongoAccountSecurityDoc>> {
       const validator =
         options?.validator === undefined ? accountSecurityValidator : options.validator;
 
       const collection = await database.createCollection<IMongoAccountSecurityDoc>(
         accountSecurityCollectionName,
-        validator === null ? undefined : { validator }
+        validator === null
+          ? undefined
+          : {
+              validator,
+              ...(options?.validationAction ? { validationAction: options.validationAction } : {}),
+              ...(options?.validationLevel ? { validationLevel: options.validationLevel } : {})
+            }
       );
 
       if (options?.userIdUnique ?? true) {
@@ -241,6 +249,50 @@ integrationDescribe("MongoDB adapter integration", () => {
       await expect(connectMongo({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
         "must restrict 'status' to exactly the known statuses"
       );
+    });
+
+    // A declared validator is not an enforced one: validationAction "warn" logs the
+    // violation and stores the document anyway.
+    it("rejects a validator that only warns instead of rejecting", async () => {
+      await createAccountSecurityCollection({ validationAction: "warn" });
+
+      await expect(connectMongo({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "validationAction 'warn'"
+      );
+    });
+
+    it("rejects a validator that is switched off", async () => {
+      await createAccountSecurityCollection({ validationLevel: "off" });
+
+      await expect(connectMongo({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "validationLevel 'off'"
+      );
+    });
+
+    it("accepts explicit strict/error settings", async () => {
+      await createAccountSecurityCollection({
+        validationAction: "error",
+        validationLevel: "strict"
+      });
+
+      const db = await connectMongo({ ...connectOptions, accountSecurity: true });
+
+      expect(db.accountSecurityRepo).toBeDefined();
+      await db.close();
+    });
+
+    it("confirms a warn-only validator really would store a mistyped status", async () => {
+      // Demonstrates what the enforcement check protects against.
+      const collection = await createAccountSecurityCollection({ validationAction: "warn" });
+
+      await expect(
+        collection.insertOne({
+          user_id: new ObjectId(),
+          status: "disable",
+          email_verified_at: null,
+          updated_at: new Date()
+        } as unknown as IMongoAccountSecurityDoc)
+      ).resolves.toBeDefined();
     });
 
     it("rejects a validator declaring user_id as a string", async () => {

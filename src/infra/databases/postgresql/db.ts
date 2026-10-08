@@ -15,7 +15,7 @@ import {
   validateNonNullableColumns,
   validateForeignKey,
   validateUniqueColumn,
-  validateEnumCheckConstraint
+  validateColumnDomain
 } from "./helpers";
 import { InitPostgresOptions } from "./types";
 import { BaseAuthOptions } from "../../../core/types";
@@ -108,7 +108,7 @@ export async function initPostgres(
         validateUniqueColumn(pool, accountSecuritySchema, accountSecurityTable, "user_id"),
         // Without this constraint the column accepts any string, so a typo could be
         // stored where a meaningful status was intended.
-        validateEnumCheckConstraint(
+        validateColumnDomain(
           pool,
           accountSecuritySchema,
           accountSecurityTable,

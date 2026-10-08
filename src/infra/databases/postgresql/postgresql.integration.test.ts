@@ -3,6 +3,9 @@ import { initPostgres } from "./db";
 import { PostgresUserRepository } from "../../../repositories/postgresql/user.repo";
 import { PostgresAccountSecurityRepository } from "../../../repositories/postgresql/account.security.repo";
 import { DuplicateUserError } from "../../../repositories/contracts";
+import { createAuthManager } from "../../../core/auth.manager";
+import { PostgresAdapter } from "./adapter";
+import { BcryptAdapter } from "../../security/bcrypt.adapter";
 
 const configuredPostgresUrl = process.env.POSTGRES_TEST_URL;
 const postgresUrl = configuredPostgresUrl ?? "postgresql://127.0.0.1:5432/owlauth_test";
@@ -190,7 +193,7 @@ integrationDescribe("PostgreSQL adapter integration", () => {
       await createAccountSecurityTable({ withStatusCheck: false });
 
       await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
-        "must have a CHECK constraint restricting 'status'"
+        "must restrict 'status' to exactly"
       );
     });
 
@@ -202,7 +205,79 @@ integrationDescribe("PostgreSQL adapter integration", () => {
       });
 
       await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
-        "must have a CHECK constraint restricting 'status' to exactly"
+        "must restrict 'status' to exactly"
+      );
+    });
+
+    // Contains exactly the three expected literals, but leaves `status` unconstrained:
+    // status = 'suspended', note = 'disabled' satisfies it.
+    it("rejects a compound constraint that only appears to restrict status", async () => {
+      await pool.query(`
+        CREATE TABLE ${schema}.${accountSecurityTable} (
+          id                BIGSERIAL PRIMARY KEY,
+          user_id           BIGINT NOT NULL REFERENCES ${schema}.${userTable}(id) ON DELETE CASCADE,
+          status            TEXT NOT NULL,
+          note              TEXT NULL,
+          email_verified_at TIMESTAMPTZ NULL,
+          updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT account_security_status_check
+            CHECK (status = 'active' OR note IN ('pending_email_verification','disabled'))
+        )
+      `);
+      await pool.query(
+        `CREATE UNIQUE INDEX account_security_user_id_unique_idx
+           ON ${schema}.${accountSecurityTable} (user_id)`
+      );
+
+      await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "must restrict 'status' to exactly"
+      );
+    });
+
+    it("accepts a native enum column with exactly the three labels", async () => {
+      await pool.query(
+        `CREATE TYPE ${schema}.account_status AS ENUM ('active','pending_email_verification','disabled')`
+      );
+      await pool.query(`
+        CREATE TABLE ${schema}.${accountSecurityTable} (
+          id                BIGSERIAL PRIMARY KEY,
+          user_id           BIGINT NOT NULL REFERENCES ${schema}.${userTable}(id) ON DELETE CASCADE,
+          status            ${schema}.account_status NOT NULL,
+          email_verified_at TIMESTAMPTZ NULL,
+          updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await pool.query(
+        `CREATE UNIQUE INDEX account_security_user_id_unique_idx
+           ON ${schema}.${accountSecurityTable} (user_id)`
+      );
+
+      const db = await initPostgres({ ...connectOptions, accountSecurity: true });
+
+      expect(db.accountSecurityRepo).toBeDefined();
+      await db.close();
+    });
+
+    it("rejects a native enum carrying an extra label", async () => {
+      await pool.query(
+        `CREATE TYPE ${schema}.account_status AS ENUM ('active','pending_email_verification','disabled','suspended')`
+      );
+      await pool.query(`
+        CREATE TABLE ${schema}.${accountSecurityTable} (
+          id                BIGSERIAL PRIMARY KEY,
+          user_id           BIGINT NOT NULL REFERENCES ${schema}.${userTable}(id) ON DELETE CASCADE,
+          status            ${schema}.account_status NOT NULL,
+          email_verified_at TIMESTAMPTZ NULL,
+          updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+      await pool.query(
+        `CREATE UNIQUE INDEX account_security_user_id_unique_idx
+           ON ${schema}.${accountSecurityTable} (user_id)`
+      );
+
+      await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
+        "must restrict 'status' to exactly"
       );
     });
 
@@ -212,7 +287,7 @@ integrationDescribe("PostgreSQL adapter integration", () => {
       });
 
       await expect(initPostgres({ ...connectOptions, accountSecurity: true })).rejects.toThrow(
-        "must have a CHECK constraint restricting 'status' to exactly"
+        "must restrict 'status' to exactly"
       );
     });
 
@@ -307,6 +382,52 @@ integrationDescribe("PostgreSQL adapter integration", () => {
       expect(found?.status).toBe("active");
       expect(found?.emailVerifiedAt).toBeNull();
       expect(found?.updatedAt).toBeInstanceOf(Date);
+    });
+
+    // The guarantee the feature rests on, end to end against a real database: a user with
+    // no state record cannot authenticate, and gains access the moment one exists.
+    it("denies authentication until a state record exists", async () => {
+      await createAccountSecurityTable();
+
+      const crypto = new BcryptAdapter();
+      const password = "CorrectHorseBatteryStaple!2026";
+      const users = new PostgresUserRepository(schema, userTable, pool);
+      const user = await users.create({
+        email: "unprovisioned@example.com",
+        username: "unprovisioned",
+        passwordHash: await crypto.hashPassword(password)
+      });
+
+      const auth = await createAuthManager({
+        adapter: new PostgresAdapter({
+          postgresUrl,
+          userSchema: schema,
+          userTableName: userTable,
+          accountSecuritySchema: schema,
+          accountSecurityTableName: accountSecurityTable
+        }),
+        authTypes: ["credentials"],
+        accountSecurity: true
+      });
+
+      try {
+        const denied = await auth.credentials.login("unprovisioned@example.com", password);
+        expect(denied.success).toBe(false);
+        expect(denied.httpCode).toBe(401);
+        expect(denied.message).toBe("Invalid credentials.");
+
+        await pool.query(
+          `INSERT INTO ${schema}.${accountSecurityTable} (user_id, status, updated_at)
+           VALUES ($1, 'active', NOW())`,
+          [user.id]
+        );
+
+        const allowed = await auth.credentials.login("unprovisioned@example.com", password);
+        expect(allowed.success).toBe(true);
+        expect(allowed.httpCode).toBe(200);
+      } finally {
+        await auth.disconnectDB();
+      }
     });
 
     it("returns null for a user that has no record", async () => {

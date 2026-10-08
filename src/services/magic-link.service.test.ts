@@ -530,14 +530,30 @@ describe("MagicLinkService", () => {
         expect(result.data?.userId).toBe("1");
       });
 
-      it("consumes the token for a user that has no record", async () => {
+      // A magic link is an authentication credential, so it needs the same durable state
+      // record a password login does. No record means the account was never provisioned.
+      it("rejects a user that has no record without consuming the token", async () => {
         arrangeValidToken();
         mockAccountSecurityRepo.findByUserId.mockResolvedValue(null);
-        mockMagicLinkRepo.consume.mockResolvedValue(true);
 
         const result = await accountService.consume(token);
 
+        expect(result.success).toBe(false);
+        expect(result.httpCode).toBe(401);
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockMagicLinkRepo.consume).not.toHaveBeenCalled();
+      });
+
+      it("mints no token for a user that has no record", async () => {
+        mockUserRepo.findByEmail.mockResolvedValue({ id: "1", email } as unknown as User);
+        mockAccountSecurityRepo.findByUserId.mockResolvedValue(null);
+
+        const result = await accountService.request(email);
+
         expect(result.success).toBe(true);
+        expect(result.data).toBe("");
+        // eslint-disable-next-line @typescript-eslint/unbound-method
+        expect(mockMagicLinkRepo.create).not.toHaveBeenCalled();
       });
 
       // Matching only "disabled" would let each of these consume a magic link.

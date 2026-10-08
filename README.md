@@ -156,8 +156,15 @@ const auth = await createAuthManager({
 | `pending_email_verification` | Authenticates normally. Stored for your application to act on.                                                                  |
 | `disabled`                   | Denied. Login returns the same `401 Invalid credentials.` as a wrong password, and magic links are neither issued nor accepted. |
 | anything else                | Denied. A status owlauth does not recognise — a typo or case mismatch — fails safe rather than permitting authentication.       |
+| **no record**                | Denied. The account was never provisioned, so it cannot authenticate until a record exists.                                     |
 
-`signup()` records a new account as `active`. Applications set `disabled` with their own database write; OwlAuth exposes no status-management API. A user with no record is treated as `active`, so existing accounts keep working — the [migration](docs/migrations/ROOS-34-account-identity-state.md) backfills them.
+`signup()` records a new account as `active`, and **returns a failure if it cannot**. The user row cannot be rolled back, so the guarantee is that an unprovisioned account is unreachable: no record means no authentication, on either path, including during the provisioning window. Retrying the signup finishes provisioning while still answering with the ordinary duplicate response, and leaves an account that already has a record untouched.
+
+A status that does not permit authentication also refuses `changePassword()`, with the same response as a wrong current password.
+
+Applications set `disabled` with their own database write; OwlAuth exposes no status-management API. **Do not disable an account by deleting its record** — a deleted record is indistinguishable from an unfinished signup, so the next signup attempt for that address would recreate it as `active`. Set `status` to `disabled` instead.
+
+> **⚠️ The migration backfill is mandatory.** Existing users have no record, and a missing record denies authentication. Run the [migration](docs/migrations/ROOS-34-account-identity-state.md) in full, including the backfill, before enabling the option — it includes a query to verify no user is left behind.
 
 The status check runs **after** password verification and reuses the generic failure response, so the endpoint cannot be used to discover which accounts are disabled.
 

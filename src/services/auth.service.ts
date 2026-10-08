@@ -22,6 +22,47 @@ export class AuthService {
     private readonly accountSecurity?: AccountSecurityRepository
   ) {}
 
+  /**
+   * Finish provisioning an account whose state record was never written.
+   *
+   * Idempotent and best-effort: an account that already has a record is left untouched, and
+   * a failure here is logged rather than thrown, because the caller's own outcome does not
+   * depend on it. Nothing is made reachable that should not be — an unprovisioned account
+   * cannot authenticate, so completing it only restores the state signup intended.
+   *
+   * Note this means deleting a record is **not** a way to suspend an account: the next
+   * signup attempt for that address would recreate it as `active`. Set `status` to
+   * `disabled` instead, which this leaves untouched. The completion is logged so the path
+   * is visible in an audit trail.
+   */
+  private async completeProvisioning(userId: string, correlationId?: string): Promise<void> {
+    if (!this.accountSecurity) return;
+
+    try {
+      const existing = await this.accountSecurity.findByUserId(userId);
+      if (existing) return;
+
+      await this.accountSecurity.create({
+        userId,
+        status: "active",
+        emailVerifiedAt: null
+      });
+
+      this.logger.info(
+        "Completed account provisioning for a previously failed signup",
+        { userId },
+        correlationId
+      );
+    } catch (err) {
+      this.logger.error(
+        "Failed to complete account provisioning on signup retry",
+        err,
+        { userId },
+        correlationId
+      );
+    }
+  }
+
   async signup(
     email: string,
     username: string,
@@ -172,6 +213,12 @@ export class AuthService {
       // Email uniqueness
       const existingEmail = await this.users.findByEmail(email);
       if (existingEmail) {
+        // A signup whose provisioning did not finish leaves a user with no state record,
+        // which cannot authenticate. Retrying completes it instead of refusing outright, so
+        // the account becomes reachable without operator intervention. This is idempotent:
+        // an account that already has a record is untouched.
+        await this.completeProvisioning(existingEmail.id, options?.correlationId);
+
         this.logger.audit({
           type: "SIGNUP_FAILURE",
           userId: existingEmail.id,
@@ -207,30 +254,47 @@ export class AuthService {
         };
       }
 
-      // Record the initial account state when the feature is enabled.
+      // Provision the initial account state when the feature is enabled.
+      //
+      // The user row is already committed and cannot be rolled back from here, but it is
+      // not reachable: with the feature on, authentication requires a durable state record,
+      // so an account whose provisioning did not finish cannot be used. The absence of the
+      // record is itself the provisioning marker. Signup reports the failure, and a retry
+      // completes provisioning rather than being refused as a duplicate.
       if (this.accountSecurity) {
         try {
-          await this.accountSecurity.create({
+          const provisioned = await this.accountSecurity.create({
             userId: user.id,
             status: "active",
             emailVerifiedAt: null
           });
+
+          // A repository that resolves without a record has not durably stored anything,
+          // so treat it the same as a thrown failure rather than reporting success.
+          if (!provisioned) {
+            throw new Error("Account security create returned no record");
+          }
         } catch (err) {
-          // The user row is already committed and cannot be rolled back from here, so the
-          // signup is reported as the success it was. The account remains usable because a
-          // missing record resolves to "active", which is exactly what this write would have
-          // stored — the account is unprovisioned, not broken or silently privileged.
-          //
-          // Logged at error severity rather than warn so it reaches alerting: the datastore
-          // is in a state an operator should repair, even though no user is affected.
           this.logger.error(
-            "Failed to create account security record after signup. The account is usable " +
-              "because a missing record is treated as active. Re-run the account security " +
-              "backfill to provision it.",
+            "Failed to provision account security record after signup. The account cannot " +
+              "authenticate until provisioning completes; retrying signup will finish it.",
             err,
             { userId: user.id },
             options?.correlationId
           );
+          this.logger.audit({
+            type: "SIGNUP_FAILURE",
+            userId: user.id,
+            email,
+            metadata: { username, reason: "Account provisioning failed" },
+            correlationId: options?.correlationId
+          });
+          return {
+            success: false,
+            data: undefined,
+            message: "Unable to create account. Please try again.",
+            httpCode: 500
+          };
         }
       }
 
@@ -342,17 +406,30 @@ export class AuthService {
       if (this.accountSecurity) {
         const accountState = await this.accountSecurity.findByUserId(user.id);
 
-        // A record with an unrecognised status denies authentication. Only an absent
-        // record falls back to permitting it.
-        if (accountState && !isAuthenticationPermitted(accountState.status)) {
+        // Authentication requires a durable state record. An absent record means the
+        // account was never provisioned — a signup that did not finish, or a user the
+        // migration backfill missed — and an unrecognised status means the stored value
+        // cannot be trusted. Both deny.
+        if (!accountState) {
+          this.logger.warn(
+            "Denied authentication for an account with no security record. Run the account " +
+              "security backfill if this account predates the feature.",
+            { userId: user.id },
+            options?.correlationId
+          );
+        }
+
+        if (!accountState || !isAuthenticationPermitted(accountState.status)) {
           this.logger.audit({
             type: "LOGIN_FAILURE",
             userId: user.id,
             email,
-            metadata: {
-              reason: "Account status does not permit authentication",
-              status: accountState.status
-            },
+            metadata: accountState
+              ? {
+                  reason: "Account status does not permit authentication",
+                  status: accountState.status
+                }
+              : { reason: "Account has no security record (not provisioned)" },
             correlationId: options?.correlationId
           });
           return {
@@ -427,6 +504,33 @@ export class AuthService {
           message: "Current password incorrect",
           httpCode: 401
         };
+      }
+
+      // An account that may not authenticate may not rotate its own credentials either.
+      // Checked after the current password, and answered with the same response, so this
+      // cannot be used to discover which accounts are suspended.
+      if (this.accountSecurity) {
+        const accountState = await this.accountSecurity.findByUserId(user.id);
+
+        if (!accountState || !isAuthenticationPermitted(accountState.status)) {
+          this.logger.audit({
+            type: "PASSWORD_CHANGE",
+            userId: user.id,
+            metadata: {
+              success: false,
+              reason: accountState
+                ? "Account status does not permit authentication"
+                : "Account has no security record (not provisioned)"
+            },
+            correlationId: options?.correlationId
+          });
+          return {
+            success: false,
+            data: undefined,
+            message: "Current password incorrect",
+            httpCode: 401
+          };
+        }
       }
 
       if (currentPassword === newPassword) {

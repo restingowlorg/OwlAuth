@@ -25,15 +25,18 @@ export class MagicLinkService {
   ) {}
 
   /**
-   * An account whose status does not permit authentication must not be issued or
-   * accepted an authentication credential. A record with an unrecognised status blocks;
-   * only an absent record falls back to permitting.
+   * An account whose status does not permit authentication must not be issued or accepted
+   * an authentication credential.
+   *
+   * A magic link is an authentication credential, so it requires the same durable state
+   * record that a password login does. An absent record means the account was never
+   * provisioned and blocks; an unrecognised status blocks; only the permitted statuses pass.
    */
   private async isAuthenticationBlocked(userId: string): Promise<boolean> {
     if (!this.accountSecurity) return false;
 
     const accountState = await this.accountSecurity.findByUserId(userId);
-    return !!accountState && !isAuthenticationPermitted(accountState.status);
+    return !accountState || !isAuthenticationPermitted(accountState.status);
   }
 
   /** Request a magic link (passwordless login) */
