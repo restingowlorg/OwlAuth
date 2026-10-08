@@ -10,7 +10,7 @@ import {
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
 import { isAuthenticationPermitted } from "../utils/account-status";
 import { AuthResult, LoginResult, SignupResult, ChangePasswordResult } from "../types";
-import { CreateUserInput } from "../repositories/contracts";
+import { CreateUserInput, SafeUser } from "../repositories/contracts";
 
 export class AuthService {
   constructor(
@@ -35,6 +35,27 @@ export class AuthService {
    * `disabled` instead, which this leaves untouched. The completion is logged so the path
    * is visible in an audit trail.
    */
+  /**
+   * Complete provisioning when a duplicate signup is a genuine retry of one that failed.
+   *
+   * Both identity fields must belong to the same existing account. A request matching only
+   * one of them is somebody else's signup colliding, not a retry, and must not cause a write
+   * against an account the caller has not shown any knowledge of.
+   *
+   * Either duplicate check can be the one that fires, so both call this — the username check
+   * runs first, and a real retry repeats both fields.
+   */
+  private async completeProvisioningForRetry(
+    existing: SafeUser,
+    email: string,
+    username: string,
+    options?: { correlationId?: string }
+  ): Promise<void> {
+    if (existing.email !== email || existing.username !== username) return;
+
+    await this.completeProvisioning(existing.id, options?.correlationId);
+  }
+
   private async completeProvisioning(userId: string, correlationId?: string): Promise<void> {
     if (!this.accountSecurity) return;
 
@@ -194,6 +215,8 @@ export class AuthService {
       if (this.users.findByUsername) {
         const existingUser = await this.users.findByUsername(username);
         if (existingUser) {
+          await this.completeProvisioningForRetry(existingUser, email, username, options);
+
           this.logger.audit({
             type: "SIGNUP_FAILURE",
             userId: existingUser.id,
@@ -213,11 +236,7 @@ export class AuthService {
       // Email uniqueness
       const existingEmail = await this.users.findByEmail(email);
       if (existingEmail) {
-        // A signup whose provisioning did not finish leaves a user with no state record,
-        // which cannot authenticate. Retrying completes it instead of refusing outright, so
-        // the account becomes reachable without operator intervention. This is idempotent:
-        // an account that already has a record is untouched.
-        await this.completeProvisioning(existingEmail.id, options?.correlationId);
+        await this.completeProvisioningForRetry(existingEmail, email, username, options);
 
         this.logger.audit({
           type: "SIGNUP_FAILURE",

@@ -919,6 +919,72 @@ describe("AuthService", () => {
           });
         });
 
+        // The username check runs first, so a genuine retry — same email and username —
+        // reaches that branch, not the email one.
+        it("provisions when the username check is the one that fires", async () => {
+          (mockUserRepo.findByUsername as jest.Mock).mockResolvedValue({
+            id: existingUser.id,
+            email: existingUser.email,
+            username: existingUser.username
+          });
+          mockAccountSecurityRepo.findByUserId.mockResolvedValue(null);
+          mockAccountSecurityRepo.create.mockResolvedValue(buildRecord("active"));
+
+          const result = await accountAuthService.signup(
+            existingUser.email,
+            existingUser.username,
+            "Password123!"
+          );
+
+          expect(result.httpCode).toBe(409);
+          // eslint-disable-next-line @typescript-eslint/unbound-method
+          expect(mockAccountSecurityRepo.create).toHaveBeenCalledWith({
+            userId: existingUser.id,
+            status: "active",
+            emailVerifiedAt: null
+          });
+        });
+
+        // Matching one identity field is a collision with somebody else's account, not a
+        // retry, and must not cause a write against it.
+        it("does not provision when only the username matches", async () => {
+          (mockUserRepo.findByUsername as jest.Mock).mockResolvedValue({
+            id: existingUser.id,
+            email: "someone.else@example.com",
+            username: existingUser.username
+          });
+          mockAccountSecurityRepo.findByUserId.mockResolvedValue(null);
+
+          await accountAuthService.signup(
+            existingUser.email,
+            existingUser.username,
+            "Password123!"
+          );
+
+          /* eslint-disable @typescript-eslint/unbound-method */
+          expect(mockAccountSecurityRepo.create).not.toHaveBeenCalled();
+          expect(mockAccountSecurityRepo.findByUserId).not.toHaveBeenCalled();
+          /* eslint-enable @typescript-eslint/unbound-method */
+        });
+
+        it("does not provision when only the email matches", async () => {
+          mockUserRepo.findByEmail.mockResolvedValue({
+            id: existingUser.id,
+            email: existingUser.email,
+            username: "someone_else"
+          });
+          mockAccountSecurityRepo.findByUserId.mockResolvedValue(null);
+
+          await accountAuthService.signup(
+            existingUser.email,
+            existingUser.username,
+            "Password123!"
+          );
+
+          // eslint-disable-next-line @typescript-eslint/unbound-method
+          expect(mockAccountSecurityRepo.create).not.toHaveBeenCalled();
+        });
+
         it("provisions an existing account that has no record", async () => {
           mockAccountSecurityRepo.findByUserId.mockResolvedValue(null);
           mockAccountSecurityRepo.create.mockResolvedValue(buildRecord("active"));
