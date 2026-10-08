@@ -44,9 +44,18 @@ export class MongoAccountSecurityRepo implements AccountSecurityRepository {
     try {
       result = await this.collection.insertOne(doc as unknown as IMongoAccountSecurityDoc);
     } catch (error: unknown) {
-      // The unique user_id index rejecting this write means a concurrent provisioning
-      // attempt already stored the record.
-      if (typeof error === "object" && error !== null && "code" in error && error.code === 11000) {
+      // 11000 is raised by any unique index on the collection, not only the one on
+      // `user_id` — the _id index or an application-defined index can produce it too.
+      // Confirm a record actually exists for this user before reporting it as already
+      // provisioned, or a signup would be told it succeeded while leaving an account that
+      // cannot authenticate. Anything else rethrows, so signup reports the failure.
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === 11000 &&
+        (await this.findByUserId(input.userId))
+      ) {
         throw new AccountSecurityRecordExistsError();
       }
       throw error;

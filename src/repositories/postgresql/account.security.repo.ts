@@ -35,13 +35,17 @@ export class PostgresAccountSecurityRepository implements AccountSecurityReposit
         [input.userId, input.status, input.emailVerifiedAt ?? null]
       );
     } catch (error: unknown) {
-      // The unique user_id constraint rejecting this write means a concurrent provisioning
-      // attempt already stored the record.
+      // 23505 is raised by any unique constraint on the table, not only the one on
+      // `user_id` — the primary key or an application-defined index can produce it too.
+      // Confirm a record actually exists for this user before reporting it as already
+      // provisioned, or a signup would be told it succeeded while leaving an account that
+      // cannot authenticate. Anything else rethrows, so signup reports the failure.
       if (
         typeof error === "object" &&
         error !== null &&
         "code" in error &&
-        error.code === "23505"
+        error.code === "23505" &&
+        (await this.findByUserId(input.userId))
       ) {
         throw new AccountSecurityRecordExistsError();
       }
