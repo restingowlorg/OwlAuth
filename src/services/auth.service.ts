@@ -5,12 +5,14 @@ import {
   UserRepository,
   MagicLinkRepository,
   AccountSecurityRepository,
+  AccountSecurityRecordExistsError,
+  CreateUserInput,
+  SafeUser,
   DuplicateUserError
 } from "../repositories/contracts";
 import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
 import { isAuthenticationPermitted } from "../utils/account-status";
 import { AuthResult, LoginResult, SignupResult, ChangePasswordResult } from "../types";
-import { CreateUserInput, SafeUser } from "../repositories/contracts";
 
 export class AuthService {
   constructor(
@@ -23,6 +25,43 @@ export class AuthService {
   ) {}
 
   /**
+   * Complete provisioning when a duplicate signup is a genuine retry of one that failed.
+   *
+   * Requires proof of ownership. Email and username are identifiers, not secrets, so a
+   * matching pair shows only that the caller knows who the account belongs to — anyone able
+   * to guess both could otherwise make an unprovisioned account reachable. The supplied
+   * password must verify against the stored hash, which only the person who created the
+   * account can produce. It is never stored or updated here; the original password stands.
+   *
+   * The verification runs before the identity comparison so a duplicate signup costs the
+   * same regardless of which field collided, leaving no timing signal for whether both
+   * belong to one account. The caller returns the same generic 409 either way.
+   *
+   * Either duplicate check can be the one that fires, so both call this — the username check
+   * runs first, and a real retry repeats both fields.
+   */
+  private async completeProvisioningForRetry(
+    existing: SafeUser,
+    email: string,
+    username: string,
+    password: string,
+    options?: { correlationId?: string }
+  ): Promise<void> {
+    // Consumers with the feature off must not pay for a password verification here.
+    if (!this.accountSecurity) return;
+
+    const withPassword = await this.users.findWithPasswordById(existing.id);
+    const ownsAccount = withPassword
+      ? await this.crypto.verifyPassword(password, withPassword.password)
+      : false;
+
+    if (existing.email !== email || existing.username !== username) return;
+    if (!ownsAccount) return;
+
+    await this.completeProvisioning(existing.id, options?.correlationId);
+  }
+
+  /**
    * Finish provisioning an account whose state record was never written.
    *
    * Idempotent and best-effort: an account that already has a record is left untouched, and
@@ -32,30 +71,8 @@ export class AuthService {
    *
    * Note this means deleting a record is **not** a way to suspend an account: the next
    * signup attempt for that address would recreate it as `active`. Set `status` to
-   * `disabled` instead, which this leaves untouched. The completion is logged so the path
-   * is visible in an audit trail.
+   * `disabled` instead, which this leaves untouched.
    */
-  /**
-   * Complete provisioning when a duplicate signup is a genuine retry of one that failed.
-   *
-   * Both identity fields must belong to the same existing account. A request matching only
-   * one of them is somebody else's signup colliding, not a retry, and must not cause a write
-   * against an account the caller has not shown any knowledge of.
-   *
-   * Either duplicate check can be the one that fires, so both call this — the username check
-   * runs first, and a real retry repeats both fields.
-   */
-  private async completeProvisioningForRetry(
-    existing: SafeUser,
-    email: string,
-    username: string,
-    options?: { correlationId?: string }
-  ): Promise<void> {
-    if (existing.email !== email || existing.username !== username) return;
-
-    await this.completeProvisioning(existing.id, options?.correlationId);
-  }
-
   private async completeProvisioning(userId: string, correlationId?: string): Promise<void> {
     if (!this.accountSecurity) return;
 
@@ -69,12 +86,18 @@ export class AuthService {
         emailVerifiedAt: null
       });
 
-      this.logger.info(
-        "Completed account provisioning for a previously failed signup",
-        { userId },
+      // Audited, not merely logged: this writes a record that makes an account reachable,
+      // on a path an unauthenticated caller can trigger.
+      this.logger.audit({
+        type: "SIGNUP",
+        userId,
+        metadata: { reason: "Provisioning completed for an earlier failed signup" },
         correlationId
-      );
+      });
     } catch (err) {
+      // A concurrent retry winning the race is the outcome this wanted, not a failure.
+      if (err instanceof AccountSecurityRecordExistsError) return;
+
       this.logger.error(
         "Failed to complete account provisioning on signup retry",
         err,
@@ -215,7 +238,7 @@ export class AuthService {
       if (this.users.findByUsername) {
         const existingUser = await this.users.findByUsername(username);
         if (existingUser) {
-          await this.completeProvisioningForRetry(existingUser, email, username, options);
+          await this.completeProvisioningForRetry(existingUser, email, username, password, options);
 
           this.logger.audit({
             type: "SIGNUP_FAILURE",
@@ -236,7 +259,7 @@ export class AuthService {
       // Email uniqueness
       const existingEmail = await this.users.findByEmail(email);
       if (existingEmail) {
-        await this.completeProvisioningForRetry(existingEmail, email, username, options);
+        await this.completeProvisioningForRetry(existingEmail, email, username, password, options);
 
         this.logger.audit({
           type: "SIGNUP_FAILURE",
@@ -294,26 +317,30 @@ export class AuthService {
             throw new Error("Account security create returned no record");
           }
         } catch (err) {
-          this.logger.error(
-            "Failed to provision account security record after signup. The account cannot " +
-              "authenticate until provisioning completes; retrying signup will finish it.",
-            err,
-            { userId: user.id },
-            options?.correlationId
-          );
-          this.logger.audit({
-            type: "SIGNUP_FAILURE",
-            userId: user.id,
-            email,
-            metadata: { username, reason: "Account provisioning failed" },
-            correlationId: options?.correlationId
-          });
-          return {
-            success: false,
-            data: undefined,
-            message: "Unable to create account. Please try again.",
-            httpCode: 500
-          };
+          // A record already present for this user means provisioning is done, however it
+          // got there, so the account is reachable and the signup succeeded.
+          if (!(err instanceof AccountSecurityRecordExistsError)) {
+            this.logger.error(
+              "Failed to provision account security record after signup. The account cannot " +
+                "authenticate until provisioning completes; retrying signup will finish it.",
+              err,
+              { userId: user.id },
+              options?.correlationId
+            );
+            this.logger.audit({
+              type: "SIGNUP_FAILURE",
+              userId: user.id,
+              email,
+              metadata: { username, reason: "Account provisioning failed" },
+              correlationId: options?.correlationId
+            });
+            return {
+              success: false,
+              data: undefined,
+              message: "Unable to create account. Please try again.",
+              httpCode: 500
+            };
+          }
         }
       }
 

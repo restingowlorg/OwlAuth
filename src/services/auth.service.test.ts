@@ -6,6 +6,7 @@ import {
   AccountSecurityRepository,
   AccountSecurityRecord,
   AccountStatus,
+  AccountSecurityRecordExistsError,
   DuplicateUserError
 } from "../repositories/contracts";
 import { zxcvbn } from "@zxcvbn-ts/core";
@@ -845,6 +846,21 @@ describe("AuthService", () => {
         expect(result.message).toBe("Unable to create account. Please try again.");
       });
 
+      // A record already present means provisioning is done, so the account is reachable.
+      it("succeeds when the record already exists", async () => {
+        arrangeSuccessfulSignup();
+        mockAccountSecurityRepo.create.mockRejectedValue(new AccountSecurityRecordExistsError());
+
+        const result = await accountAuthService.signup(
+          existingUser.email,
+          existingUser.username,
+          "Password123!"
+        );
+
+        expect(result.success).toBe(true);
+        expect(result.httpCode).toBe(201);
+      });
+
       it("fails when the repository resolves without a record", async () => {
         arrangeSuccessfulSignup();
         // A resolve with nothing stored is not a successful write.
@@ -917,6 +933,10 @@ describe("AuthService", () => {
             email: existingUser.email,
             username: existingUser.username
           });
+          // Provisioning requires proof of ownership: the supplied password must verify
+          // against the stored hash.
+          mockUserRepo.findWithPasswordById.mockResolvedValue(existingUser);
+          mockCrypto.verifyPassword.mockResolvedValue(true);
         });
 
         // The username check runs first, so a genuine retry — same email and username —
@@ -1019,6 +1039,126 @@ describe("AuthService", () => {
           // A disabled account must not be silently reactivated by a signup attempt.
           // eslint-disable-next-line @typescript-eslint/unbound-method
           expect(mockAccountSecurityRepo.create).not.toHaveBeenCalled();
+        });
+
+        // Email and username are identifiers, not secrets. Knowing both must not be enough
+        // to make an unprovisioned account reachable.
+        describe("proof of ownership", () => {
+          beforeEach(() => {
+            mockAccountSecurityRepo.findByUserId.mockResolvedValue(null);
+            mockAccountSecurityRepo.create.mockResolvedValue(buildRecord("active"));
+          });
+
+          it("does not provision when the password is wrong", async () => {
+            mockCrypto.verifyPassword.mockResolvedValue(false);
+
+            const result = await accountAuthService.signup(
+              existingUser.email,
+              existingUser.username,
+              "NotTheOriginalPassword!"
+            );
+
+            expect(result.httpCode).toBe(409);
+            // eslint-disable-next-line @typescript-eslint/unbound-method
+            expect(mockAccountSecurityRepo.create).not.toHaveBeenCalled();
+          });
+
+          it("provisions when the password is correct", async () => {
+            mockCrypto.verifyPassword.mockResolvedValue(true);
+
+            const result = await accountAuthService.signup(
+              existingUser.email,
+              existingUser.username,
+              "Password123!"
+            );
+
+            expect(result.httpCode).toBe(409);
+            // eslint-disable-next-line @typescript-eslint/unbound-method
+            expect(mockAccountSecurityRepo.create).toHaveBeenCalledWith({
+              userId: existingUser.id,
+              status: "active",
+              emailVerifiedAt: null
+            });
+          });
+
+          it("answers identically whether or not the password was correct", async () => {
+            mockCrypto.verifyPassword.mockResolvedValue(false);
+            const wrong = await accountAuthService.signup(
+              existingUser.email,
+              existingUser.username,
+              "NotTheOriginalPassword!"
+            );
+
+            mockCrypto.verifyPassword.mockResolvedValue(true);
+            const right = await accountAuthService.signup(
+              existingUser.email,
+              existingUser.username,
+              "Password123!"
+            );
+
+            // Nothing in the response distinguishes the two, so the path reveals no
+            // account state.
+            expect(wrong).toEqual(right);
+            expect(wrong.message).toBe("Unable to create account.");
+          });
+
+          it("verifies the password even when only one identity field matches", async () => {
+            // Equal work on every duplicate path, so timing does not reveal whether both
+            // fields belong to the same account.
+            mockUserRepo.findByEmail.mockResolvedValue({
+              id: existingUser.id,
+              email: existingUser.email,
+              username: "someone_else"
+            });
+
+            await accountAuthService.signup(
+              existingUser.email,
+              existingUser.username,
+              "Password123!"
+            );
+
+            /* eslint-disable @typescript-eslint/unbound-method */
+            expect(mockCrypto.verifyPassword).toHaveBeenCalled();
+            expect(mockAccountSecurityRepo.create).not.toHaveBeenCalled();
+            /* eslint-enable @typescript-eslint/unbound-method */
+          });
+        });
+
+        // Two retries can race: both read no record, both insert, and the unique index
+        // rejects the second. The record exists either way, so that is not a failure.
+        it("treats a concurrent provisioning race as success", async () => {
+          mockAccountSecurityRepo.findByUserId.mockResolvedValue(null);
+          mockAccountSecurityRepo.create.mockRejectedValue(new AccountSecurityRecordExistsError());
+
+          const result = await accountAuthService.signup(
+            existingUser.email,
+            existingUser.username,
+            "Password123!"
+          );
+
+          expect(result.httpCode).toBe(409);
+          // eslint-disable-next-line @typescript-eslint/unbound-method
+          expect(mockLogger.error).not.toHaveBeenCalled();
+        });
+
+        it("audits a completed provisioning", async () => {
+          mockAccountSecurityRepo.findByUserId.mockResolvedValue(null);
+          mockAccountSecurityRepo.create.mockResolvedValue(buildRecord("active"));
+
+          await accountAuthService.signup(
+            existingUser.email,
+            existingUser.username,
+            "Password123!"
+          );
+
+          // eslint-disable-next-line @typescript-eslint/unbound-method
+          expect(mockLogger.audit).toHaveBeenCalledWith(
+            expect.objectContaining({
+              type: "SIGNUP",
+              userId: existingUser.id,
+              metadata: { reason: "Provisioning completed for an earlier failed signup" }
+            })
+          );
         });
 
         it("still returns the duplicate response when provisioning fails again", async () => {

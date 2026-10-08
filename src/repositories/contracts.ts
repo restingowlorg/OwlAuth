@@ -66,6 +66,20 @@ export class DuplicateUserError extends Error {
   }
 }
 
+/**
+ * Raised by a repository when an account security record already exists for a user.
+ *
+ * Provisioning is idempotent and can be attempted concurrently — two retries of the same
+ * failed signup race each other — so the unique `user_id` constraint rejecting the second
+ * write means the record is present, which is the desired outcome rather than a failure.
+ */
+export class AccountSecurityRecordExistsError extends Error {
+  constructor() {
+    super("An account security record already exists for this user");
+    this.name = "AccountSecurityRecordExistsError";
+  }
+}
+
 export type AuthDB = {
   userRepo: UserRepository;
   magicLinkRepo?: MagicLinkRepository;

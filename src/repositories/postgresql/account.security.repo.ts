@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import {
   AccountSecurityRecord,
+  AccountSecurityRecordExistsError,
   AccountSecurityRepository,
   AccountStatus,
   UserId
@@ -23,16 +24,36 @@ export class PostgresAccountSecurityRepository implements AccountSecurityReposit
     status: AccountStatus;
     emailVerifiedAt?: Date | null;
   }): Promise<AccountSecurityRecord> {
-    const result = await this.pool.query<AccountSecurityRow>(
-      `
-      INSERT INTO ${this.getTable()} (user_id, status, email_verified_at, updated_at)
-      VALUES ($1, $2, $3, NOW())
-      RETURNING user_id, status, email_verified_at, updated_at
-      `,
-      [input.userId, input.status, input.emailVerifiedAt ?? null]
-    );
+    let result;
+    try {
+      result = await this.pool.query<AccountSecurityRow>(
+        `
+        INSERT INTO ${this.getTable()} (user_id, status, email_verified_at, updated_at)
+        VALUES ($1, $2, $3, NOW())
+        RETURNING user_id, status, email_verified_at, updated_at
+        `,
+        [input.userId, input.status, input.emailVerifiedAt ?? null]
+      );
+    } catch (error: unknown) {
+      // The unique user_id constraint rejecting this write means a concurrent provisioning
+      // attempt already stored the record.
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "23505"
+      ) {
+        throw new AccountSecurityRecordExistsError();
+      }
+      throw error;
+    }
 
     const row = result.rows[0];
+    if (!row) {
+      throw new Error(
+        "[Auth:PostgresAccountSecurityRepository] Insert returned no account security record"
+      );
+    }
 
     return {
       userId: String(row.user_id),

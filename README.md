@@ -136,7 +136,7 @@ These constraints are the final protection against concurrent signup requests. O
 
 ### Account Identity State
 
-Optional, and off by default. When enabled, OwlAuth tracks whether an account is `active`, `pending_email_verification`, or `disabled`, and refuses to authenticate a disabled account.
+Optional, and off by default. When enabled, OwlAuth tracks whether an account is `active`, `pending_email_verification`, or `disabled`, and authenticates only the statuses that permit it — a `disabled` account, an unrecognised status, and an account with no record at all are all refused.
 
 ```ts
 const auth = await createAuthManager({

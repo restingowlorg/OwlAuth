@@ -36,10 +36,16 @@ The user row cannot be rolled back, so the guarantee rests on it being unreachab
 record means no authentication, on both the credentials and magic-link paths, including for a
 request that arrives during the provisioning window.
 
-Retrying the signup finishes provisioning. The retry still answers with the ordinary duplicate
-response, so nothing is revealed, but the missing record is created and the account becomes
-usable without operator intervention. An account that already has a record is left untouched,
-so a `disabled` account is never reactivated by a signup attempt.
+Retrying the signup finishes provisioning, **provided the retry supplies the original
+password**. Email and username are identifiers rather than secrets, so a matching pair alone
+would let anyone who can guess both make an unprovisioned account reachable; the password is
+verified against the stored hash first. It is never stored or changed by this path — the
+original password stands.
+
+The retry still answers with the ordinary duplicate response whether or not the password
+matched, so nothing is revealed, and the verification runs on every duplicate signup so the
+timing does not differ either. An account that already has a record is left untouched, so a
+`disabled` account is never reactivated by a signup attempt.
 
 > **Do not disable an account by deleting its record.** A deleted record is
 > indistinguishable from a signup that never finished, so the next signup attempt for that

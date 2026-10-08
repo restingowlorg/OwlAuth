@@ -1,6 +1,7 @@
 import { Collection, ObjectId, InsertOneResult } from "mongodb";
 import {
   AccountSecurityRecord,
+  AccountSecurityRecordExistsError,
   AccountSecurityRepository,
   AccountStatus,
   UserId
@@ -25,16 +26,31 @@ export class MongoAccountSecurityRepo implements AccountSecurityRepository {
   }): Promise<AccountSecurityRecord> {
     const now = new Date();
 
+    let objectId: ObjectId;
+    try {
+      objectId = new ObjectId(input.userId);
+    } catch {
+      throw new Error(`[Auth:MongoAccountSecurityRepo] '${input.userId}' is not a valid user id`);
+    }
+
     const doc: Omit<IMongoAccountSecurityDoc, "_id"> = {
-      user_id: new ObjectId(input.userId),
+      user_id: objectId,
       status: input.status,
       email_verified_at: input.emailVerifiedAt ?? null,
       updated_at: now
     };
 
-    const result: InsertOneResult<IMongoAccountSecurityDoc> = await this.collection.insertOne(
-      doc as unknown as IMongoAccountSecurityDoc
-    );
+    let result: InsertOneResult<IMongoAccountSecurityDoc>;
+    try {
+      result = await this.collection.insertOne(doc as unknown as IMongoAccountSecurityDoc);
+    } catch (error: unknown) {
+      // The unique user_id index rejecting this write means a concurrent provisioning
+      // attempt already stored the record.
+      if (typeof error === "object" && error !== null && "code" in error && error.code === 11000) {
+        throw new AccountSecurityRecordExistsError();
+      }
+      throw error;
+    }
 
     if (!result.acknowledged) {
       throw new Error("[Auth:MongoAccountSecurityRepo] Failed to create account security record");
