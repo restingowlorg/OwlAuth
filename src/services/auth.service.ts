@@ -46,19 +46,19 @@ export class AuthService {
     username: string,
     password: string,
     options?: { correlationId?: string }
-  ): Promise<void> {
+  ): Promise<boolean> {
     // Consumers with the feature off must not pay for a password verification here.
-    if (!this.accountSecurity) return;
+    if (!this.accountSecurity) return false;
 
     const withPassword = await this.users.findWithPasswordById(existing.id);
     const ownsAccount = withPassword
       ? await this.crypto.verifyPassword(password, withPassword.password)
       : false;
 
-    if (existing.email !== email || existing.username !== username) return;
-    if (!ownsAccount) return;
+    if (existing.email !== email || existing.username !== username) return false;
+    if (!ownsAccount) return false;
 
-    await this.completeProvisioning(existing.id, options?.correlationId);
+    return await this.completeProvisioning(existing.id, options?.correlationId);
   }
 
   /**
@@ -73,12 +73,12 @@ export class AuthService {
    * signup attempt for that address would recreate it as `active`. Set `status` to
    * `disabled` instead, which this leaves untouched.
    */
-  private async completeProvisioning(userId: string, correlationId?: string): Promise<void> {
-    if (!this.accountSecurity) return;
+  private async completeProvisioning(userId: string, correlationId?: string): Promise<boolean> {
+    if (!this.accountSecurity) return false;
 
     try {
       const existing = await this.accountSecurity.findByUserId(userId);
-      if (existing) return;
+      if (existing) return false;
 
       await this.accountSecurity.create({
         userId,
@@ -86,17 +86,10 @@ export class AuthService {
         emailVerifiedAt: null
       });
 
-      // Audited, not merely logged: this writes a record that makes an account reachable,
-      // on a path an unauthenticated caller can trigger.
-      this.logger.audit({
-        type: "SIGNUP",
-        userId,
-        metadata: { reason: "Provisioning completed for an earlier failed signup" },
-        correlationId
-      });
+      return true;
     } catch (err) {
       // A concurrent retry winning the race is the outcome this wanted, not a failure.
-      if (err instanceof AccountSecurityRecordExistsError) return;
+      if (err instanceof AccountSecurityRecordExistsError) return false;
 
       this.logger.error(
         "Failed to complete account provisioning on signup retry",
@@ -104,6 +97,7 @@ export class AuthService {
         { userId },
         correlationId
       );
+      return false;
     }
   }
 
@@ -238,13 +232,25 @@ export class AuthService {
       if (this.users.findByUsername) {
         const existingUser = await this.users.findByUsername(username);
         if (existingUser) {
-          await this.completeProvisioningForRetry(existingUser, email, username, password, options);
+          // Reported on the one failure event rather than a separate SIGNUP, which would
+          // put a success and a failure for the same request in the audit trail.
+          const provisioned = await this.completeProvisioningForRetry(
+            existingUser,
+            email,
+            username,
+            password,
+            options
+          );
 
           this.logger.audit({
             type: "SIGNUP_FAILURE",
             userId: existingUser.id,
             email,
-            metadata: { username, reason: "Username already taken" },
+            metadata: {
+              username,
+              reason: "Username already taken",
+              ...(provisioned ? { provisioningCompleted: true } : {})
+            },
             correlationId: options?.correlationId
           });
           return {
@@ -259,13 +265,23 @@ export class AuthService {
       // Email uniqueness
       const existingEmail = await this.users.findByEmail(email);
       if (existingEmail) {
-        await this.completeProvisioningForRetry(existingEmail, email, username, password, options);
+        const provisioned = await this.completeProvisioningForRetry(
+          existingEmail,
+          email,
+          username,
+          password,
+          options
+        );
 
         this.logger.audit({
           type: "SIGNUP_FAILURE",
           userId: existingEmail.id,
           email,
-          metadata: { username, reason: "Email already registered" },
+          metadata: {
+            username,
+            reason: "Email already registered",
+            ...(provisioned ? { provisioningCompleted: true } : {})
+          },
           correlationId: options?.correlationId
         });
         return {

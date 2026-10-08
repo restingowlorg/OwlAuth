@@ -60,6 +60,15 @@ describe("MongoAccountSecurityRepo", () => {
       await expect(repo.create(input)).rejects.toBe(original);
     });
 
+    it("rethrows the original error when the read-back itself fails", async () => {
+      const original = duplicateKey();
+      (collection.insertOne as jest.Mock).mockRejectedValue(original);
+      (collection.findOne as jest.Mock).mockRejectedValue(new Error("socket closed"));
+
+      // The read-back failure must not replace the error that explains the write.
+      await expect(repo.create(input)).rejects.toBe(original);
+    });
+
     it("rethrows an error that is not a duplicate key", async () => {
       const original = Object.assign(new Error("socket closed"), { code: 89 });
       (collection.insertOne as jest.Mock).mockRejectedValue(original);

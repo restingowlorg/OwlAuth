@@ -49,14 +49,13 @@ export class MongoAccountSecurityRepo implements AccountSecurityRepository {
       // Confirm a record actually exists for this user before reporting it as already
       // provisioned, or a signup would be told it succeeded while leaving an account that
       // cannot authenticate. Anything else rethrows, so signup reports the failure.
-      if (
-        typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        error.code === 11000 &&
-        (await this.findByUserId(input.userId))
-      ) {
-        throw new AccountSecurityRecordExistsError();
+      if (typeof error === "object" && error !== null && "code" in error && error.code === 11000) {
+        // A read-back failure must not replace the error that actually explains the write,
+        // so it is swallowed and the original is rethrown.
+        const existing = await this.findByUserId(input.userId).catch(() => null);
+        if (existing) {
+          throw new AccountSecurityRecordExistsError();
+        }
       }
       throw error;
     }

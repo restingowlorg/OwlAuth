@@ -60,6 +60,16 @@ describe("PostgresAccountSecurityRepository", () => {
       await expect(repo.create(input)).rejects.toBe(original);
     });
 
+    it("rethrows the original error when the read-back itself fails", async () => {
+      const original = uniqueViolation();
+      (pool.query as jest.Mock)
+        .mockRejectedValueOnce(original)
+        .mockRejectedValueOnce(new Error("connection terminated"));
+
+      // The read-back failure must not replace the error that explains the write.
+      await expect(repo.create(input)).rejects.toBe(original);
+    });
+
     it("rethrows an error that is not a unique violation", async () => {
       const original = Object.assign(new Error("connection terminated"), { code: "57P01" });
       (pool.query as jest.Mock).mockRejectedValue(original);

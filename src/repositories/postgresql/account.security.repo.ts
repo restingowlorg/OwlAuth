@@ -44,10 +44,14 @@ export class PostgresAccountSecurityRepository implements AccountSecurityReposit
         typeof error === "object" &&
         error !== null &&
         "code" in error &&
-        error.code === "23505" &&
-        (await this.findByUserId(input.userId))
+        error.code === "23505"
       ) {
-        throw new AccountSecurityRecordExistsError();
+        // A read-back failure must not replace the error that actually explains the write,
+        // so it is swallowed and the original is rethrown.
+        const existing = await this.findByUserId(input.userId).catch(() => null);
+        if (existing) {
+          throw new AccountSecurityRecordExistsError();
+        }
       }
       throw error;
     }

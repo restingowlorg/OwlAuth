@@ -1157,9 +1157,37 @@ describe("AuthService", () => {
           expect(mockLogger.error).not.toHaveBeenCalled();
         });
 
-        it("audits a completed provisioning", async () => {
+        // One event per request. Emitting a separate SIGNUP would put a success and a
+        // failure for the same correlation id in the audit trail.
+        it("records the provisioning on the single failure event", async () => {
           mockAccountSecurityRepo.findByUserId.mockResolvedValue(null);
           mockAccountSecurityRepo.create.mockResolvedValue(buildRecord("active"));
+
+          await accountAuthService.signup(
+            existingUser.email,
+            existingUser.username,
+            "Password123!"
+          );
+
+          /* eslint-disable @typescript-eslint/unbound-method */
+          expect(mockLogger.audit).toHaveBeenCalledTimes(1);
+          expect(mockLogger.audit).toHaveBeenCalledWith(
+            expect.objectContaining({
+              type: "SIGNUP_FAILURE",
+              userId: existingUser.id,
+              metadata: {
+                username: existingUser.username,
+                reason: "Email already registered",
+                provisioningCompleted: true
+              }
+            })
+          );
+          /* eslint-enable @typescript-eslint/unbound-method */
+        });
+
+        // Exact match, so the absence of the flag is asserted rather than assumed.
+        it("omits the provisioning flag when nothing was provisioned", async () => {
+          mockAccountSecurityRepo.findByUserId.mockResolvedValue(buildRecord("active"));
 
           await accountAuthService.signup(
             existingUser.email,
@@ -1170,9 +1198,11 @@ describe("AuthService", () => {
           // eslint-disable-next-line @typescript-eslint/unbound-method
           expect(mockLogger.audit).toHaveBeenCalledWith(
             expect.objectContaining({
-              type: "SIGNUP",
-              userId: existingUser.id,
-              metadata: { reason: "Provisioning completed for an earlier failed signup" }
+              type: "SIGNUP_FAILURE",
+              metadata: {
+                username: existingUser.username,
+                reason: "Email already registered"
+              }
             })
           );
         });
