@@ -1,5 +1,5 @@
 import { AuthType, IAuthMethods } from "../core/types";
-import { ICryptoAdapter } from "../infra/security/types";
+import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
 import {
   UserRepository,
   MagicLinkRepository,
@@ -17,6 +17,7 @@ describe("MagicLinkAuthStrategy", () => {
   let strategy: MagicLinkAuthStrategy;
   let mockDb: AuthDB;
   let mockOptions: AuthOptions<AuthType>;
+  const mockLogger = {} as IAuditLogger;
 
   beforeEach(() => {
     strategy = new MagicLinkAuthStrategy();
@@ -32,7 +33,7 @@ describe("MagicLinkAuthStrategy", () => {
 
   it("should register request, verify, and consume methods under target.magicLink", () => {
     const target: Mutable<Partial<IAuthMethods>> = {};
-    strategy.register(target, mockDb, mockOptions);
+    strategy.register(target, mockDb, mockOptions, mockLogger);
 
     expect(target.magicLink).toBeDefined();
     if (target.magicLink) {
@@ -50,7 +51,7 @@ describe("MagicLinkAuthStrategy", () => {
       close: jest.fn() as unknown as () => Promise<void>
     };
 
-    expect(() => strategy.register(target, dbWithoutRepo, mockOptions)).toThrow(
+    expect(() => strategy.register(target, dbWithoutRepo, mockOptions, mockLogger)).toThrow(
       "MagicLinkRepository is required for MagicLinkAuthStrategy"
     );
   });
@@ -63,7 +64,7 @@ describe("MagicLinkAuthStrategy", () => {
         mockDb.userRepo,
         mockDb.magicLinkRepo,
         expect.anything(),
-        expect.anything(),
+        mockLogger,
         undefined,
         expected
       );
@@ -76,7 +77,8 @@ describe("MagicLinkAuthStrategy", () => {
         {
           ...mockOptions,
           accountSecurity: true
-        }
+        },
+        mockLogger
       );
 
       expectRepoPassed(accountSecurityRepo);
@@ -91,20 +93,21 @@ describe("MagicLinkAuthStrategy", () => {
         {
           ...mockOptions,
           accountSecurity: false
-        }
+        },
+        mockLogger
       );
 
       expectRepoPassed(undefined);
     });
 
     it("ignores a supplied repository when the option is absent", () => {
-      strategy.register({}, { ...mockDb, accountSecurityRepo }, mockOptions);
+      strategy.register({}, { ...mockDb, accountSecurityRepo }, mockOptions, mockLogger);
 
       expectRepoPassed(undefined);
     });
 
     it("passes undefined when neither the option nor a repository is present", () => {
-      strategy.register({}, mockDb, mockOptions);
+      strategy.register({}, mockDb, mockOptions, mockLogger);
 
       expectRepoPassed(undefined);
     });

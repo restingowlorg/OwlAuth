@@ -1,4 +1,4 @@
-import { auditLogger } from "../infra/security/security-audit-logger";
+import { AuthAuditor } from "../infra/audit/auditor";
 import { AuthDB } from "../repositories/contracts";
 import { CredentialsAuthStrategy } from "../strategies/CredentialsStrategy";
 import { MagicLinkAuthStrategy } from "../strategies/MagicLinkStrategy";
@@ -54,16 +54,19 @@ export function initAuthServices(
     );
   }
 
-  if (options.customMaskingKeys) {
-    auditLogger.setCustomMaskingKeys(options.customMaskingKeys);
-  }
+  // Owned by this manager alone, so its sink and masking keys never leak into another.
+  const auditor = new AuthAuditor({
+    auditSink: options.auditSink,
+    onAuditSinkError: options.onAuditSinkError,
+    customMaskingKeys: options.customMaskingKeys
+  });
 
-  auditLogger.info(`Initializing auth services for types: ${authTypes.join(", ")}`);
+  auditor.info(`Initializing auth services for types: ${authTypes.join(", ")}`);
 
   for (const type of authTypes) {
     const strategy = authStrategies[type];
     if (strategy) {
-      strategy.register(result, db, options);
+      strategy.register(result, db, options, auditor);
     }
   }
 

@@ -1,3 +1,5 @@
+import { AuthAuditEventType, AuthAuditOutcome } from "../audit/events";
+
 export interface ICryptoAdapter {
   hashPassword(password: string): Promise<string>;
   verifyPassword(password: string, hash: string): Promise<boolean>;
@@ -6,24 +8,23 @@ export interface ICryptoAdapter {
   verifyToken(token: string, hash: string): Promise<boolean>;
 }
 
-export type SecurityEventType =
-  | "LOGIN_SUCCESS"
-  | "LOGIN_FAILURE"
-  | "SIGNUP"
-  | "SIGNUP_FAILURE"
-  | "PASSWORD_CHANGE"
-  | "MAGIC_LINK_REQUESTED"
-  | "MAGIC_LINK_VERIFIED"
-  | "MAGIC_LINK_CONSUMED"
-  | "MAGIC_LINK_FAILURE"
-  | "SESSION_INVALIDATION";
+/** @deprecated Use `AuthAuditEventType`. */
+export type SecurityEventType = AuthAuditEventType;
 
+/**
+ * What a service records. The auditor turns it into a versioned {@link AuthAuditEvent}
+ * (adding id, timestamp, category and outcome, and redacting) before any sink sees it.
+ */
 export type SecurityEvent = {
-  type: SecurityEventType;
+  type: AuthAuditEventType;
+  /** Overrides the type's default outcome, for types that cover both. */
+  outcome?: AuthAuditOutcome;
   userId?: string | number;
   email?: string;
   metadata?: Record<string, unknown>;
   correlationId?: string;
+  /** Present on events produced by the auditor; ignored on input. */
+  timestamp?: string;
 };
 
 export interface IAuditLogger {

@@ -14,4 +14,20 @@ export { MongoAdapter } from "./infra/databases/mongo/adapter";
 export { PostgresAdapter } from "./infra/databases/postgresql/adapter";
 export { ICryptoAdapter } from "./infra/security/types";
 export { BcryptAdapter } from "./infra/security/bcrypt.adapter";
+export { SecurityAuditLogger as ConsoleAuditLogger } from "./infra/security/security-audit-logger";
+export { AUTH_AUDIT_EVENTS, AUTH_AUDIT_EVENT_VERSION } from "./infra/audit/events";
+export type {
+  AuthAuditEvent,
+  AuthAuditEventType,
+  AuthAuditEventCategory,
+  AuthAuditOutcome,
+  AuthAuditMetadataValue
+} from "./infra/audit/events";
+export type {
+  AuditSink,
+  AuditSinkFunction,
+  AuditSinkObject,
+  AuditLoggerSink,
+  AuditSinkErrorHandler
+} from "./infra/audit/auditor";
 export type { SafeUser, UserId, AccountStatus } from "./repositories/contracts";

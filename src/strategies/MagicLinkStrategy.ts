@@ -1,5 +1,5 @@
-import { auditLogger } from "../infra/security/security-audit-logger";
 import { BcryptAdapter } from "../infra/security/bcrypt.adapter";
+import { IAuditLogger } from "../infra/security/types";
 import { MagicLinkService } from "../services/magic-link.service";
 import { AuthDB } from "../repositories/contracts";
 import { AuthOptions, AuthType, IAuthMethods } from "../core/types";
@@ -9,7 +9,8 @@ export class MagicLinkAuthStrategy implements IAuthStrategy {
   register(
     target: Mutable<Partial<IAuthMethods>>,
     db: AuthDB,
-    options: AuthOptions<AuthType>
+    options: AuthOptions<AuthType>,
+    logger: IAuditLogger
   ): void {
     const cryptoAdapter = options.cryptoAdapter || new BcryptAdapter();
     if (!db.magicLinkRepo) {
@@ -23,7 +24,7 @@ export class MagicLinkAuthStrategy implements IAuthStrategy {
       db.userRepo,
       db.magicLinkRepo,
       cryptoAdapter,
-      auditLogger,
+      logger,
       options.magicLinkBaseUrl,
       accountSecurityRepo
     );

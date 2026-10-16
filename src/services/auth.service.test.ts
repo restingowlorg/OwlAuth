@@ -475,6 +475,7 @@ describe("AuthService", () => {
       (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: false });
       mockCrypto.hashPassword.mockResolvedValue("new_hashed_password");
       mockUserRepo.updatePassword.mockResolvedValue(true);
+      mockMagicRepo.invalidateByUserId.mockResolvedValue(true);
 
       const result = await authService.changePassword(
         changePwdData.userId,
@@ -486,8 +487,30 @@ describe("AuthService", () => {
       expect(result.httpCode).toBe(200);
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.audit).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "PASSWORD_CHANGE" })
+        expect.objectContaining({
+          type: "PASSWORD_CHANGE",
+          metadata: { magicLinksInvalidated: true }
+        })
       );
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).not.toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: "failure" })
+      );
+    });
+
+    it("should pass its logger to the breached-password check", async () => {
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
+        id: "1",
+        password: "hashed_password"
+      } as unknown as User);
+      mockCrypto.verifyPassword.mockResolvedValue(true);
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: true });
+
+      await authService.changePassword("1", "old", changePwdData.newPassword);
+
+      expect(isBreachedPassword).toHaveBeenCalledWith(changePwdData.newPassword, mockLogger);
     });
 
     it("should fail if user not found", async () => {
@@ -495,6 +518,15 @@ describe("AuthService", () => {
       const result = await authService.changePassword("99", "pass", "newpass");
       expect(result.success).toBe(false);
       expect(result.httpCode).toBe(404);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "PASSWORD_CHANGE",
+          userId: "99",
+          outcome: "failure",
+          metadata: { reason: "User not found" }
+        })
+      );
     });
 
     it("should fail if current password is incorrect", async () => {
@@ -507,6 +539,38 @@ describe("AuthService", () => {
       const result = await authService.changePassword("1", "wrong", "newpass");
       expect(result.success).toBe(false);
       expect(result.httpCode).toBe(401);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "PASSWORD_CHANGE",
+          outcome: "failure",
+          metadata: { reason: "Current password incorrect" }
+        })
+      );
+    });
+
+    it("should audit a fail-closed breach check failure", async () => {
+      mockUserRepo.findWithPasswordById.mockResolvedValue({
+        id: "1",
+        password: "hashed_password"
+      } as unknown as User);
+      mockCrypto.verifyPassword.mockResolvedValue(true);
+      (containsBlockedPasswords as jest.Mock).mockReturnValue(false);
+      (zxcvbn as jest.Mock).mockReturnValue({ score: 4 });
+      (isBreachedPassword as jest.Mock).mockResolvedValue({
+        detected: false,
+        error: new Error("down")
+      });
+
+      const result = await authService.changePassword("1", "old", changePwdData.newPassword, {
+        pwnedPasswordFailClosed: true
+      });
+
+      expect(result.httpCode).toBe(503);
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      expect(mockLogger.audit).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "PASSWORD_CHANGE", outcome: "failure" })
+      );
     });
 
     it("should fail if new password is the same as current password", async () => {

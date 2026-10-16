@@ -1,79 +1,24 @@
 /* eslint-disable no-console */
 import { SECURITY_CONFIG } from "../../config";
+import { maskSensitiveData } from "../audit/redact";
 import { IAuditLogger, SecurityEvent } from "./types";
 
 /**
- * Robustly masks sensitive data in objects/arrays.
- * Handles circular references and recursively masks nested objects.
+ * Console logger, and the default audit sink when none is supplied.
+ *
+ * Each auth manager creates its own instance, so masking keys configured for one manager
+ * never apply to another.
  */
-function maskSensitiveData(
-  data: unknown,
-  customKeys: string[],
-  seen = new WeakSet<object>()
-): unknown {
-  if (!data || typeof data !== "object") return data;
-
-  const dataObj = data as Record<string, unknown>;
-  if (seen.has(dataObj)) return "[Circular]";
-
-  // Only add non-primitive objects to the seen set
-  seen.add(dataObj);
-
-  if (Array.isArray(data)) {
-    const masked = [...(data as unknown[])];
-    for (let i = 0; i < masked.length; i++) {
-      masked[i] = maskSensitiveData(masked[i], customKeys, seen);
-    }
-    return masked;
-  }
-
-  const masked: Record<string, unknown> =
-    data instanceof Error
-      ? {
-          name: data.name,
-          message: data.message,
-          stack: data.stack,
-          ...dataObj
-        }
-      : { ...dataObj };
-
-  const allSensitiveKeys = [
-    ...(SECURITY_CONFIG.SENSITIVE_KEYS as readonly string[]),
-    ...customKeys
-  ].map((k) => k.toLowerCase());
-
-  // Mask sensitive data
-  for (const key in masked) {
-    const value = masked[key];
-    if (allSensitiveKeys.includes(key.toLowerCase())) {
-      masked[key] = "********";
-    } else if (value && typeof value === "object") {
-      masked[key] = maskSensitiveData(value, customKeys, seen);
-    }
-  }
-
-  // Restore Error object structure
-  if (data instanceof Error) {
-    const err = new Error(masked.message as string);
-    err.name = masked.name as string;
-    err.stack = masked.stack as string;
-    for (const key in masked) {
-      if (!["name", "message", "stack"].includes(key)) {
-        (err as unknown as Record<string, unknown>)[key] = masked[key];
-      }
-    }
-    return err;
-  }
-
-  return masked;
-}
-
 export class SecurityAuditLogger implements IAuditLogger {
   private readonly prefix = SECURITY_CONFIG.LOGGER_PREFIX;
-  private customMaskingKeys: string[] = [];
+  private customMaskingKeys: string[];
+
+  constructor(customMaskingKeys: readonly string[] = []) {
+    this.customMaskingKeys = [...customMaskingKeys];
+  }
 
   setCustomMaskingKeys(keys: string[]) {
-    this.customMaskingKeys = keys;
+    this.customMaskingKeys = [...keys];
   }
 
   info(message: string, context?: unknown, correlationId?: string) {
@@ -103,7 +48,7 @@ export class SecurityAuditLogger implements IAuditLogger {
 
     const payload: Record<string, unknown> = {
       ...rest,
-      timestamp: new Date().toISOString()
+      timestamp: event.timestamp ?? new Date().toISOString()
     };
 
     if (userId !== undefined) payload.userId = userId;
@@ -115,6 +60,4 @@ export class SecurityAuditLogger implements IAuditLogger {
     );
   }
 }
-
-export const auditLogger = new SecurityAuditLogger();
 /* eslint-enable no-console */
