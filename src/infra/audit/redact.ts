@@ -7,6 +7,19 @@ const normaliseKey = (key: string): string => key.toLowerCase().replace(/[^a-z0-
 
 const DEFAULT_SENSITIVE_FRAGMENTS = SECURITY_CONFIG.SENSITIVE_KEYS.map(normaliseKey);
 
+// Masking keys are fixed per manager (callers pass frozen arrays), so each list is
+// normalised once rather than on every key comparison.
+const normalisedCustomKeys = new WeakMap<readonly string[], ReadonlySet<string>>();
+
+function customKeySet(customKeys: readonly string[]): ReadonlySet<string> {
+  let keys = normalisedCustomKeys.get(customKeys);
+  if (!keys) {
+    keys = new Set(customKeys.map(normaliseKey));
+    normalisedCustomKeys.set(customKeys, keys);
+  }
+  return keys;
+}
+
 /**
  * A key is sensitive when, ignoring case and separators, it contains one of the built-in
  * fragments (so `refresh_token`, `accessToken` and `Set-Cookie` all match) or equals one of
@@ -15,25 +28,34 @@ const DEFAULT_SENSITIVE_FRAGMENTS = SECURITY_CONFIG.SENSITIVE_KEYS.map(normalise
 export function isSensitiveKey(key: string, customKeys: readonly string[]): boolean {
   const normalised = normaliseKey(key);
   if (DEFAULT_SENSITIVE_FRAGMENTS.some((fragment) => normalised.includes(fragment))) return true;
-  return customKeys.some((custom) => normaliseKey(custom) === normalised);
+  return customKeys.length > 0 && customKeySet(customKeys).has(normalised);
 }
 
 // Credentials recognisable by shape, wherever they appear in a string, so one embedded in an
 // error message or a header dump is caught too. Arbitrary opaque secrets (API keys, random
 // tokens) have no recognisable shape and cannot be detected this way.
-const SENSITIVE_VALUE_PATTERNS = [
-  /\b(?:bearer|basic)\s+[A-Za-z0-9\-._~+/]+=*/gi,
-  /\beyJ[\w-]*\.[\w-]+\.[\w-]*/g // compact JWS/JWT
-];
+const AUTH_SCHEME_PATTERN = /\b(?:bearer|basic)\s+([A-Za-z0-9\-._~+/]+=*)/gi;
+const JWT_PATTERN = /\beyJ[\w-]*\.[\w-]+\.[\w-]*/g; // compact JWS/JWT
 
-// search() ignores lastIndex, so the global patterns are safe to share.
-export function isSensitiveValue(value: string): boolean {
-  return SENSITIVE_VALUE_PATTERNS.some((pattern) => value.search(pattern) !== -1);
-}
+/**
+ * Whether the text after `Bearer`/`Basic` is a credential rather than a word, so prose such
+ * as "Missing bearer token" or "Basic validation failed" is left alone. Tokens and base64
+ * are long and carry a digit, a symbol or an inner capital; ordinary words do not.
+ */
+const looksLikeCredential = (candidate: string): boolean =>
+  candidate.length >= 8 && /[0-9+/=._~-]|.[A-Z]/.test(candidate);
 
 /** Replace every credential-shaped substring, keeping the rest of the text readable. */
 export function scrubCredentials(value: string): string {
-  return SENSITIVE_VALUE_PATTERNS.reduce((text, pattern) => text.replace(pattern, REDACTED), value);
+  return value
+    .replace(AUTH_SCHEME_PATTERN, (match, candidate: string) =>
+      looksLikeCredential(candidate) ? REDACTED : match
+    )
+    .replace(JWT_PATTERN, REDACTED);
+}
+
+export function isSensitiveValue(value: string): boolean {
+  return scrubCredentials(value) !== value;
 }
 
 /**
@@ -129,7 +151,8 @@ export function redactEventMetadata(
     ) {
       result[key] = value;
     } else if (value instanceof Date) {
-      result[key] = value.toISOString();
+      // toISOString() throws on an invalid date, which would drop the whole event.
+      result[key] = Number.isNaN(value.getTime()) ? "[Invalid Date]" : value.toISOString();
     } else if (value !== undefined) {
       result[key] = "[Omitted]";
     }

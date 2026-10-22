@@ -92,6 +92,13 @@ describe("SecurityAuditLogger", () => {
       logger.error("fail", new Error("boom"), undefined, "err-id");
       expect(errorSpy.mock.calls[0][0]).toContain("[err-id]");
     });
+
+    it("should scrub a credential interpolated into the message", () => {
+      logger.error("Upstream said: Authorization: Bearer 3f9a1c7e2b", new Error("boom"));
+      expect(errorSpy.mock.calls[0][0]).toBe(
+        "OWL-AUTH [ERROR] - Upstream said: Authorization: ********"
+      );
+    });
   });
 
   describe("audit()", () => {
@@ -147,8 +154,8 @@ describe("SecurityAuditLogger", () => {
       expect(context.apikey).toBe("********");
     });
 
-    it("should mask custom keys when set via setCustomMaskingKeys()", () => {
-      logger.setCustomMaskingKeys(["ssn", "dob"]);
+    it("should mask the custom keys it was constructed with", () => {
+      logger = new SecurityAuditLogger(["ssn", "dob"]);
       logger.info("check", { ssn: "123-45-6789", dob: "1990-01-01", name: "Alice" });
       const context = infoSpy.mock.calls[0][1] as Record<string, unknown>;
       expect(context.ssn).toBe("********");

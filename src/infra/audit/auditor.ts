@@ -72,13 +72,18 @@ function safeCorrelationId(correlationId: string | undefined): string | undefine
   return correlationId && isSensitiveValue(correlationId) ? REDACTED : correlationId;
 }
 
+const isLoggerSink = (sink: AuditSink): sink is AuditLoggerSink =>
+  !!sink && isFunction((sink as AuditLoggerSink).audit);
+
 function resolveSink(sink: AuditSink): AuditSinkFunction {
   if (isFunction(sink)) return sink;
-  if (sink && isFunction((sink as AuditSinkObject).emit)) {
-    return (event) => (sink as AuditSinkObject).emit(event);
+  // `audit` is checked first: winston, pino and other stream-based loggers inherit `emit`
+  // from EventEmitter, and calling that would fire an unheard event and lose the audit.
+  if (isLoggerSink(sink)) {
+    return (event) => sink.audit(event);
   }
-  if (sink && isFunction((sink as AuditLoggerSink).audit)) {
-    return (event) => (sink as AuditLoggerSink).audit(event);
+  if (sink && isFunction(sink.emit)) {
+    return (event) => sink.emit(event);
   }
   throw new TypeError(
     "[Auth:audit] auditSink must be a function, an object with emit(event), or a logger " +
@@ -98,13 +103,20 @@ export class AuthAuditor implements IAuditLogger {
 
   constructor(options: AuthAuditorOptions = {}) {
     this.maskingKeys = Object.freeze([...(options.customMaskingKeys ?? [])]);
+
+    // Only an omitted option means "use the default". Anything else that is not usable fails
+    // at startup, so a misconfigured value cannot silently send events or failures nowhere.
+    if (options.onAuditSinkError !== undefined && !isFunction(options.onAuditSinkError)) {
+      throw new TypeError("[Auth:audit] onAuditSinkError must be a function.");
+    }
     this.onAuditSinkError = options.onAuditSinkError;
 
     const consoleLogger = new SecurityAuditLogger(this.maskingKeys);
 
-    if (!options.auditSink) {
-      // Backward-compatible default: events and diagnostics both go to the console.
-      this.sink = (event) => consoleLogger.audit(event);
+    if (options.auditSink === undefined) {
+      // Backward-compatible default: events and diagnostics both go to the console. Events
+      // are already redacted by toEvent(), so they are printed without a second pass.
+      this.sink = (event) => consoleLogger.printEvent(event);
       this.diagnostics = consoleLogger;
       return;
     }
@@ -114,9 +126,11 @@ export class AuthAuditor implements IAuditLogger {
   }
 
   private resolveDiagnostics(sink: AuditSink, fallback: SecurityAuditLogger): Diagnostics {
-    if (isFunction(sink)) return fallback;
+    // Only the logger form takes diagnostics. A function or an emitter that happens to have
+    // an `info` or `error` method is not a logger, so its diagnostics stay on the console.
+    if (!isLoggerSink(sink)) return fallback;
 
-    const custom = sink as AuditLoggerSink;
+    const custom = sink;
     const mask = (value: unknown) => maskSensitiveData(value, this.maskingKeys);
 
     return {
@@ -134,18 +148,28 @@ export class AuthAuditor implements IAuditLogger {
   }
 
   // Services call these from inside their own error handling, so a custom logger that throws
-  // or rejects would otherwise turn a deterministic result into a rejected promise.
+  // or rejects would otherwise turn a deterministic result into a rejected promise. Callers
+  // interpolate error text into messages, so the message is scrubbed like the context.
   info(message: string, context?: unknown, correlationId?: string): void {
-    swallow(() => this.diagnostics.info(message, context, safeCorrelationId(correlationId)));
+    swallow(() =>
+      this.diagnostics.info(scrubCredentials(message), context, safeCorrelationId(correlationId))
+    );
   }
 
   warn(message: string, context?: unknown, correlationId?: string): void {
-    swallow(() => this.diagnostics.warn(message, context, safeCorrelationId(correlationId)));
+    swallow(() =>
+      this.diagnostics.warn(scrubCredentials(message), context, safeCorrelationId(correlationId))
+    );
   }
 
   error(message: string, error: unknown, context?: unknown, correlationId?: string): void {
     swallow(() =>
-      this.diagnostics.error(message, error, context, safeCorrelationId(correlationId))
+      this.diagnostics.error(
+        scrubCredentials(message),
+        error,
+        context,
+        safeCorrelationId(correlationId)
+      )
     );
   }
 
@@ -179,7 +203,7 @@ export class AuthAuditor implements IAuditLogger {
       id: randomUUID(),
       type: input.type,
       category: definition.category,
-      outcome: input.outcome ?? definition.outcome,
+      outcome: definition.outcome,
       timestamp: new Date().toISOString(),
       ...(input.correlationId ? { correlationId: safeCorrelationId(input.correlationId) } : {}),
       // Masking keys apply to these identifiers as they always did on the console, so an

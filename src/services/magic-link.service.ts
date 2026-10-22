@@ -56,6 +56,7 @@ export class MagicLinkService {
 
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
+          email,
           metadata: { reason: "User not found" },
           correlationId: options?.correlationId
         });
@@ -75,6 +76,7 @@ export class MagicLinkService {
         // Do not mint a credential for a blocked account, and do not reveal that it exists.
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
+          email,
           userId: user.id,
           metadata: { reason: "Account status does not permit authentication" },
           correlationId: options?.correlationId
@@ -105,10 +107,14 @@ export class MagicLinkService {
         );
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
+          email,
           userId: user.id,
           metadata: { reason: "Existing magic link invalidation failed" },
           correlationId: options?.correlationId
         });
+
+        await this.enforceMinimumRequestDuration(startedAt);
+
         return {
           success: false,
           data: undefined,
@@ -134,10 +140,14 @@ export class MagicLinkService {
         );
         this.logger.audit({
           type: "MAGIC_LINK_FAILURE",
+          email,
           userId: user.id,
           metadata: { reason: "Magic link storage failed" },
           correlationId: options?.correlationId
         });
+
+        await this.enforceMinimumRequestDuration(startedAt);
+
         return {
           success: false,
           data: undefined,
@@ -169,6 +179,7 @@ export class MagicLinkService {
       // A fixed reason: the error message may carry internals and is kept to diagnostics.
       this.logger.audit({
         type: "MAGIC_LINK_FAILURE",
+        email,
         metadata: { reason: "Internal error" },
         correlationId: options?.correlationId
       });

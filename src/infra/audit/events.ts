@@ -17,7 +17,8 @@ export type AuthAuditEventCategory =
 export type AuthAuditOutcome = "success" | "failure";
 
 /**
- * Every event type OwlAuth can emit, with its category and default outcome.
+ * Every event type OwlAuth can emit, with its category and outcome. Each type has exactly
+ * one outcome, so a sink can act on `type` alone without also checking `outcome`.
  *
  * Types for recovery, email verification, OIDC identity linking and authenticator changes
  * are reserved so that sinks can be written against the full catalogue now; they are
@@ -30,8 +31,8 @@ export const AUTH_AUDIT_EVENTS = {
   LOGIN_SUCCESS: { category: "login", outcome: "success" },
   LOGIN_FAILURE: { category: "login", outcome: "failure" },
 
-  // Failed attempts set `outcome: "failure"` explicitly; the type predates the split.
   PASSWORD_CHANGE: { category: "password", outcome: "success" },
+  PASSWORD_CHANGE_FAILURE: { category: "password", outcome: "failure" },
   // Outstanding magic links invalidated after a credential change. OwlAuth holds no
   // application sessions; react to this event to revoke them in Owl Session Guard.
   SESSION_INVALIDATION: { category: "password", outcome: "success" },

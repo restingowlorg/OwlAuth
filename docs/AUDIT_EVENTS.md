@@ -26,7 +26,9 @@ const auth = await createAuthManager({
 | Emitter       | `{ emit: (event) => bus.publish(event) }`  | Every event.                                                                                                                                          |
 | Custom logger | `{ audit, info?, warn?, error? }` instance | Events go to `audit()`. Any of `info`, `warn` or `error` it has also receive OwlAuth's diagnostics, already masked. Any it lacks stay on the console. |
 
-Anything else fails `createAuthManager()` with a `TypeError`.
+An object with `audit()` is always treated as a custom logger, even if it also has `emit()`. Winston, pino and other stream-based loggers inherit `emit` from `EventEmitter`, so they work as loggers. Only the custom-logger form receives diagnostics; a function or an emitter leaves them on the console.
+
+Omitting `auditSink` selects the console. Any other value that is not one of these forms, including `null`, `false` or an empty string, fails `createAuthManager()` with a `TypeError`, so a configuration that resolved to nothing cannot quietly redirect events. `onAuditSinkError` must be a function when given.
 
 The default console adapter is exported as `ConsoleAuditLogger`, so it can be combined with your own sink:
 
@@ -67,13 +69,13 @@ To link the events from one request, pass the same `correlationId` to the auth m
 
 ## Event catalogue
 
-`AUTH_AUDIT_EVENTS` is exported, and maps each type to its category and default outcome.
+`AUTH_AUDIT_EVENTS` is exported, and maps each type to its category and outcome. Every type has exactly one outcome, so a sink can act on `type` alone.
 
 | Category             | Types                                                                                      | Emitted by                                     |
 | -------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------- |
 | `signup`             | `SIGNUP`, `SIGNUP_FAILURE`                                                                 | `credentials.signup()`                         |
 | `login`              | `LOGIN_SUCCESS`, `LOGIN_FAILURE`                                                           | `credentials.login()`, `magicLink.consume()`   |
-| `password`           | `PASSWORD_CHANGE` (success or failure), `SESSION_INVALIDATION`                             | `credentials.changePassword()`                 |
+| `password`           | `PASSWORD_CHANGE`, `PASSWORD_CHANGE_FAILURE`, `SESSION_INVALIDATION`                       | `credentials.changePassword()`                 |
 | `magic_link`         | `MAGIC_LINK_REQUESTED`, `MAGIC_LINK_VERIFIED`, `MAGIC_LINK_CONSUMED`, `MAGIC_LINK_FAILURE` | `magicLink.request()`, `verify()`, `consume()` |
 | `recovery`           | `PASSWORD_RECOVERY_REQUESTED`, `PASSWORD_RECOVERY_COMPLETED`, `PASSWORD_RECOVERY_FAILURE`  | Reserved for password recovery                 |
 | `email_verification` | `EMAIL_VERIFICATION_REQUESTED`, `EMAIL_VERIFIED`, `EMAIL_VERIFICATION_FAILURE`             | Reserved for email verification                |
@@ -87,7 +89,8 @@ Useful metadata:
 - `LOGIN_SUCCESS` carries `method`: `"password"` or `"magic-link"`.
 - A successful `PASSWORD_CHANGE` carries `magicLinksInvalidated`.
 - `SESSION_INVALIDATION` means OwlAuth invalidated the user's outstanding magic links. OwlAuth holds no application sessions. Revoking those is up to your application (see below).
-- Operational failures are reported too. When a repository or crypto adapter throws, or a write does not complete, the method still returns its usual 500 result and emits the failure type for its flow (`SIGNUP_FAILURE`, `LOGIN_FAILURE`, `PASSWORD_CHANGE` with `outcome: "failure"`, or `MAGIC_LINK_FAILURE`). The `reason` is fixed text such as `"Internal error"` or `"Password update failed"`. The underlying error goes only to the diagnostic logger.
+- Operational failures are reported too. When a repository or crypto adapter throws, or a write does not complete, the method still returns its usual 500 result and emits the failure type for its flow (`SIGNUP_FAILURE`, `LOGIN_FAILURE`, `PASSWORD_CHANGE_FAILURE` or `MAGIC_LINK_FAILURE`). The `reason` is fixed text such as `"Internal error"` or `"Password update failed"`. The underlying error goes only to the diagnostic logger.
+- `MAGIC_LINK_FAILURE` from `magicLink.request()` carries the requested `email`, so failures can be counted per account. Mask it with `customMaskingKeys: ["email"]` if your sink must not hold addresses.
 
 ## What is never in an event
 
@@ -95,9 +98,9 @@ Events never contain passwords, magic-link or other action tokens, cookies, bear
 
 1. Services never put credentials into events.
 2. Metadata keys containing `password`, `passwd`, `token`, `secret`, `authorization`, `cookie`, `apikey` or `bearer` are masked as `********`. Matching ignores case and separators, so `refresh_token`, `accessToken` and `Set-Cookie` are all masked. Keys in `customMaskingKeys` are masked too, matched exactly but ignoring case and separators. They also apply to the top-level `email` and `userId`, so `customMaskingKeys: ["email"]` keeps addresses out of every event. Masking `userId` also means a sink can no longer tell which user an event is about.
-3. Values shaped like credentials are masked whatever key they sit under, and wherever they appear in the string. That covers `Bearer …` and `Basic …` strings, and compact JWTs. In `reason` and metadata strings only the credential is replaced. A credential-shaped `correlationId`, `email` or `userId` is replaced whole. Nested objects and arrays are replaced with `"[Omitted]"`, so a credential cannot hide under a key OwlAuth has never seen.
+3. Values shaped like credentials are masked whatever key they sit under, and wherever they appear in the string. That covers compact JWTs, and `Bearer …` and `Basic …` followed by something credential-like: at least eight characters including a digit, a symbol or an inner capital. Prose such as "Missing bearer token" or "Basic validation failed" is left alone. In `reason` and metadata strings only the credential is replaced. A credential-shaped `correlationId`, `email` or `userId` is replaced whole. Nested objects and arrays are replaced with `"[Omitted]"`, so a credential cannot hide under a key OwlAuth has never seen.
 
-The same masking applies to diagnostics, on the console and in a custom logger: sensitive keys, and credential-shaped text in context values, error messages, stacks and correlation IDs.
+The same masking applies to diagnostics, on the console and in a custom logger: sensitive keys, and credential-shaped text in messages, context values, error messages, stacks and correlation IDs.
 
 Shape detection has limits. OwlAuth cannot recognise an arbitrary opaque secret, such as an API key or a random session ID, by its value. Do not pass secrets as a `correlationId`, and if you add your own keys that carry secrets, list them in `customMaskingKeys`.
 
@@ -168,6 +171,6 @@ Delivery is best-effort, so a revocation that must happen before the response re
 
 ## Upgrading from console-only logging
 
-You do not need to change anything. With no `auditSink`, events still go to the console with the `OWL-AUTH [AUDIT]` prefix. The payload now includes `version`, `id`, `category`, `outcome` and `reason`. On `PASSWORD_CHANGE`, `outcome` replaces `metadata.success`.
+You do not need to change anything. With no `auditSink`, events still go to the console with the `OWL-AUTH [AUDIT]` prefix. The payload now includes `version`, `id`, `category`, `outcome` and `reason`. Failed password changes are now `PASSWORD_CHANGE_FAILURE` rather than `PASSWORD_CHANGE` with `metadata.success: false`; a successful change is still `PASSWORD_CHANGE`.
 
 `customMaskingKeys` now applies only to the manager it was passed to. Previously, every manager in the process shared one global logger, so whichever manager last set masking keys set them for all of them.

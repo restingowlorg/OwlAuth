@@ -494,7 +494,7 @@ describe("AuthService", () => {
       );
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.audit).not.toHaveBeenCalledWith(
-        expect.objectContaining({ outcome: "failure" })
+        expect.objectContaining({ type: "PASSWORD_CHANGE_FAILURE" })
       );
     });
 
@@ -521,9 +521,8 @@ describe("AuthService", () => {
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.audit).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: "PASSWORD_CHANGE",
+          type: "PASSWORD_CHANGE_FAILURE",
           userId: "99",
-          outcome: "failure",
           metadata: { reason: "User not found" }
         })
       );
@@ -542,8 +541,7 @@ describe("AuthService", () => {
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.audit).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: "PASSWORD_CHANGE",
-          outcome: "failure",
+          type: "PASSWORD_CHANGE_FAILURE",
           metadata: { reason: "Current password incorrect" }
         })
       );
@@ -569,7 +567,7 @@ describe("AuthService", () => {
       expect(result.httpCode).toBe(503);
       // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(mockLogger.audit).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "PASSWORD_CHANGE", outcome: "failure" })
+        expect.objectContaining({ type: "PASSWORD_CHANGE_FAILURE" })
       );
     });
 

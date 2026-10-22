@@ -365,7 +365,7 @@ describe("createAuthManager audit sink", () => {
         () => userRepo.findWithPasswordById.mockRejectedValue(dbError()),
         (auth) =>
           auth.credentials.changePassword("7", PASSWORD, NEW_PASSWORD, { correlationId: "req-f" }),
-        "PASSWORD_CHANGE",
+        "PASSWORD_CHANGE_FAILURE",
         "Internal error"
       ],
       [
@@ -373,7 +373,7 @@ describe("createAuthManager audit sink", () => {
         () => userRepo.updatePassword.mockResolvedValue(false),
         (auth) =>
           auth.credentials.changePassword("7", PASSWORD, NEW_PASSWORD, { correlationId: "req-f" }),
-        "PASSWORD_CHANGE",
+        "PASSWORD_CHANGE_FAILURE",
         "Password update failed"
       ],
       [
@@ -423,6 +423,28 @@ describe("createAuthManager audit sink", () => {
         expect.objectContaining({ type, outcome: "failure", reason, correlationId: "req-f" })
       ]);
       expect(JSON.stringify(events)).not.toContain("leaked-db-secret");
+    });
+
+    // Every request() path takes the same minimum time and names the address, so storage
+    // failures neither reveal by timing that an account exists nor go unattributed.
+    it.each<[string, () => void]>([
+      ["invalidation fails", () => magicLinkRepo.invalidateByUserId.mockResolvedValue(false)],
+      ["the link is not stored", () => (magicLinkRepo.create as jest.Mock).mockResolvedValue(null)],
+      ["the user is unknown", () => userRepo.findByEmail.mockResolvedValue(null)],
+      ["the lookup throws", () => userRepo.findByEmail.mockRejectedValue(dbError())]
+    ])("pads and attributes a magic-link request when %s", async (_label, arrange) => {
+      arrange();
+      const events: AuthAuditEvent[] = [];
+      const auth = await build({ auditSink: (event) => void events.push(event) });
+
+      const startedAt = Date.now();
+      await auth.magicLink.request("a@b.com");
+
+      // Timers can fire a millisecond early; the floor is 300 ms.
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(290);
+      expect(events).toEqual([
+        expect.objectContaining({ type: "MAGIC_LINK_FAILURE", email: "a@b.com" })
+      ]);
     });
   });
 

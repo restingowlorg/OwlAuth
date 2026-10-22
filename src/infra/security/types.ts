@@ -1,4 +1,4 @@
-import { AuthAuditEventType, AuthAuditOutcome } from "../audit/events";
+import { AuthAuditEventType } from "../audit/events";
 
 export interface ICryptoAdapter {
   hashPassword(password: string): Promise<string>;
@@ -16,15 +16,12 @@ export type SecurityEventType = AuthAuditEventType;
  * (adding id, timestamp, category and outcome, and redacting) before any sink sees it.
  */
 export type SecurityEvent = {
+  /** Fixes the event's category and outcome; every type has exactly one outcome. */
   type: AuthAuditEventType;
-  /** Overrides the type's default outcome, for types that cover both. */
-  outcome?: AuthAuditOutcome;
   userId?: string | number;
   email?: string;
   metadata?: Record<string, unknown>;
   correlationId?: string;
-  /** Present on events produced by the auditor; ignored on input. */
-  timestamp?: string;
 };
 
 export interface IAuditLogger {
