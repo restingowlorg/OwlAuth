@@ -1,7 +1,11 @@
 /* eslint-disable no-console */
 import { SECURITY_CONFIG } from "../../config";
-import { maskSensitiveData } from "../audit/redact";
+import { REDACTED, isSensitiveValue, maskSensitiveData } from "../audit/redact";
 import { IAuditLogger, SecurityEvent } from "./types";
+
+// The correlation ID is caller-supplied, so one that looks like a credential is not printed.
+const tag = (correlationId?: string): string =>
+  correlationId ? ` [${isSensitiveValue(correlationId) ? REDACTED : correlationId}]` : "";
 
 /**
  * Console logger, and the default audit sink when none is supplied.
@@ -23,21 +27,21 @@ export class SecurityAuditLogger implements IAuditLogger {
 
   info(message: string, context?: unknown, correlationId?: string) {
     console.info(
-      `${this.prefix} [INFO]${correlationId ? ` [${correlationId}]` : ""} - ${message}`,
+      `${this.prefix} [INFO]${tag(correlationId)} - ${message}`,
       context ? maskSensitiveData(context, this.customMaskingKeys) : ""
     );
   }
 
   warn(message: string, context?: unknown, correlationId?: string) {
     console.warn(
-      `${this.prefix} [WARN]${correlationId ? ` [${correlationId}]` : ""} - ${message}`,
+      `${this.prefix} [WARN]${tag(correlationId)} - ${message}`,
       context ? maskSensitiveData(context, this.customMaskingKeys) : ""
     );
   }
 
   error(message: string, error: unknown, context?: unknown, correlationId?: string) {
     console.error(
-      `${this.prefix} [ERROR]${correlationId ? ` [${correlationId}]` : ""} - ${message}`,
+      `${this.prefix} [ERROR]${tag(correlationId)} - ${message}`,
       maskSensitiveData(error, this.customMaskingKeys),
       context ? maskSensitiveData(context, this.customMaskingKeys) : ""
     );
@@ -55,7 +59,7 @@ export class SecurityAuditLogger implements IAuditLogger {
     if (email !== undefined) payload.email = email;
 
     console.log(
-      `${this.prefix} [AUDIT]${correlationId ? ` [${correlationId}]` : ""} - ${type}`,
+      `${this.prefix} [AUDIT]${tag(correlationId)} - ${type}`,
       maskSensitiveData(payload, this.customMaskingKeys)
     );
   }

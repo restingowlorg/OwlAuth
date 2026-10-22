@@ -18,25 +18,35 @@ export function isSensitiveKey(key: string, customKeys: readonly string[]): bool
   return customKeys.some((custom) => normaliseKey(custom) === normalised);
 }
 
-// Credentials recognisable by shape regardless of the key they sit under.
+// Credentials recognisable by shape, wherever they appear in a string, so one embedded in an
+// error message or a header dump is caught too. Arbitrary opaque secrets (API keys, random
+// tokens) have no recognisable shape and cannot be detected this way.
 const SENSITIVE_VALUE_PATTERNS = [
-  /^\s*(bearer|basic)\s+\S+/i,
-  /^eyJ[\w-]*\.[\w-]+\.[\w-]*$/ // compact JWS/JWT
+  /\b(?:bearer|basic)\s+[A-Za-z0-9\-._~+/]+=*/gi,
+  /\beyJ[\w-]*\.[\w-]+\.[\w-]*/g // compact JWS/JWT
 ];
 
+// search() ignores lastIndex, so the global patterns are safe to share.
 export function isSensitiveValue(value: string): boolean {
-  return SENSITIVE_VALUE_PATTERNS.some((pattern) => pattern.test(value));
+  return SENSITIVE_VALUE_PATTERNS.some((pattern) => value.search(pattern) !== -1);
+}
+
+/** Replace every credential-shaped substring, keeping the rest of the text readable. */
+export function scrubCredentials(value: string): string {
+  return SENSITIVE_VALUE_PATTERNS.reduce((text, pattern) => text.replace(pattern, REDACTED), value);
 }
 
 /**
  * Robustly masks sensitive data in objects/arrays.
- * Handles circular references and recursively masks nested objects.
+ * Handles circular references and recursively masks nested objects. Strings, including an
+ * Error's message and stack, have credential-shaped substrings scrubbed.
  */
 export function maskSensitiveData(
   data: unknown,
   customKeys: readonly string[],
   seen = new WeakSet<object>()
 ): unknown {
+  if (typeof data === "string") return scrubCredentials(data);
   if (!data || typeof data !== "object") return data;
 
   const dataObj = data as Record<string, unknown>;
@@ -59,6 +69,8 @@ export function maskSensitiveData(
           name: data.name,
           message: data.message,
           stack: data.stack,
+          // `cause` is not enumerable, so it would otherwise be dropped unmasked.
+          ...("cause" in data ? { cause: (data as { cause?: unknown }).cause } : {}),
           ...dataObj
         }
       : { ...dataObj };
@@ -68,6 +80,8 @@ export function maskSensitiveData(
     const value = masked[key];
     if (isSensitiveKey(key, customKeys)) {
       masked[key] = REDACTED;
+    } else if (typeof value === "string") {
+      masked[key] = scrubCredentials(value);
     } else if (value && typeof value === "object") {
       masked[key] = maskSensitiveData(value, customKeys, seen);
     }
@@ -94,8 +108,8 @@ export function maskSensitiveData(
  *
  * Audit events are a contract with external tooling, so nested structures are not passed
  * through: a nested object could carry a credential under a key the redactor has never
- * seen. Sensitive keys and credential-shaped strings are masked; anything that is not a
- * primitive is replaced.
+ * seen. Sensitive keys are masked and credential-shaped substrings scrubbed; anything that
+ * is not a primitive is replaced.
  */
 export function redactEventMetadata(
   metadata: Record<string, unknown>,
@@ -107,7 +121,7 @@ export function redactEventMetadata(
     if (isSensitiveKey(key, customKeys)) {
       result[key] = REDACTED;
     } else if (typeof value === "string") {
-      result[key] = isSensitiveValue(value) ? REDACTED : value;
+      result[key] = scrubCredentials(value);
     } else if (
       value === null ||
       typeof value === "boolean" ||

@@ -7,7 +7,8 @@ import {
   isSensitiveKey,
   isSensitiveValue,
   maskSensitiveData,
-  redactEventMetadata
+  redactEventMetadata,
+  scrubCredentials
 } from "./redact";
 
 export type AuditSinkFunction = (event: AuthAuditEvent) => void | Promise<void>;
@@ -38,9 +39,9 @@ export type AuditSink = AuditSinkFunction | AuditSinkObject | AuditLoggerSink;
 
 /**
  * Called when a sink throws or its promise rejects. Without one the failure is written to
- * the diagnostic logger's `error()`. Errors thrown from here are discarded.
+ * the diagnostic logger's `error()`. Errors thrown or rejected from here are discarded.
  */
-export type AuditSinkErrorHandler = (error: unknown, event: AuthAuditEvent) => void;
+export type AuditSinkErrorHandler = (error: unknown, event: AuthAuditEvent) => void | Promise<void>;
 
 export type AuthAuditorOptions = {
   auditSink?: AuditSink;
@@ -64,6 +65,11 @@ function swallow(call: () => unknown): void {
   } catch {
     // Diagnostics are best-effort and must never reach the auth caller.
   }
+}
+
+/** A caller-supplied correlation ID that looks like a credential is replaced whole. */
+function safeCorrelationId(correlationId: string | undefined): string | undefined {
+  return correlationId && isSensitiveValue(correlationId) ? REDACTED : correlationId;
 }
 
 function resolveSink(sink: AuditSink): AuditSinkFunction {
@@ -130,15 +136,17 @@ export class AuthAuditor implements IAuditLogger {
   // Services call these from inside their own error handling, so a custom logger that throws
   // or rejects would otherwise turn a deterministic result into a rejected promise.
   info(message: string, context?: unknown, correlationId?: string): void {
-    swallow(() => this.diagnostics.info(message, context, correlationId));
+    swallow(() => this.diagnostics.info(message, context, safeCorrelationId(correlationId)));
   }
 
   warn(message: string, context?: unknown, correlationId?: string): void {
-    swallow(() => this.diagnostics.warn(message, context, correlationId));
+    swallow(() => this.diagnostics.warn(message, context, safeCorrelationId(correlationId)));
   }
 
   error(message: string, error: unknown, context?: unknown, correlationId?: string): void {
-    swallow(() => this.diagnostics.error(message, error, context, correlationId));
+    swallow(() =>
+      this.diagnostics.error(message, error, context, safeCorrelationId(correlationId))
+    );
   }
 
   audit(input: SecurityEvent): void {
@@ -173,22 +181,22 @@ export class AuthAuditor implements IAuditLogger {
       category: definition.category,
       outcome: input.outcome ?? definition.outcome,
       timestamp: new Date().toISOString(),
-      ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+      ...(input.correlationId ? { correlationId: safeCorrelationId(input.correlationId) } : {}),
       // Masking keys apply to these identifiers as they always did on the console, so an
       // application that masks emails keeps doing so when it moves to its own sink.
       ...(input.userId !== undefined
         ? { userId: this.maskIdentifier("userId", String(input.userId)) }
         : {}),
       ...(input.email ? { email: this.maskIdentifier("email", input.email) } : {}),
-      ...(typeof reason === "string"
-        ? { reason: isSensitiveValue(reason) ? REDACTED : reason }
-        : {}),
+      ...(typeof reason === "string" ? { reason: scrubCredentials(reason) } : {}),
       ...(Object.keys(metadata).length > 0 ? { metadata: Object.freeze(metadata) } : {})
     });
   }
 
+  // Identifiers are caller-supplied, so a credential-shaped value is replaced whole rather
+  // than scrubbed: a partly redacted identifier is no longer a usable identifier anyway.
   private maskIdentifier(key: "userId" | "email", value: string): string {
-    return isSensitiveKey(key, this.maskingKeys) ? REDACTED : value;
+    return isSensitiveKey(key, this.maskingKeys) || isSensitiveValue(value) ? REDACTED : value;
   }
 
   private deliver(event: AuthAuditEvent): void {
@@ -202,20 +210,20 @@ export class AuthAuditor implements IAuditLogger {
     }
   }
 
+  // Reporting is best-effort. A handler or logger may be async, so both a throw and a
+  // rejection are discarded; nothing raised here may reach the auth caller or the process.
   private reportSinkFailure(error: unknown, event: AuthAuditEvent): void {
-    try {
-      if (this.onAuditSinkError) {
-        this.onAuditSinkError(error, event);
-      } else {
-        this.diagnostics.error(
-          "Audit sink failed to accept event",
-          error,
-          { eventId: event.id, type: event.type },
-          event.correlationId
-        );
-      }
-    } catch {
-      // Reporting is best-effort. Nothing raised here may reach the auth caller.
+    const handler = this.onAuditSinkError;
+    if (handler) {
+      swallow(() => handler(error, event));
+      return;
     }
+
+    this.error(
+      "Audit sink failed to accept event",
+      error,
+      { eventId: event.id, type: event.type },
+      event.correlationId
+    );
   }
 }

@@ -304,6 +304,12 @@ export class AuthService {
           { email },
           options?.correlationId
         );
+        this.logger.audit({
+          type: "SIGNUP_FAILURE",
+          email,
+          metadata: { username, reason: "User creation failed" },
+          correlationId: options?.correlationId
+        });
         return {
           success: false,
           data: undefined,
@@ -397,6 +403,13 @@ export class AuthService {
 
       const message = err instanceof Error ? err.message : "Unknown error";
       this.logger.error("Signup exception", err, { email }, options?.correlationId);
+      // A fixed reason: the error message may carry internals and is kept to diagnostics.
+      this.logger.audit({
+        type: "SIGNUP_FAILURE",
+        email,
+        metadata: { username, reason: "Internal error" },
+        correlationId: options?.correlationId
+      });
       return {
         success: false,
         data: undefined,
@@ -526,6 +539,12 @@ export class AuthService {
       };
     } catch (err) {
       this.logger.error("Login exception", err, { email }, options?.correlationId);
+      this.logger.audit({
+        type: "LOGIN_FAILURE",
+        email,
+        metadata: { reason: "Internal error" },
+        correlationId: options?.correlationId
+      });
       return {
         success: false,
         data: undefined,
@@ -720,6 +739,13 @@ export class AuthService {
           undefined,
           options?.correlationId
         );
+        this.logger.audit({
+          type: "PASSWORD_CHANGE",
+          userId: user.id,
+          outcome: "failure",
+          metadata: { reason: "Password update failed" },
+          correlationId: options?.correlationId
+        });
         return {
           success: false,
           data: undefined,
@@ -778,6 +804,13 @@ export class AuthService {
       };
     } catch (err) {
       this.logger.error("Password change exception", err, undefined, options?.correlationId);
+      this.logger.audit({
+        type: "PASSWORD_CHANGE",
+        userId,
+        outcome: "failure",
+        metadata: { reason: "Internal error" },
+        correlationId: options?.correlationId
+      });
       return {
         success: false,
         data: undefined,

@@ -190,6 +190,60 @@ describe("AuthAuditor", () => {
       expect(events[0]).toMatchObject({ userId: "********", email: "********" });
     });
 
+    describe("credential-shaped caller input", () => {
+      const shapes = [
+        ["Bearer", "Bearer abc.def-123"],
+        ["Basic", "Basic dXNlcjpwYXNz"],
+        ["JWT", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl"]
+      ] as const;
+
+      it.each(shapes)("replaces a %s-shaped correlationId, email and userId", (_label, value) => {
+        const { auditor, events } = capture();
+
+        auditor.audit({ type: "LOGIN_FAILURE", correlationId: value, email: value, userId: value });
+
+        expect(events[0]).toMatchObject({
+          correlationId: "********",
+          email: "********",
+          userId: "********"
+        });
+        expect(JSON.stringify(events[0])).not.toContain(value);
+      });
+
+      it.each(shapes)("scrubs an embedded %s credential from reason and metadata", (_l, value) => {
+        const { auditor, events } = capture();
+
+        auditor.audit({
+          type: "LOGIN_FAILURE",
+          metadata: { reason: `upstream said ${value} was bad`, note: `got ${value}` }
+        });
+
+        expect(events[0].reason).toBe("upstream said ******** was bad");
+        expect(events[0].metadata).toEqual({ note: "got ********" });
+      });
+
+      it.each(shapes)("prints no %s-shaped correlationId on the console", (_label, value) => {
+        const auditor = new AuthAuditor();
+
+        auditor.audit({ type: "LOGIN_SUCCESS", correlationId: value });
+        auditor.warn("careful", undefined, value);
+
+        expect(console.log).toHaveBeenCalledWith(
+          "OWL-AUTH [AUDIT] [********] - LOGIN_SUCCESS",
+          expect.anything()
+        );
+        expect(console.warn).toHaveBeenCalledWith("OWL-AUTH [WARN] [********] - careful", "");
+      });
+
+      it("keeps an ordinary correlationId", () => {
+        const { auditor, events } = capture();
+
+        auditor.audit({ type: "SIGNUP", correlationId: "req-7f3a" });
+
+        expect(events[0].correlationId).toBe("req-7f3a");
+      });
+    });
+
     it("does not share masking keys between auditors", () => {
       const a = capture({ customMaskingKeys: ["username"] });
       const b = capture();
@@ -231,6 +285,64 @@ describe("AuthAuditor", () => {
         "c-1"
       );
       expect(console.warn).not.toHaveBeenCalled();
+    });
+
+    describe("diagnostics scrub credentials in values and errors", () => {
+      const bearer = "Bearer leaked-secret";
+      const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl";
+
+      function repositoryError() {
+        const error = new Error(`query failed: Authorization: ${bearer}`);
+        // Non-enumerable, as `new Error(message, { cause })` defines it.
+        Object.defineProperty(error, "cause", {
+          value: new Error(`upstream ${jwt}`),
+          enumerable: false,
+          writable: true,
+          configurable: true
+        });
+        (error as Error & { detail?: unknown }).detail = { header: `Basic dXNlcjpwYXNz` };
+        return error;
+      }
+
+      function expectScrubbed(value: unknown) {
+        const error = value as Error & { cause: Error; detail: { header: string } };
+        expect(error).toBeInstanceOf(Error);
+        expect(error.message).toBe("query failed: Authorization: ********");
+        expect(error.stack).not.toContain("leaked-secret");
+        expect(error.cause.message).toBe("upstream ********");
+        expect(error.detail).toEqual({ header: "********" });
+      }
+
+      it("in a custom logger", () => {
+        const logger = { audit: jest.fn(), error: jest.fn(), info: jest.fn() };
+        const auditor = new AuthAuditor({ auditSink: logger });
+
+        auditor.error("Login exception", repositoryError(), { nested: { note: `x ${bearer}` } });
+        auditor.info("raw string context", `token was ${jwt}`);
+
+        const [, error, context] = logger.error.mock.calls[0] as [string, unknown, unknown];
+        expectScrubbed(error);
+        expect(context).toEqual({ nested: { note: "x ********" } });
+        expect(logger.info).toHaveBeenCalledWith(
+          "raw string context",
+          "token was ********",
+          undefined
+        );
+      });
+
+      it("on the console", () => {
+        const auditor = new AuthAuditor();
+
+        auditor.error("Login exception", repositoryError(), { nested: { note: `x ${bearer}` } });
+
+        const [, error, context] = (console.error as jest.Mock).mock.calls[0] as [
+          string,
+          unknown,
+          unknown
+        ];
+        expectScrubbed(error);
+        expect(context).toEqual({ nested: { note: "x ********" } });
+      });
     });
 
     it("keeps diagnostics on the console when the custom logger lacks them", () => {
@@ -371,6 +483,60 @@ describe("AuthAuditor", () => {
 
       expect(() => auditor.audit({ type: "SIGNUP" })).not.toThrow();
       await expect(flush()).resolves.toBeUndefined();
+    });
+
+    describe("async reporters that reject", () => {
+      async function expectNoUnhandledRejection(run: () => void) {
+        const unhandled = jest.fn();
+        process.on("unhandledRejection", unhandled);
+        try {
+          run();
+          // One turn for the sink rejection, one for the reporter's, one for Node to notice.
+          await flush();
+          await flush();
+          await flush();
+        } finally {
+          process.off("unhandledRejection", unhandled);
+        }
+        expect(unhandled).not.toHaveBeenCalled();
+      }
+
+      it("contains a rejecting onAuditSinkError", async () => {
+        const onAuditSinkError = jest.fn().mockRejectedValue(new Error("handler down"));
+        const auditor = new AuthAuditor({
+          auditSink: () => Promise.reject(new Error("down")),
+          onAuditSinkError
+        });
+
+        await expectNoUnhandledRejection(() => auditor.audit({ type: "SIGNUP" }));
+        expect(onAuditSinkError).toHaveBeenCalledTimes(1);
+      });
+
+      it("contains a rejecting onAuditSinkError after a synchronous sink throw", async () => {
+        const auditor = new AuthAuditor({
+          auditSink: () => {
+            throw new Error("down");
+          },
+          onAuditSinkError: () => Promise.reject(new Error("handler down"))
+        });
+
+        await expectNoUnhandledRejection(() => auditor.audit({ type: "SIGNUP" }));
+      });
+
+      it("contains a custom logger whose error() rejects when no handler is given", async () => {
+        const error = jest.fn().mockRejectedValue(new Error("logger down"));
+        const auditor = new AuthAuditor({
+          auditSink: { audit: () => Promise.reject(new Error("down")), error }
+        });
+
+        await expectNoUnhandledRejection(() => auditor.audit({ type: "SIGNUP" }));
+        expect(error).toHaveBeenCalledWith(
+          "Audit sink failed to accept event",
+          expect.any(Error),
+          expect.objectContaining({ type: "SIGNUP" }),
+          undefined
+        );
+      });
     });
   });
 });

@@ -36,9 +36,12 @@ import { ConsoleAuditLogger } from "@restingowlorg/owlauth";
 const consoleAudit = new ConsoleAuditLogger(["ssn"]);
 const auditSink = (event: AuthAuditEvent) => {
   consoleAudit.audit(event);
-  siem.send(event);
+  // Return the promise so a rejected send reaches onAuditSinkError.
+  return siem.send(event);
 };
 ```
+
+Return any promise your sink starts, or make the sink `async` and `await` it. A promise the sink drops cannot be reported to `onAuditSinkError`, and its rejection may go unhandled. Returning it does not make OwlAuth wait for delivery.
 
 ## Event shape
 
@@ -84,6 +87,7 @@ Useful metadata:
 - `LOGIN_SUCCESS` carries `method`: `"password"` or `"magic-link"`.
 - A successful `PASSWORD_CHANGE` carries `magicLinksInvalidated`.
 - `SESSION_INVALIDATION` means OwlAuth invalidated the user's outstanding magic links. OwlAuth holds no application sessions. Revoking those is up to your application (see below).
+- Operational failures are reported too. When a repository or crypto adapter throws, or a write does not complete, the method still returns its usual 500 result and emits the failure type for its flow (`SIGNUP_FAILURE`, `LOGIN_FAILURE`, `PASSWORD_CHANGE` with `outcome: "failure"`, or `MAGIC_LINK_FAILURE`). The `reason` is fixed text such as `"Internal error"` or `"Password update failed"`. The underlying error goes only to the diagnostic logger.
 
 ## What is never in an event
 
@@ -91,16 +95,20 @@ Events never contain passwords, magic-link or other action tokens, cookies, bear
 
 1. Services never put credentials into events.
 2. Metadata keys containing `password`, `passwd`, `token`, `secret`, `authorization`, `cookie`, `apikey` or `bearer` are masked as `********`. Matching ignores case and separators, so `refresh_token`, `accessToken` and `Set-Cookie` are all masked. Keys in `customMaskingKeys` are masked too, matched exactly but ignoring case and separators. They also apply to the top-level `email` and `userId`, so `customMaskingKeys: ["email"]` keeps addresses out of every event. Masking `userId` also means a sink can no longer tell which user an event is about.
-3. Values shaped like credentials are masked whatever key they sit under. That covers `Bearer …` and `Basic …` strings, and compact JWTs. Nested objects and arrays are replaced with `"[Omitted]"`, so a credential cannot hide under a key OwlAuth has never seen.
+3. Values shaped like credentials are masked whatever key they sit under, and wherever they appear in the string. That covers `Bearer …` and `Basic …` strings, and compact JWTs. In `reason` and metadata strings only the credential is replaced. A credential-shaped `correlationId`, `email` or `userId` is replaced whole. Nested objects and arrays are replaced with `"[Omitted]"`, so a credential cannot hide under a key OwlAuth has never seen.
+
+The same masking applies to diagnostics, on the console and in a custom logger: sensitive keys, and credential-shaped text in context values, error messages, stacks and correlation IDs.
+
+Shape detection has limits. OwlAuth cannot recognise an arbitrary opaque secret, such as an API key or a random session ID, by its value. Do not pass secrets as a `correlationId`, and if you add your own keys that carry secrets, list them in `customMaskingKeys`.
 
 ## Timing and failure behaviour
 
 - **Emitted after the database action.** A success event is emitted only after OwlAuth's write has completed: the user created, the link stored, the link consumed, or the password updated.
 - **Never awaited.** OwlAuth calls the sink and carries on without waiting for any promise it returns, so slow I/O in a sink does not slow authentication. The sink is still called synchronously, so keep it quick: hand the event to a queue or an async call instead of doing heavy work inline.
 - **Diagnostics are isolated too.** If a custom logger's `info`, `warn` or `error` throws or rejects, the error is discarded. Auth results never depend on it. The same applies if OwlAuth fails to build an event: the event is dropped and the failure is logged.
-- **Failures are isolated.** If the sink throws, or returns a promise that rejects, the error goes to `onAuditSinkError(error, event)`. Without that handler, it goes to the diagnostic logger's `error()`. Errors thrown by the handler itself are discarded.
+- **Failures are isolated.** If the sink throws, or returns a promise that rejects, the error goes to `onAuditSinkError(error, event)`. Without that handler, it goes to the diagnostic logger's `error()`. The handler may be `async`. Anything it throws or rejects with is discarded, as is a failure of the diagnostic logger here.
 - **Results are deterministic.** A sink that fails, hangs or succeeds produces the same auth result, with the same `success`, `message`, `httpCode` and `data`.
-- **Best-effort delivery.** OwlAuth does not retry or buffer events. If you need guaranteed delivery, have your sink write to a durable queue.
+- **Best-effort delivery.** OwlAuth does not await, retry or buffer events, and emitting an event is not part of the database transaction. A process crash, or a send that fails, can lose an event even when the destination is durable: a durable queue protects an event only once it has acknowledged it. Stronger guarantees need a coordinated design, such as a transactional outbox written in the same transaction as the auth change. Keep security-critical steps, such as revoking sessions, in an explicit application workflow rather than in an event reaction.
 
 ## Reacting to events with Owl Session Guard and Owl Token Guard
 

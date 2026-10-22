@@ -6,8 +6,13 @@ import type { AuthOptions, AuthType } from "./types";
 import type { IDatabaseAdapter } from "../infra/databases/types";
 import type { ICryptoAdapter } from "../infra/security/types";
 import type { AuthAuditEvent } from "../infra/audit/events";
+import { isBreachedPassword } from "../infra/security/pwned-passwords";
+
+// The breach check calls a remote API; nothing here is about it.
+jest.mock("../infra/security/pwned-passwords");
 
 const PASSWORD = "Correct-Horse-Battery-9";
+const NEW_PASSWORD = "Velvet-Lantern-Orbit-42";
 const MAGIC_TOKEN = "lookupkey0123456-rest-of-the-secret-token";
 
 describe("createAuthManager audit sink", () => {
@@ -246,6 +251,178 @@ describe("createAuthManager audit sink", () => {
         expect.objectContaining({ message: "sink down" }),
         expect.objectContaining({ type: "LOGIN_SUCCESS" })
       );
+    });
+
+    // Mirrors the composition example in docs/AUDIT_EVENTS.md.
+    it("reports a rejected send from a composed sink that returns its promise", async () => {
+      const onAuditSinkError = jest.fn();
+      const failure = new Error("siem down");
+      const siem = { send: jest.fn().mockRejectedValue(failure) };
+      const consoleAudit = new ConsoleAuditLogger();
+      const auth = await build({
+        auditSink: (event: AuthAuditEvent) => {
+          consoleAudit.audit(event);
+          return siem.send(event) as Promise<void>;
+        },
+        onAuditSinkError
+      });
+
+      const result = await auth.credentials.login("a@b.com", PASSWORD);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(result.success).toBe(true);
+      expect(onAuditSinkError).toHaveBeenCalledWith(
+        failure,
+        expect.objectContaining({ type: "LOGIN_SUCCESS" })
+      );
+    });
+
+    it("survives an async onAuditSinkError that rejects", async () => {
+      const unhandled = jest.fn();
+      process.on("unhandledRejection", unhandled);
+      try {
+        const baseline = await (
+          await build({ auditSink: () => undefined })
+        ).credentials.login("a@b.com", PASSWORD);
+        const auth = await build({
+          auditSink: () => Promise.reject(new Error("sink down")),
+          onAuditSinkError: () => Promise.reject(new Error("handler down"))
+        });
+
+        await expect(auth.credentials.login("a@b.com", PASSWORD)).resolves.toEqual(baseline);
+        await new Promise((resolve) => setImmediate(resolve));
+        await new Promise((resolve) => setImmediate(resolve));
+      } finally {
+        process.off("unhandledRejection", unhandled);
+      }
+
+      expect(unhandled).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("operational failures reach the sink", () => {
+    // An error message that would leak a credential if it were copied into the event.
+    const dbError = () => new Error("connection reset; Authorization: Bearer leaked-db-secret");
+
+    beforeEach(() => {
+      (isBreachedPassword as jest.Mock).mockResolvedValue({ detected: false });
+      (userRepo.findByUsername as jest.Mock).mockResolvedValue(null);
+      // An address sharing no text with the passwords, so the blocked-word rule passes.
+      userRepo.findWithPasswordById.mockResolvedValue({
+        id: "7",
+        email: "zq@example.com",
+        username: "alice",
+        password: "stored-hash"
+      });
+      userRepo.create.mockResolvedValue({ id: "7", email: "a@b.com", username: "alice" });
+      userRepo.updatePassword.mockResolvedValue(true);
+      crypto.hashPassword.mockResolvedValue("new-hash");
+    });
+
+    type Auth = Awaited<ReturnType<typeof build>>;
+
+    it.each<
+      [
+        string,
+        () => void,
+        (auth: Auth) => Promise<{ success: boolean; httpCode: number }>,
+        string,
+        string
+      ]
+    >([
+      [
+        "login when the user lookup throws",
+        () => userRepo.findWithPasswordByEmail.mockRejectedValue(dbError()),
+        (auth) => auth.credentials.login("a@b.com", PASSWORD, { correlationId: "req-f" }),
+        "LOGIN_FAILURE",
+        "Internal error"
+      ],
+      [
+        "signup when password hashing rejects",
+        () => {
+          userRepo.findByEmail.mockResolvedValue(null);
+          crypto.hashPassword.mockRejectedValue(dbError());
+        },
+        (auth) =>
+          auth.credentials.signup("zq@example.com", "alice", PASSWORD, { correlationId: "req-f" }),
+        "SIGNUP_FAILURE",
+        "Internal error"
+      ],
+      [
+        "signup when user creation returns null",
+        () => {
+          userRepo.findByEmail.mockResolvedValue(null);
+          // Contracts say a user is returned, but custom adapters can return null.
+          (userRepo.create as jest.Mock).mockResolvedValue(null);
+        },
+        (auth) =>
+          auth.credentials.signup("zq@example.com", "alice", PASSWORD, { correlationId: "req-f" }),
+        "SIGNUP_FAILURE",
+        "User creation failed"
+      ],
+      [
+        "password change when the user lookup throws",
+        () => userRepo.findWithPasswordById.mockRejectedValue(dbError()),
+        (auth) =>
+          auth.credentials.changePassword("7", PASSWORD, NEW_PASSWORD, { correlationId: "req-f" }),
+        "PASSWORD_CHANGE",
+        "Internal error"
+      ],
+      [
+        "password change when the update is not applied",
+        () => userRepo.updatePassword.mockResolvedValue(false),
+        (auth) =>
+          auth.credentials.changePassword("7", PASSWORD, NEW_PASSWORD, { correlationId: "req-f" }),
+        "PASSWORD_CHANGE",
+        "Password update failed"
+      ],
+      [
+        "magic-link request when invalidation fails",
+        () => magicLinkRepo.invalidateByUserId.mockResolvedValue(false),
+        (auth) => auth.magicLink.request("a@b.com", { correlationId: "req-f" }),
+        "MAGIC_LINK_FAILURE",
+        "Existing magic link invalidation failed"
+      ],
+      [
+        "magic-link request when the link is not stored",
+        () => (magicLinkRepo.create as jest.Mock).mockResolvedValue(null),
+        (auth) => auth.magicLink.request("a@b.com", { correlationId: "req-f" }),
+        "MAGIC_LINK_FAILURE",
+        "Magic link storage failed"
+      ],
+      [
+        "magic-link request when the user lookup throws",
+        () => userRepo.findByEmail.mockRejectedValue(dbError()),
+        (auth) => auth.magicLink.request("a@b.com", { correlationId: "req-f" }),
+        "MAGIC_LINK_FAILURE",
+        "Internal error"
+      ],
+      [
+        "magic-link verify when the lookup throws",
+        () => magicLinkRepo.findByLookupKey.mockRejectedValue(dbError()),
+        (auth) => auth.magicLink.verify(MAGIC_TOKEN, { correlationId: "req-f" }),
+        "MAGIC_LINK_FAILURE",
+        "Internal error"
+      ],
+      [
+        "magic-link consume when the lookup throws",
+        () => magicLinkRepo.findByLookupKey.mockRejectedValue(dbError()),
+        (auth) => auth.magicLink.consume(MAGIC_TOKEN, { correlationId: "req-f" }),
+        "MAGIC_LINK_FAILURE",
+        "Internal error"
+      ]
+    ])("%s", async (_label, arrange, act, type, reason) => {
+      arrange();
+      const events: AuthAuditEvent[] = [];
+      const auth = await build({ auditSink: (event) => void events.push(event) });
+
+      const result = await act(auth);
+
+      expect(result).toMatchObject({ success: false, httpCode: 500 });
+      expect(events).toEqual([
+        expect.objectContaining({ type, outcome: "failure", reason, correlationId: "req-f" })
+      ]);
+      expect(JSON.stringify(events)).not.toContain("leaked-db-secret");
     });
   });
 
