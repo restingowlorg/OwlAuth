@@ -1,13 +1,16 @@
 import * as crypto from "crypto";
-import { auditLogger } from "./security-audit-logger";
 import { SECURITY_CONFIG } from "../../config";
+import { IAuditLogger } from "./types";
 
 export type PwnedCheckResult = {
   detected: boolean;
   error?: Error;
 };
 
-export async function isBreachedPassword(password: string): Promise<PwnedCheckResult> {
+export async function isBreachedPassword(
+  password: string,
+  logger?: Pick<IAuditLogger, "warn">
+): Promise<PwnedCheckResult> {
   const hash = crypto.createHash("sha1").update(password).digest("hex").toUpperCase();
   const prefix = hash.slice(0, 5);
   const suffix = hash.slice(5);
@@ -25,7 +28,7 @@ export async function isBreachedPassword(password: string): Promise<PwnedCheckRe
 
     if (!response.ok) {
       const error = new Error(`PwnedPasswords API returned status ${response.status}`);
-      auditLogger.warn(`${error.message}. Fallback to caller handling.`);
+      logger?.warn(`${error.message}. Fallback to caller handling.`);
       return { detected: false, error };
     }
 
@@ -36,9 +39,9 @@ export async function isBreachedPassword(password: string): Promise<PwnedCheckRe
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     if (err.name === "AbortError") {
-      auditLogger.warn("PwnedPasswords check timed out. Fallback to caller handling.");
+      logger?.warn("PwnedPasswords check timed out. Fallback to caller handling.");
     } else {
-      auditLogger.warn(`Failed to check breached password. Error: ${err.message}`);
+      logger?.warn(`Failed to check breached password. Error: ${err.message}`);
     }
     return { detected: false, error: err };
   } finally {

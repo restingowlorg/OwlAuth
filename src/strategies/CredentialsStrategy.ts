@@ -1,5 +1,5 @@
-import { auditLogger } from "../infra/security/security-audit-logger";
 import { BcryptAdapter } from "../infra/security/bcrypt.adapter";
+import { IAuditLogger } from "../infra/security/types";
 import { AuthService } from "../services/auth.service";
 import { AuthDB } from "../repositories/contracts";
 import { AuthOptions, AuthType, IAuthMethods } from "../core/types";
@@ -9,7 +9,8 @@ export class CredentialsAuthStrategy implements IAuthStrategy {
   register(
     target: Mutable<Partial<IAuthMethods>>,
     db: AuthDB,
-    options: AuthOptions<AuthType>
+    options: AuthOptions<AuthType>,
+    logger: IAuditLogger
   ): void {
     const cryptoAdapter = options.cryptoAdapter || new BcryptAdapter();
 
@@ -20,7 +21,7 @@ export class CredentialsAuthStrategy implements IAuthStrategy {
     const service = new AuthService(
       db.userRepo,
       cryptoAdapter,
-      auditLogger,
+      logger,
       options.usernameValidator,
       db.magicLinkRepo,
       accountSecurityRepo
