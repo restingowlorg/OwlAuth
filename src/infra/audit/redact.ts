@@ -34,24 +34,16 @@ export function isSensitiveKey(key: string, customKeys: readonly string[]): bool
 // Credentials recognisable by shape, wherever they appear in a string, so one embedded in an
 // error message or a header dump is caught too. Arbitrary opaque secrets (API keys, random
 // tokens) have no recognisable shape and cannot be detected this way.
-const AUTH_SCHEME_PATTERN = /\b(?:bearer|basic)\s+([A-Za-z0-9\-._~+/]+=*)/gi;
+//
+// The `Bearer`/`Basic` scheme itself marks what follows as a credential, so every non-empty
+// value after it is masked, however plain it looks. Prose such as "Missing bearer token"
+// is over-redacted as a result; that is the safe direction for a log.
+const AUTH_SCHEME_PATTERN = /\b(?:bearer|basic)\s+[A-Za-z0-9\-._~+/]+=*/gi;
 const JWT_PATTERN = /\beyJ[\w-]*\.[\w-]+\.[\w-]*/g; // compact JWS/JWT
-
-/**
- * Whether the text after `Bearer`/`Basic` is a credential rather than a word, so prose such
- * as "Missing bearer token" or "Basic validation failed" is left alone. Tokens and base64
- * are long and carry a digit, a symbol or an inner capital; ordinary words do not.
- */
-const looksLikeCredential = (candidate: string): boolean =>
-  candidate.length >= 8 && /[0-9+/=._~-]|.[A-Z]/.test(candidate);
 
 /** Replace every credential-shaped substring, keeping the rest of the text readable. */
 export function scrubCredentials(value: string): string {
-  return value
-    .replace(AUTH_SCHEME_PATTERN, (match, candidate: string) =>
-      looksLikeCredential(candidate) ? REDACTED : match
-    )
-    .replace(JWT_PATTERN, REDACTED);
+  return value.replace(AUTH_SCHEME_PATTERN, REDACTED).replace(JWT_PATTERN, REDACTED);
 }
 
 export function isSensitiveValue(value: string): boolean {

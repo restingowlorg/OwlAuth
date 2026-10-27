@@ -159,26 +159,40 @@ describe("AuthAuditor", () => {
       expect(events[0].reason).toBe("********");
     });
 
+    // The scheme marks what follows as a credential, so a plain lowercase value is masked too,
+    // and prose that happens to follow the word is over-redacted rather than risk a leak.
     it.each([
-      "Missing bearer token",
-      "Basic validation failed",
-      "Basic Authentication required",
-      "basic flow-12",
-      "Bearer tokens only"
-    ])("leaves prose alone: %s", (text) => {
+      ["Bearer abcdefgh", "********"],
+      ["bearer abcdefgh", "********"],
+      ["Basic abcdefgh", "********"],
+      ["Missing bearer token", "Missing ********"],
+      ["Basic validation failed", "******** failed"]
+    ])("masks every non-empty Bearer/Basic value: %s", (text, scrubbed) => {
       const { auditor, events } = capture();
 
       auditor.audit({
         type: "LOGIN_FAILURE",
         correlationId: text,
+        email: text,
+        userId: text,
         metadata: { reason: text, note: text }
       });
 
       expect(events[0]).toMatchObject({
-        correlationId: text,
-        reason: text,
-        metadata: { note: text }
+        correlationId: "********",
+        email: "********",
+        userId: "********",
+        reason: scrubbed,
+        metadata: { note: scrubbed }
       });
+    });
+
+    it.each(["Bearer", "Bearer ", "Basic"])("leaves a scheme with no value alone: %j", (text) => {
+      const { auditor, events } = capture();
+
+      auditor.audit({ type: "LOGIN_FAILURE", correlationId: text, metadata: { note: text } });
+
+      expect(events[0]).toMatchObject({ correlationId: text, metadata: { note: text } });
     });
 
     it("keeps an event whose metadata holds an invalid date", () => {
@@ -236,6 +250,7 @@ describe("AuthAuditor", () => {
     describe("credential-shaped caller input", () => {
       const shapes = [
         ["Bearer", "Bearer abc.def-123"],
+        ["lowercase Bearer", "Bearer abcdefgh"],
         ["Basic", "Basic dXNlcjpwYXNz"],
         ["JWT", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl"]
       ] as const;
@@ -330,8 +345,10 @@ describe("AuthAuditor", () => {
       expect(console.warn).not.toHaveBeenCalled();
     });
 
-    describe("diagnostics scrub credentials in values and errors", () => {
-      const bearer = "Bearer leaked-secret";
+    describe.each([
+      ["Bearer leaked-secret", "leaked-secret"],
+      ["Bearer leakedsecret", "leakedsecret"]
+    ])("diagnostics scrub credentials in values and errors (%s)", (bearer, secret) => {
       const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl";
 
       function repositoryError() {
@@ -351,7 +368,7 @@ describe("AuthAuditor", () => {
         const error = value as Error & { cause: Error; detail: { header: string } };
         expect(error).toBeInstanceOf(Error);
         expect(error.message).toBe("query failed: Authorization: ********");
-        expect(error.stack).not.toContain("leaked-secret");
+        expect(error.stack).not.toContain(secret);
         expect(error.cause.message).toBe("upstream ********");
         expect(error.detail).toEqual({ header: "********" });
       }

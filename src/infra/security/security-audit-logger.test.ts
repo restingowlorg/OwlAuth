@@ -99,6 +99,20 @@ describe("SecurityAuditLogger", () => {
         "OWL-AUTH [ERROR] - Upstream said: Authorization: ********"
       );
     });
+
+    it("should scrub an all-lowercase Bearer value from the message, error and correlationId", () => {
+      logger.error(
+        "Upstream said: bearer abcdefgh",
+        new Error("Authorization: Bearer abcdefgh"),
+        { note: "Basic abcdefgh" },
+        "Bearer abcdefgh"
+      );
+      const [message, error, context] = errorSpy.mock.calls[0] as [string, Error, unknown];
+      expect(message).toBe("OWL-AUTH [ERROR] [********] - Upstream said: ********");
+      expect(error.message).toBe("Authorization: ********");
+      expect(error.stack).not.toContain("abcdefgh");
+      expect(context).toEqual({ note: "********" });
+    });
   });
 
   describe("audit()", () => {
