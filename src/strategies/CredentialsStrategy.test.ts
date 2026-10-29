@@ -2,14 +2,14 @@ import { CredentialsAuthStrategy } from "./CredentialsStrategy";
 import { AuthService } from "../services/auth.service";
 import { AccountSecurityRepository, AuthDB, UserRepository } from "../repositories/contracts";
 import { AuthOptions, IAuthMethods } from "../core/types";
-import { ICryptoAdapter } from "../infra/security/types";
+import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
 import { Mutable } from "./types";
 import { AuthType } from "../core/types";
 
 jest.mock("../services/auth.service");
-jest.mock("../infra/security/security-audit-logger", () => ({ auditLogger: {} }));
 
 describe("CredentialsAuthStrategy", () => {
+  const mockLogger = {} as IAuditLogger;
   let strategy: CredentialsAuthStrategy;
   let mockDb: AuthDB;
   let mockOptions: AuthOptions<AuthType>;
@@ -44,7 +44,7 @@ describe("CredentialsAuthStrategy", () => {
 
   it("should register signup, login, and changePassword methods under target.credentials", () => {
     const target: Mutable<Partial<IAuthMethods>> = {};
-    strategy.register(target, mockDb, mockOptions);
+    strategy.register(target, mockDb, mockOptions, mockLogger);
 
     expect(target.credentials).toBeDefined();
     if (target.credentials) {
@@ -62,7 +62,7 @@ describe("CredentialsAuthStrategy", () => {
       expect(AuthService).toHaveBeenCalledWith(
         mockDb.userRepo,
         expect.anything(),
-        expect.anything(),
+        mockLogger,
         undefined,
         undefined,
         expected
@@ -72,7 +72,7 @@ describe("CredentialsAuthStrategy", () => {
     it("passes the repository when the option is enabled and the adapter provides one", () => {
       mockDb = { ...mockDb, accountSecurityRepo };
 
-      strategy.register({}, mockDb, { ...mockOptions, accountSecurity: true });
+      strategy.register({}, mockDb, { ...mockOptions, accountSecurity: true }, mockLogger);
 
       expectRepoPassed(accountSecurityRepo);
     });
@@ -82,7 +82,7 @@ describe("CredentialsAuthStrategy", () => {
     it("ignores a supplied repository when the option is disabled", () => {
       mockDb = { ...mockDb, accountSecurityRepo };
 
-      strategy.register({}, mockDb, { ...mockOptions, accountSecurity: false });
+      strategy.register({}, mockDb, { ...mockOptions, accountSecurity: false }, mockLogger);
 
       expectRepoPassed(undefined);
     });
@@ -90,13 +90,13 @@ describe("CredentialsAuthStrategy", () => {
     it("ignores a supplied repository when the option is absent", () => {
       mockDb = { ...mockDb, accountSecurityRepo };
 
-      strategy.register({}, mockDb, mockOptions);
+      strategy.register({}, mockDb, mockOptions, mockLogger);
 
       expectRepoPassed(undefined);
     });
 
     it("passes undefined when neither the option nor a repository is present", () => {
-      strategy.register({}, mockDb, mockOptions);
+      strategy.register({}, mockDb, mockOptions, mockLogger);
 
       expectRepoPassed(undefined);
     });
@@ -109,7 +109,7 @@ describe("CredentialsAuthStrategy", () => {
         pwnedPasswordFailClosed: true
       } as unknown as AuthOptions<AuthType>;
       const target: Mutable<Partial<IAuthMethods>> = {};
-      strategy.register(target, mockDb, mockOptions);
+      strategy.register(target, mockDb, mockOptions, mockLogger);
 
       await target.credentials!.signup("a@b.com", "user", "pass", {
         blockedPasswords: ["override"]
@@ -129,7 +129,7 @@ describe("CredentialsAuthStrategy", () => {
         pwnedPasswordFailClosed: false
       } as unknown as AuthOptions<AuthType>;
       const target: Mutable<Partial<IAuthMethods>> = {};
-      strategy.register(target, mockDb, mockOptions);
+      strategy.register(target, mockDb, mockOptions, mockLogger);
 
       await target.credentials!.signup("a@b.com", "user", "pass");
 
@@ -147,7 +147,7 @@ describe("CredentialsAuthStrategy", () => {
         pwnedPasswordFailClosed: false
       } as unknown as AuthOptions<AuthType>;
       const target: Mutable<Partial<IAuthMethods>> = {};
-      strategy.register(target, mockDb, mockOptions);
+      strategy.register(target, mockDb, mockOptions, mockLogger);
 
       await target.credentials!.changePassword("1", "old", "new", {
         blockedPasswords: ["override"],
@@ -168,7 +168,7 @@ describe("CredentialsAuthStrategy", () => {
         pwnedPasswordFailClosed: true
       } as unknown as AuthOptions<AuthType>;
       const target: Mutable<Partial<IAuthMethods>> = {};
-      strategy.register(target, mockDb, mockOptions);
+      strategy.register(target, mockDb, mockOptions, mockLogger);
 
       await target.credentials!.changePassword("1", "old", "new");
 

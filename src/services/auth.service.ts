@@ -189,7 +189,7 @@ export class AuthService {
       }
 
       // Breached password check
-      const breachCheck = await isBreachedPassword(password);
+      const breachCheck = await isBreachedPassword(password, this.logger);
       if (breachCheck.detected) {
         this.logger.audit({
           type: "SIGNUP_FAILURE",
@@ -304,6 +304,12 @@ export class AuthService {
           { email },
           options?.correlationId
         );
+        this.logger.audit({
+          type: "SIGNUP_FAILURE",
+          email,
+          metadata: { username, reason: "User creation failed" },
+          correlationId: options?.correlationId
+        });
         return {
           success: false,
           data: undefined,
@@ -397,6 +403,13 @@ export class AuthService {
 
       const message = err instanceof Error ? err.message : "Unknown error";
       this.logger.error("Signup exception", err, { email }, options?.correlationId);
+      // A fixed reason: the error message may carry internals and is kept to diagnostics.
+      this.logger.audit({
+        type: "SIGNUP_FAILURE",
+        email,
+        metadata: { username, reason: "Internal error" },
+        correlationId: options?.correlationId
+      });
       return {
         success: false,
         data: undefined,
@@ -508,6 +521,7 @@ export class AuthService {
         type: "LOGIN_SUCCESS",
         userId: user.id,
         email,
+        metadata: { method: "password" },
         correlationId: options?.correlationId
       });
 
@@ -525,6 +539,12 @@ export class AuthService {
       };
     } catch (err) {
       this.logger.error("Login exception", err, { email }, options?.correlationId);
+      this.logger.audit({
+        type: "LOGIN_FAILURE",
+        email,
+        metadata: { reason: "Internal error" },
+        correlationId: options?.correlationId
+      });
       return {
         success: false,
         data: undefined,
@@ -548,6 +568,12 @@ export class AuthService {
       // Fetch user
       const user = await this.users.findWithPasswordById(userId);
       if (!user) {
+        this.logger.audit({
+          type: "PASSWORD_CHANGE_FAILURE",
+          userId,
+          metadata: { reason: "User not found" },
+          correlationId: options?.correlationId
+        });
         return { success: false, data: undefined, message: "User not found", httpCode: 404 };
       }
 
@@ -555,9 +581,9 @@ export class AuthService {
       const valid = await this.crypto.verifyPassword(currentPassword, user.password);
       if (!valid) {
         this.logger.audit({
-          type: "PASSWORD_CHANGE",
+          type: "PASSWORD_CHANGE_FAILURE",
           userId: user.id,
-          metadata: { success: false, reason: "Current password incorrect" },
+          metadata: { reason: "Current password incorrect" },
           correlationId: options?.correlationId
         });
         return {
@@ -576,10 +602,9 @@ export class AuthService {
 
         if (!accountState || !isAuthenticationPermitted(accountState.status)) {
           this.logger.audit({
-            type: "PASSWORD_CHANGE",
+            type: "PASSWORD_CHANGE_FAILURE",
             userId: user.id,
             metadata: {
-              success: false,
               reason: accountState
                 ? "Account status does not permit authentication"
                 : "Account has no security record (not provisioned)"
@@ -597,9 +622,9 @@ export class AuthService {
 
       if (currentPassword === newPassword) {
         this.logger.audit({
-          type: "PASSWORD_CHANGE",
+          type: "PASSWORD_CHANGE_FAILURE",
           userId: user.id,
-          metadata: { success: false, reason: "New password is the same as current password" },
+          metadata: { reason: "New password is the same as current password" },
           correlationId: options?.correlationId
         });
         return {
@@ -612,9 +637,9 @@ export class AuthService {
 
       if (newPassword.length > 72) {
         this.logger.audit({
-          type: "PASSWORD_CHANGE",
+          type: "PASSWORD_CHANGE_FAILURE",
           userId: user.id,
-          metadata: { success: false, reason: "Password exceeds maximum length" },
+          metadata: { reason: "Password exceeds maximum length" },
           correlationId: options?.correlationId
         });
         return {
@@ -630,9 +655,9 @@ export class AuthService {
         containsBlockedPasswords(newPassword, user.email, user.username, options?.blockedPasswords)
       ) {
         this.logger.audit({
-          type: "PASSWORD_CHANGE",
+          type: "PASSWORD_CHANGE_FAILURE",
           userId: user.id,
-          metadata: { success: false, reason: "New password contains blocked keywords" },
+          metadata: { reason: "New password contains blocked keywords" },
           correlationId: options?.correlationId
         });
         return {
@@ -646,21 +671,21 @@ export class AuthService {
       // Password strength
       if (zxcvbn(newPassword).score < 3) {
         this.logger.audit({
-          type: "PASSWORD_CHANGE",
+          type: "PASSWORD_CHANGE_FAILURE",
           userId: user.id,
-          metadata: { success: false, reason: "New password too weak" },
+          metadata: { reason: "New password too weak" },
           correlationId: options?.correlationId
         });
         return { success: false, data: undefined, message: "New password too weak", httpCode: 400 };
       }
 
       // Breach check
-      const breachCheck = await isBreachedPassword(newPassword);
+      const breachCheck = await isBreachedPassword(newPassword, this.logger);
       if (breachCheck.detected) {
         this.logger.audit({
-          type: "PASSWORD_CHANGE",
+          type: "PASSWORD_CHANGE_FAILURE",
           userId: user.id,
-          metadata: { success: false, reason: "New password found in data breach" },
+          metadata: { reason: "New password found in data breach" },
           correlationId: options?.correlationId
         });
         return {
@@ -672,6 +697,12 @@ export class AuthService {
       }
 
       if (breachCheck.error && options?.pwnedPasswordFailClosed) {
+        this.logger.audit({
+          type: "PASSWORD_CHANGE_FAILURE",
+          userId: user.id,
+          metadata: { reason: "Breached password check failed (Fail-Closed)" },
+          correlationId: options?.correlationId
+        });
         return {
           success: false,
           data: undefined,
@@ -699,6 +730,12 @@ export class AuthService {
           undefined,
           options?.correlationId
         );
+        this.logger.audit({
+          type: "PASSWORD_CHANGE_FAILURE",
+          userId: user.id,
+          metadata: { reason: "Password update failed" },
+          correlationId: options?.correlationId
+        });
         return {
           success: false,
           data: undefined,
@@ -738,7 +775,7 @@ export class AuthService {
       this.logger.audit({
         type: "PASSWORD_CHANGE",
         userId: user.id,
-        metadata: { success: true },
+        metadata: { magicLinksInvalidated: tokensInvalidated },
         correlationId: options?.correlationId
       });
 
@@ -757,6 +794,12 @@ export class AuthService {
       };
     } catch (err) {
       this.logger.error("Password change exception", err, undefined, options?.correlationId);
+      this.logger.audit({
+        type: "PASSWORD_CHANGE_FAILURE",
+        userId,
+        metadata: { reason: "Internal error" },
+        correlationId: options?.correlationId
+      });
       return {
         success: false,
         data: undefined,

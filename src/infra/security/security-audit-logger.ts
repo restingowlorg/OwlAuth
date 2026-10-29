@@ -1,120 +1,74 @@
 /* eslint-disable no-console */
 import { SECURITY_CONFIG } from "../../config";
+import { AuthAuditEvent } from "../audit/events";
+import { REDACTED, isSensitiveValue, maskSensitiveData, scrubCredentials } from "../audit/redact";
 import { IAuditLogger, SecurityEvent } from "./types";
 
+// The correlation ID is caller-supplied, so one that looks like a credential is not printed.
+const tag = (correlationId?: string): string =>
+  correlationId ? ` [${isSensitiveValue(correlationId) ? REDACTED : correlationId}]` : "";
+
 /**
- * Robustly masks sensitive data in objects/arrays.
- * Handles circular references and recursively masks nested objects.
+ * Console logger, and the default audit sink when none is supplied.
+ *
+ * Each auth manager creates its own instance, so masking keys configured for one manager
+ * never apply to another. The keys are fixed at construction.
  */
-function maskSensitiveData(
-  data: unknown,
-  customKeys: string[],
-  seen = new WeakSet<object>()
-): unknown {
-  if (!data || typeof data !== "object") return data;
-
-  const dataObj = data as Record<string, unknown>;
-  if (seen.has(dataObj)) return "[Circular]";
-
-  // Only add non-primitive objects to the seen set
-  seen.add(dataObj);
-
-  if (Array.isArray(data)) {
-    const masked = [...(data as unknown[])];
-    for (let i = 0; i < masked.length; i++) {
-      masked[i] = maskSensitiveData(masked[i], customKeys, seen);
-    }
-    return masked;
-  }
-
-  const masked: Record<string, unknown> =
-    data instanceof Error
-      ? {
-          name: data.name,
-          message: data.message,
-          stack: data.stack,
-          ...dataObj
-        }
-      : { ...dataObj };
-
-  const allSensitiveKeys = [
-    ...(SECURITY_CONFIG.SENSITIVE_KEYS as readonly string[]),
-    ...customKeys
-  ].map((k) => k.toLowerCase());
-
-  // Mask sensitive data
-  for (const key in masked) {
-    const value = masked[key];
-    if (allSensitiveKeys.includes(key.toLowerCase())) {
-      masked[key] = "********";
-    } else if (value && typeof value === "object") {
-      masked[key] = maskSensitiveData(value, customKeys, seen);
-    }
-  }
-
-  // Restore Error object structure
-  if (data instanceof Error) {
-    const err = new Error(masked.message as string);
-    err.name = masked.name as string;
-    err.stack = masked.stack as string;
-    for (const key in masked) {
-      if (!["name", "message", "stack"].includes(key)) {
-        (err as unknown as Record<string, unknown>)[key] = masked[key];
-      }
-    }
-    return err;
-  }
-
-  return masked;
-}
-
 export class SecurityAuditLogger implements IAuditLogger {
   private readonly prefix = SECURITY_CONFIG.LOGGER_PREFIX;
-  private customMaskingKeys: string[] = [];
+  private readonly customMaskingKeys: readonly string[];
 
-  setCustomMaskingKeys(keys: string[]) {
-    this.customMaskingKeys = keys;
+  constructor(customMaskingKeys: readonly string[] = []) {
+    this.customMaskingKeys = Object.freeze([...customMaskingKeys]);
   }
 
   info(message: string, context?: unknown, correlationId?: string) {
     console.info(
-      `${this.prefix} [INFO]${correlationId ? ` [${correlationId}]` : ""} - ${message}`,
+      `${this.prefix} [INFO]${tag(correlationId)} - ${scrubCredentials(message)}`,
       context ? maskSensitiveData(context, this.customMaskingKeys) : ""
     );
   }
 
   warn(message: string, context?: unknown, correlationId?: string) {
     console.warn(
-      `${this.prefix} [WARN]${correlationId ? ` [${correlationId}]` : ""} - ${message}`,
+      `${this.prefix} [WARN]${tag(correlationId)} - ${scrubCredentials(message)}`,
       context ? maskSensitiveData(context, this.customMaskingKeys) : ""
     );
   }
 
   error(message: string, error: unknown, context?: unknown, correlationId?: string) {
     console.error(
-      `${this.prefix} [ERROR]${correlationId ? ` [${correlationId}]` : ""} - ${message}`,
+      `${this.prefix} [ERROR]${tag(correlationId)} - ${scrubCredentials(message)}`,
       maskSensitiveData(error, this.customMaskingKeys),
       context ? maskSensitiveData(context, this.customMaskingKeys) : ""
     );
   }
 
-  audit(event: SecurityEvent) {
+  /** Prints an event, masking it first. Accepts a raw event or one OwlAuth delivered. */
+  audit(event: SecurityEvent | AuthAuditEvent) {
+    this.print(event, (payload) => maskSensitiveData(payload, this.customMaskingKeys));
+  }
+
+  /**
+   * Prints an event the auth manager has already redacted, without a second masking pass.
+   * @internal
+   */
+  printEvent(event: AuthAuditEvent) {
+    this.print(event, (payload) => payload);
+  }
+
+  private print(event: SecurityEvent | AuthAuditEvent, finish: (payload: unknown) => unknown) {
     const { type, userId, email, correlationId, ...rest } = event;
 
     const payload: Record<string, unknown> = {
       ...rest,
-      timestamp: new Date().toISOString()
+      timestamp: "timestamp" in event ? event.timestamp : new Date().toISOString()
     };
 
     if (userId !== undefined) payload.userId = userId;
     if (email !== undefined) payload.email = email;
 
-    console.log(
-      `${this.prefix} [AUDIT]${correlationId ? ` [${correlationId}]` : ""} - ${type}`,
-      maskSensitiveData(payload, this.customMaskingKeys)
-    );
+    console.log(`${this.prefix} [AUDIT]${tag(correlationId)} - ${type}`, finish(payload));
   }
 }
-
-export const auditLogger = new SecurityAuditLogger();
 /* eslint-enable no-console */

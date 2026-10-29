@@ -1,6 +1,16 @@
 export const SECURITY_CONFIG = {
   LOGGER_PREFIX: "OWL-AUTH",
-  SENSITIVE_KEYS: ["password", "token", "secret", "authorization", "cookie", "apikey"],
+  // Matched as fragments, ignoring case and separators: "token" also covers refresh_token.
+  SENSITIVE_KEYS: [
+    "password",
+    "passwd",
+    "token",
+    "secret",
+    "authorization",
+    "cookie",
+    "apikey",
+    "bearer"
+  ],
   /**
    * Have I Been Pwned API URL for range-based hash checking
    * @see https://haveibeenpwned.com/API/v3#PwnedPasswords

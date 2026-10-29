@@ -1,14 +1,7 @@
 import * as crypto from "crypto";
 import { isBreachedPassword } from "./pwned-passwords";
-import { auditLogger } from "./security-audit-logger";
 
 // Mock dependencies
-jest.mock("./security-audit-logger", () => ({
-  auditLogger: {
-    warn: jest.fn()
-  }
-}));
-
 jest.mock("crypto", () => ({
   createHash: jest.fn()
 }));
@@ -16,6 +9,8 @@ jest.mock("crypto", () => ({
 const mockCreateHash = crypto.createHash as jest.Mock;
 
 describe("isBreachedPassword", () => {
+  const logger = { warn: jest.fn() };
+
   beforeEach(() => {
     jest.clearAllMocks();
     global.fetch = jest.fn();
@@ -65,22 +60,27 @@ describe("isBreachedPassword", () => {
       status: 500
     });
 
-    const result = await isBreachedPassword("test");
+    const result = await isBreachedPassword("test", logger);
     expect(result.detected).toBe(false);
     expect(result.error).toBeDefined();
-    // eslint-disable-next-line @typescript-eslint/unbound-method
-    expect(auditLogger.warn).toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalled();
   });
 
   it("should handle fetch timeout/error", async () => {
     (global.fetch as jest.Mock).mockRejectedValue(new Error("Network Error"));
 
-    const result = await isBreachedPassword("test");
+    const result = await isBreachedPassword("test", logger);
     expect(result.detected).toBe(false);
     expect(result.error).toBeDefined();
-    // eslint-disable-next-line @typescript-eslint/unbound-method
-    expect(auditLogger.warn).toHaveBeenCalledWith(
+    expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining("Failed to check breached password")
     );
+  });
+
+  it("does not require a logger", async () => {
+    (global.fetch as jest.Mock).mockRejectedValue(new Error("Network Error"));
+
+    const result = await isBreachedPassword("test");
+    expect(result.error).toBeDefined();
   });
 });

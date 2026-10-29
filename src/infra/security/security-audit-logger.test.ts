@@ -92,6 +92,38 @@ describe("SecurityAuditLogger", () => {
       logger.error("fail", new Error("boom"), undefined, "err-id");
       expect(errorSpy.mock.calls[0][0]).toContain("[err-id]");
     });
+
+    it("should scrub a credential interpolated into the message", () => {
+      logger.error("Upstream said: Authorization: Bearer 3f9a1c7e2b", new Error("boom"));
+      expect(errorSpy.mock.calls[0][0]).toBe(
+        "OWL-AUTH [ERROR] - Upstream said: Authorization: ********"
+      );
+    });
+
+    it("should scrub an all-lowercase Bearer value from the message, error and correlationId", () => {
+      logger.error(
+        "Upstream said: bearer abcdefgh",
+        new Error("Authorization: Bearer abcdefgh"),
+        { note: "Basic abcdefgh" },
+        "Bearer abcdefgh"
+      );
+      const [message, error, context] = errorSpy.mock.calls[0] as [string, Error, unknown];
+      expect(message).toBe("OWL-AUTH [ERROR] [********] - Upstream said: ********");
+      expect(error.message).toBe("Authorization: ********");
+      expect(error.stack).not.toContain("abcdefgh");
+      expect(context).toEqual({ note: "********" });
+    });
+
+    it("should scrub a malformed or quoted Bearer value in full", () => {
+      logger.error(
+        'Upstream said: Bearer abc$def!ghi and x_Bearer "quoted-secret"',
+        new Error("Authorization: Bearer abc$def!ghi")
+      );
+      const [message, error] = errorSpy.mock.calls[0] as [string, Error];
+      expect(message).toBe('OWL-AUTH [ERROR] - Upstream said: ******** and x_********"');
+      expect(error.message).toBe("Authorization: ********");
+      expect(error.stack).not.toContain("def!ghi");
+    });
   });
 
   describe("audit()", () => {
@@ -147,8 +179,8 @@ describe("SecurityAuditLogger", () => {
       expect(context.apikey).toBe("********");
     });
 
-    it("should mask custom keys when set via setCustomMaskingKeys()", () => {
-      logger.setCustomMaskingKeys(["ssn", "dob"]);
+    it("should mask the custom keys it was constructed with", () => {
+      logger = new SecurityAuditLogger(["ssn", "dob"]);
       logger.info("check", { ssn: "123-45-6789", dob: "1990-01-01", name: "Alice" });
       const context = infoSpy.mock.calls[0][1] as Record<string, unknown>;
       expect(context.ssn).toBe("********");

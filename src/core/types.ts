@@ -1,5 +1,6 @@
 import { IDatabaseAdapter } from "../infra/databases/types";
 import { ICryptoAdapter } from "../infra/security/types";
+import { AuditSink, AuditSinkErrorHandler } from "../infra/audit/auditor";
 import {
   AuthResult,
   SignupResult,
@@ -86,6 +87,10 @@ export type BaseAuthOptions<T extends AuthType = AuthType> = {
   pwnedPasswordFailClosed?: boolean;
   usernameValidator?: (username: string) => boolean;
   accountSecurity?: boolean;
+  /** Receives this manager's authentication events. Defaults to the console. */
+  auditSink?: AuditSink;
+  /** Called when `auditSink` throws or rejects. Defaults to logging the failure. */
+  onAuditSinkError?: AuditSinkErrorHandler;
 };
 
 export type AuthOptions<T extends AuthType = AuthType> = BaseAuthOptions<T> & {
