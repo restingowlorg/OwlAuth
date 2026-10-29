@@ -113,6 +113,17 @@ describe("SecurityAuditLogger", () => {
       expect(error.stack).not.toContain("abcdefgh");
       expect(context).toEqual({ note: "********" });
     });
+
+    it("should scrub a malformed or quoted Bearer value in full", () => {
+      logger.error(
+        'Upstream said: Bearer abc$def!ghi and x_Bearer "quoted-secret"',
+        new Error("Authorization: Bearer abc$def!ghi")
+      );
+      const [message, error] = errorSpy.mock.calls[0] as [string, Error];
+      expect(message).toBe('OWL-AUTH [ERROR] - Upstream said: ******** and x_********"');
+      expect(error.message).toBe("Authorization: ********");
+      expect(error.stack).not.toContain("def!ghi");
+    });
   });
 
   describe("audit()", () => {

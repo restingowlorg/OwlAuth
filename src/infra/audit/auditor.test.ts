@@ -187,6 +187,29 @@ describe("AuthAuditor", () => {
       });
     });
 
+    // Whatever follows the scheme is masked in full, even characters a valid token cannot hold.
+    it.each([
+      ["Bearer abc$def!ghi", "got ******** end"],
+      ['Bearer "quoted-secret"', 'got ********" end'],
+      ["x_Bearer abcdefgh", "got x_******** end"],
+      ['{"auth":"Bearer abcdefgh","n":1}', 'got {"auth":"********","n":1} end']
+    ])("masks the whole value in %j", (text, scrubbed) => {
+      const { auditor, events } = capture();
+
+      auditor.audit({
+        type: "LOGIN_FAILURE",
+        correlationId: text,
+        metadata: { reason: `got ${text} end`, note: `got ${text} end` }
+      });
+
+      expect(events[0]).toMatchObject({
+        correlationId: "********",
+        reason: scrubbed,
+        metadata: { note: scrubbed }
+      });
+      expect(JSON.stringify(events[0])).not.toMatch(/def!ghi|quoted-secret|abcdefgh/);
+    });
+
     it.each(["Bearer", "Bearer ", "Basic"])("leaves a scheme with no value alone: %j", (text) => {
       const { auditor, events } = capture();
 

@@ -38,7 +38,12 @@ export function isSensitiveKey(key: string, customKeys: readonly string[]): bool
 // The `Bearer`/`Basic` scheme itself marks what follows as a credential, so every non-empty
 // value after it is masked, however plain it looks. Prose such as "Missing bearer token"
 // is over-redacted as a result; that is the safe direction for a log.
-const AUTH_SCHEME_PATTERN = /\b(?:bearer|basic)\s+[A-Za-z0-9\-._~+/]+=*/gi;
+//
+// The value runs to the next whitespace or quote rather than stopping at the first
+// character a well-formed token cannot hold, so a malformed credential is not half-leaked,
+// and a value inside a quoted JSON string ends with it. A value may itself open with a quote.
+// The lookbehind matches the scheme after a separator such as `_`, which `\b` would not.
+const AUTH_SCHEME_PATTERN = /(?<![A-Za-z0-9])(?:bearer|basic)\s+["']?[^\s"']+/gi;
 const JWT_PATTERN = /\beyJ[\w-]*\.[\w-]+\.[\w-]*/g; // compact JWS/JWT
 
 /** Replace every credential-shaped substring, keeping the rest of the text readable. */
