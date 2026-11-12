@@ -553,7 +553,9 @@ integrationDescribe("MongoDB adapter integration", () => {
         expect(unknown).toEqual(requested);
         expect(deliveries).toHaveLength(1);
 
-        const newPassword = `Recovered-${randomUUID()}`;
+        // Must not contain the email local part or username ("recover"), or the shared
+        // password policy rejects it as a blocked term before the token is ever spent.
+        const newPassword = `Fresh-Credential-${randomUUID()}`;
         const [first, second] = await Promise.all([
           auth.recovery.confirm(deliveries[0].token, newPassword),
           auth.recovery.confirm(deliveries[0].token, newPassword)
