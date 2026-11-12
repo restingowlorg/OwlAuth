@@ -1,9 +1,15 @@
+import { randomUUID } from "crypto";
 import { Collection, MongoClient, ObjectId } from "mongodb";
 import { connectMongo } from "./db";
-import { IMongoAccountSecurityDoc, IMongoUserDoc } from "./types";
+import { MongoAdapter } from "./adapter";
+import { IMongoAccountSecurityDoc, IMongoActionTokenDoc, IMongoUserDoc } from "./types";
 import { MongoUserRepo } from "../../../repositories/mongo/user.repo";
 import { MongoAccountSecurityRepo } from "../../../repositories/mongo/accountSecurity.repo";
-import { DuplicateUserError } from "../../../repositories/contracts";
+import { MongoActionTokenRepo } from "../../../repositories/mongo/actionToken.repo";
+import { ActionTokenPurpose, DuplicateUserError } from "../../../repositories/contracts";
+import { createAuthManager } from "../../../core/auth.manager";
+import { RecoveryDelivery } from "../../../core/types";
+import { BcryptAdapter } from "../../security/bcrypt.adapter";
 
 const configuredMongoUri = process.env.MONGODB_TEST_URI;
 const mongoUri = configuredMongoUri ?? "mongodb://127.0.0.1:27017/owlauth_test";
@@ -371,6 +377,206 @@ integrationDescribe("MongoDB adapter integration", () => {
       const accountSecurity = new MongoAccountSecurityRepo(collection);
 
       await expect(accountSecurity.findByUserId("not-an-object-id")).resolves.toBeNull();
+    });
+  });
+
+  describe("password recovery", () => {
+    const actionTokenCollectionName = "action_tokens";
+    const purpose: ActionTokenPurpose = "password_recovery";
+
+    async function createActionTokenCollection(options?: {
+      selectorUnique?: boolean;
+    }): Promise<Collection<IMongoActionTokenDoc>> {
+      const collection =
+        await database.createCollection<IMongoActionTokenDoc>(actionTokenCollectionName);
+
+      if (options?.selectorUnique ?? true) {
+        await collection.createIndex({ selector: 1 }, { unique: true });
+      }
+
+      return collection;
+    }
+
+    const connectOptions = {
+      mongoUri,
+      userCollectionName,
+      actionTokenCollectionName
+    };
+
+    async function createUser(label: string): Promise<string> {
+      const users = new MongoUserRepo(database.collection<IMongoUserDoc>(userCollectionName));
+      const user = await users.create({
+        email: `${label}@example.com`,
+        username: label,
+        passwordHash: "hash"
+      });
+      return user.id;
+    }
+
+    it("connects when the action token collection is valid", async () => {
+      await createActionTokenCollection();
+
+      const db = await connectMongo({
+        ...connectOptions,
+        authTypes: ["credentials", "recovery"]
+      });
+
+      expect(db.actionTokenRepo).toBeDefined();
+      await db.close();
+    });
+
+    it("does not build the repository when recovery is not enabled", async () => {
+      const db = await connectMongo({ ...connectOptions, authTypes: ["credentials"] });
+
+      expect(db.actionTokenRepo).toBeUndefined();
+      await db.close();
+    });
+
+    it("rejects recovery with no collection name", async () => {
+      await expect(
+        connectMongo({ mongoUri, userCollectionName, authTypes: ["credentials", "recovery"] })
+      ).rejects.toThrow("'actionTokenCollectionName' is not provided");
+    });
+
+    it("rejects a collection without a unique selector index", async () => {
+      await createActionTokenCollection({ selectorUnique: false });
+
+      await expect(
+        connectMongo({ ...connectOptions, authTypes: ["credentials", "recovery"] })
+      ).rejects.toThrow(
+        "must have a non-partial, non-sparse, single-field unique index on 'selector'"
+      );
+    });
+
+    // The acceptance criterion the whole design rests on, against a real server: of many
+    // simultaneous attempts to spend one token, exactly one is told it succeeded.
+    it("lets exactly one of many concurrent consumers spend a token", async () => {
+      const tokens = new MongoActionTokenRepo(await createActionTokenCollection());
+      const userId = await createUser("race_user");
+
+      await tokens.create({
+        userId,
+        purpose,
+        selector: "race-selector",
+        tokenHash: "hash",
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000)
+      });
+
+      const results = await Promise.all(
+        Array.from({ length: 10 }, () => tokens.consume("race-selector", purpose))
+      );
+
+      expect(results.filter(Boolean)).toHaveLength(1);
+      const stored = await tokens.findBySelector("race-selector", purpose);
+      expect(stored?.usedAt).toBeInstanceOf(Date);
+    });
+
+    it("refuses to spend an expired token", async () => {
+      const tokens = new MongoActionTokenRepo(await createActionTokenCollection());
+      const userId = await createUser("expired_user");
+
+      await tokens.create({
+        userId,
+        purpose,
+        selector: "expired-selector",
+        tokenHash: "hash",
+        expiresAt: new Date(Date.now() - 1000)
+      });
+
+      await expect(tokens.consume("expired-selector", purpose)).resolves.toBe(false);
+    });
+
+    it("rejects a second token with the same selector", async () => {
+      const tokens = new MongoActionTokenRepo(await createActionTokenCollection());
+      const userId = await createUser("dup_selector_user");
+      const input = {
+        userId,
+        purpose,
+        selector: "dup-selector",
+        tokenHash: "hash",
+        expiresAt: new Date(Date.now() + 60_000)
+      };
+
+      await tokens.create(input);
+      await expect(tokens.create(input)).rejects.toThrow();
+    });
+
+    it("invalidates only the user's outstanding tokens", async () => {
+      const tokens = new MongoActionTokenRepo(await createActionTokenCollection());
+      const userId = await createUser("invalidate_user");
+      const otherId = await createUser("other_user");
+      const expiresAt = new Date(Date.now() + 60_000);
+
+      await tokens.create({ userId, purpose, selector: "mine-1", tokenHash: "h", expiresAt });
+      await tokens.create({ userId, purpose, selector: "mine-2", tokenHash: "h", expiresAt });
+      await tokens.create({
+        userId: otherId,
+        purpose,
+        selector: "theirs",
+        tokenHash: "h",
+        expiresAt
+      });
+
+      await expect(tokens.invalidateByUserId(userId, purpose)).resolves.toBe(true);
+
+      await expect(tokens.consume("mine-1", purpose)).resolves.toBe(false);
+      await expect(tokens.consume("mine-2", purpose)).resolves.toBe(false);
+      await expect(tokens.consume("theirs", purpose)).resolves.toBe(true);
+    });
+
+    // End to end through the public API: request, deliver, confirm, then log in with the
+    // new password. The second confirm with the same token must fail.
+    it("recovers an account through the public API", async () => {
+      const collection = await createActionTokenCollection();
+
+      const crypto = new BcryptAdapter();
+      const users = new MongoUserRepo(database.collection<IMongoUserDoc>(userCollectionName));
+      await users.create({
+        email: "recover@example.com",
+        username: "recover_user",
+        passwordHash: await crypto.hashPassword("OriginalPassword!2026-unused")
+      });
+
+      const deliveries: RecoveryDelivery[] = [];
+      const auth = await createAuthManager({
+        adapter: new MongoAdapter(connectOptions),
+        authTypes: ["credentials", "recovery"],
+        recovery: { deliver: (delivery) => void deliveries.push(delivery) }
+      });
+
+      try {
+        const requested = await auth.recovery.request("recover@example.com");
+        expect(requested.httpCode).toBe(202);
+        expect(deliveries).toHaveLength(1);
+
+        const unknown = await auth.recovery.request("nobody@example.com");
+        expect(unknown).toEqual(requested);
+        expect(deliveries).toHaveLength(1);
+
+        // Must not contain the email local part or username ("recover"), or the shared
+        // password policy rejects it as a blocked term before the token is ever spent.
+        const newPassword = `Fresh-Credential-${randomUUID()}`;
+        const [first, second] = await Promise.all([
+          auth.recovery.confirm(deliveries[0].token, newPassword),
+          auth.recovery.confirm(deliveries[0].token, newPassword)
+        ]);
+
+        expect([first.success, second.success].filter(Boolean)).toHaveLength(1);
+
+        const login = await auth.credentials.login("recover@example.com", newPassword);
+        expect(login.success).toBe(true);
+
+        const replay = await auth.recovery.confirm(deliveries[0].token, `Again-${randomUUID()}`);
+        expect(replay.success).toBe(false);
+        expect(replay.httpCode).toBe(400);
+
+        // Only the hash of the secret half is ever written.
+        const verifier = deliveries[0].token.split(".")[1];
+        const stored = await collection.find({}).toArray();
+        expect(stored.every((doc) => !doc.token_hash.includes(verifier))).toBe(true);
+      } finally {
+        await auth.disconnectDB();
+      }
     });
   });
 });

@@ -3,3 +3,4 @@ export { initPostgres } from "./db";
 export { PostgresUserRepository } from "../../../repositories/postgresql/user.repo";
 export { PostgresMagicLinkRepository } from "../../../repositories/postgresql/magic.link.repo";
 export { PostgresAccountSecurityRepository } from "../../../repositories/postgresql/account.security.repo";
+export { PostgresActionTokenRepository } from "../../../repositories/postgresql/action.token.repo";

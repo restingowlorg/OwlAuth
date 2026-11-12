@@ -1,6 +1,7 @@
 import { IDatabaseAdapter } from "../infra/databases/types";
 import { ICryptoAdapter } from "../infra/security/types";
 import { AuditSink, AuditSinkErrorHandler } from "../infra/audit/auditor";
+import { UserId } from "../repositories/contracts";
 import {
   AuthResult,
   SignupResult,
@@ -8,10 +9,12 @@ import {
   ChangePasswordResult,
   RequestMagicLinkResult,
   VerifyMagicLinkResult,
-  ConsumeMagicLinkResult
+  ConsumeMagicLinkResult,
+  RequestRecoveryResult,
+  ConfirmRecoveryResult
 } from "../types";
 
-export type AuthType = "credentials" | "magicLink";
+export type AuthType = "credentials" | "magicLink" | "recovery";
 
 export interface ICredentialsMethods {
   readonly signup: (
@@ -56,9 +59,64 @@ export interface IMagicLinkMethods {
   ) => Promise<AuthResult<ConsumeMagicLinkResult>>;
 }
 
+/**
+ * What OwlAuth hands the application so it can deliver a recovery message.
+ *
+ * OwlAuth does not send email. This is the only place the recovery token is exposed, and it
+ * is handed over for exactly one purpose: putting it in a message to the address OwlAuth
+ * verified it belongs to. Do not log it, store it, or return it in an HTTP response.
+ */
+export type RecoveryDelivery = {
+  userId: UserId;
+  email: string;
+  /** The single-use recovery token, in `selector.verifier` form. */
+  token: string;
+  /** `baseUrl` with the token attached, present only when `baseUrl` is configured. */
+  url?: string;
+  expiresAt: Date;
+  correlationId?: string;
+};
+
+export type RecoveryOptions = {
+  /**
+   * Called once per issued token, and only for an address that belongs to an account
+   * eligible to recover. Enqueue the message rather than sending it inline: OwlAuth awaits
+   * this call, so a slow send shows up as a timing difference between a known and an
+   * unknown address. A throw or rejection is contained and never changes the response.
+   */
+  deliver: (delivery: RecoveryDelivery) => void | Promise<void>;
+  /** When set, `delivery.url` is this with `?token=…` appended. */
+  baseUrl?: string;
+  /** How long an issued token stays valid. Defaults to 15; must be between 5 and 60. */
+  tokenTtlMinutes?: number;
+};
+
+export interface IRecoveryMethods {
+  /**
+   * Begin recovery for an email address.
+   *
+   * The result is identical for every address, so it reveals nothing about which accounts
+   * exist. Rate limiting is the application's responsibility.
+   */
+  readonly request: (
+    email: string,
+    options?: { correlationId?: string }
+  ) => Promise<AuthResult<RequestRecoveryResult>>;
+  readonly confirm: (
+    token: string,
+    newPassword: string,
+    options?: {
+      blockedPasswords?: string[];
+      pwnedPasswordFailClosed?: boolean;
+      correlationId?: string;
+    }
+  ) => Promise<AuthResult<ConfirmRecoveryResult>>;
+}
+
 export interface IAuthMethods {
   credentials: ICredentialsMethods;
   magicLink: IMagicLinkMethods;
+  recovery: IRecoveryMethods;
 }
 
 /**
@@ -87,6 +145,8 @@ export type BaseAuthOptions<T extends AuthType = AuthType> = {
   pwnedPasswordFailClosed?: boolean;
   usernameValidator?: (username: string) => boolean;
   accountSecurity?: boolean;
+  /** Required when `authTypes` includes `"recovery"`, and ignored otherwise. */
+  recovery?: RecoveryOptions;
   /** Receives this manager's authentication events. Defaults to the console. */
   auditSink?: AuditSink;
   /** Called when `auditSink` throws or rejects. Defaults to logging the failure. */

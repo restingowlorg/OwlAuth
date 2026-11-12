@@ -22,6 +22,7 @@ owlauth, published as `@restingowlorg/owlauth`, gives your Node.js app the core 
 
 - **Credentials authentication**: Sign up users, log them in, and rotate passwords through one library surface.
 - **Passwordless magic links**: Request, verify, and consume single-use login tokens.
+- **Password recovery**: A dedicated reset flow, separate from magic-link login, with enumeration-safe requests and atomic single-use tokens.
 - **PostgreSQL and MongoDB adapters**: Use the same auth API across two common persistence stacks.
 - **Password hygiene controls**: Enforce minimum strength with `zxcvbn`, reject context-based weak passwords, and check candidate passwords against Have I Been Pwned using the k-anonymity API.
 - **Typed audit events**: Every auth operation emits a versioned, redacted event to a per-manager audit sink you supply, or to the console by default. Passwords, tokens, cookies, and authorization data are never included. See [Audit Events](docs/AUDIT_EVENTS.md).
@@ -31,13 +32,13 @@ owlauth, published as `@restingowlorg/owlauth`, gives your Node.js app the core 
 
 ## Support Matrix
 
-| Area          | Current Support         |
-| ------------- | ----------------------- |
-| Runtime       | Node.js 18+             |
-| Language      | TypeScript, JavaScript  |
-| Module output | CommonJS                |
-| Databases     | PostgreSQL, MongoDB     |
-| Auth flows    | Credentials, Magic Link |
+| Area          | Current Support                            |
+| ------------- | ------------------------------------------ |
+| Runtime       | Node.js 18+                                |
+| Language      | TypeScript, JavaScript                     |
+| Module output | CommonJS                                   |
+| Databases     | PostgreSQL, MongoDB                        |
+| Auth flows    | Credentials, Magic Link, Password Recovery |
 
 ## Installation
 
@@ -282,22 +283,116 @@ if (requested.success) {
 
 > **Note:** Treat the complete token as a secret: it grants one-time login access and must only be transmitted over TLS. Putting the token in a URL, sending the email, and handling delivery is your application's job. OwlAuth does not send email.
 
+### Password Recovery Flow
+
+Recovery is for someone who cannot log in with their password. It is deliberately separate from magic-link login: a magic link _is_ a login credential, while a recovery token authorises exactly one thing, replacing the password, and grants no session. OwlAuth issues no bearer, access, refresh, or JWT token here.
+
+```ts
+const auth = await createAuthManager({
+  adapter: new PostgresAdapter({
+    postgresUrl: process.env.POSTGRES_URL!,
+    userTableName: "users",
+    magicLinkTableName: "magic_links",
+    actionTokenTableName: "action_tokens" // Mongo: actionTokenCollectionName (required)
+  }),
+  authTypes: ["credentials", "magicLink", "recovery"],
+  recovery: {
+    // Called once per issued token. Enqueue the email; do not send it inline.
+    deliver: ({ email, url, expiresAt }) =>
+      mailQueue.enqueue("password-reset", { email, url, expiresAt }),
+    baseUrl: "https://app.example.com/reset-password",
+    tokenTtlMinutes: 15 // 5–60, default 15
+  }
+});
+
+const requested = await auth.recovery.request("user@example.com");
+// Always 202, "If an account exists for this email, recovery instructions have been sent."
+
+const confirmed = await auth.recovery.confirm(tokenFromLink, "a-new-strong-password");
+// 200 with { userId, magicLinksInvalidated }, or 400 for any unusable token
+```
+
+Recovery needs a table or collection to store tokens. Create it with the [migration](docs/migrations/ROOS-35-password-recovery.md) before enabling the flow. OwlAuth validates the schema at startup.
+
+**`request(email)`** returns the same `202` result, padded to the same minimum duration, whether or not the address belongs to an account. It also gives that answer when the account's status does not permit recovery, or when storage or delivery fails. Each case is still distinguishable in the [audit trail](docs/AUDIT_EVENTS.md). The token reaches your application only through `deliver`, never in the result. OwlAuth awaits `deliver`, so a slow inline send would show up as a timing difference. Enqueue instead. If `deliver` throws, the error is contained and the response does not change.
+
+**`confirm(token, newPassword)`** checks, in this order:
+
+1. The token is well formed, exists, is unused, is unexpired, and its secret matches the stored hash. Every failure here returns the same `400 Invalid or expired recovery token`.
+2. The account's status still permits authentication, if [account identity state](#account-identity-state) is on. A blocked account gets the same `400`.
+3. The new password passes the same policy as signup and `changePassword()`: maximum length, blocked terms, `zxcvbn` strength, and the Have I Been Pwned check, honouring `pwnedPasswordFailClosed`. A rejected password **leaves the token usable**, so the user can try again without a new email.
+4. The token is spent with one atomic conditional write. Of two concurrent requests with the same token, exactly one succeeds. The other gets the invalid-token response.
+
+On success OwlAuth replaces the password, retires the user's other recovery tokens and outstanding magic links, and emits `PASSWORD_RECOVERY_COMPLETED`. The token and password are never part of an event.
+
+Tokens are `selector.verifier`. The 16-byte selector finds the row. The 32-byte verifier is stored only as a SHA-256 hash, bound to the `password_recovery` purpose. Requesting a new token supersedes any earlier one.
+
+#### What your application owns
+
+OwlAuth changes the password and nothing else. These are yours:
+
+| Responsibility                  | Why OwlAuth leaves it to you                                                                                        |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Sending the recovery email      | OwlAuth does not send email. `deliver` hands you the token and, when `baseUrl` is set, a ready-made URL.            |
+| Rate limiting both endpoints    | Limit `request` per address and per client, and `confirm` per client. OwlAuth keeps no counters.                    |
+| Revoking sessions               | OwlAuth holds no sessions. End them yourself after a successful `confirm`.                                          |
+| Invalidating application tokens | Access and refresh tokens your application issued are unknown to OwlAuth. Revoke them after a successful `confirm`. |
+
+#### Composing recovery into an application
+
+Rate-limit first, call OwlAuth, and on success revoke sessions and tokens explicitly, in the same request, before you respond. Do not leave revocation to an audit-sink reaction: [events are best-effort](docs/AUDIT_EVENTS.md#timing-and-failure-behaviour).
+
+> The Session Guard and Token Guard method names below are illustrative. Use the equivalent calls from the versions you have installed.
+
+```ts
+import express from "express";
+import { sessionGuard } from "./session-guard"; // your Owl Session Guard instance
+import { tokenGuard } from "./token-guard"; // your Owl Token Guard instance
+import { recoveryRequestLimiter, recoveryConfirmLimiter } from "./rate-limits";
+
+const app = express();
+app.use(express.json());
+
+app.post("/auth/recovery", recoveryRequestLimiter, async (req, res) => {
+  const result = await auth.recovery.request(req.body.email, { correlationId: req.id });
+  res.status(result.httpCode).json({ message: result.message });
+});
+
+app.post("/auth/recovery/confirm", recoveryConfirmLimiter, async (req, res) => {
+  const result = await auth.recovery.confirm(req.body.token, req.body.newPassword, {
+    correlationId: req.id
+  });
+
+  if (result.success) {
+    // OwlAuth has changed the password and retired its own magic links.
+    // Everything the application issued is the application's to end.
+    await sessionGuard.revokeAllSessionsForUser(result.data.userId);
+    await tokenGuard.revokeAllTokensForSubject(result.data.userId);
+  }
+
+  res.status(result.httpCode).json({ message: result.message });
+});
+```
+
+Serve the page at `baseUrl` with `Referrer-Policy: no-referrer`, and have it `POST` the token to your confirm endpoint along with the new password. Do not redeem the token on the `GET` that opens the link: mail scanners follow links. The page should not log the URL.
+
 ## Configuration Options
 
 ### Shared Options
 
-| Option                    | Type                               | Purpose                                                                                                                                                                                        |
-| ------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `authTypes`               | `("credentials" \| "magicLink")[]` | Enables one or both supported auth flows. Defaults to credentials only.                                                                                                                        |
-| `blockedPasswords`        | `string[]`                         | Rejects passwords containing the user's email, username, or any supplied blocked terms.                                                                                                        |
-| `magicLinkBaseUrl`        | `string`                           | Base URL for magic link emails. When set, `request()` returns a ready-to-use URL in the format `{baseUrl}?token={token}`. When omitted, the raw token is returned for manual URL construction. |
-| `cryptoAdapter`           | `ICryptoAdapter`                   | Replaces the default bcrypt-based crypto implementation.                                                                                                                                       |
-| `customMaskingKeys`       | `string[]`                         | Adds case-insensitive keys to this manager's masking list. Not shared with other managers.                                                                                                     |
-| `auditSink`               | `AuditSink`                        | Receives this manager's typed authentication events: a function, an `{ emit }` object, or a logger with `audit()`. Defaults to the console. See [Audit Events](docs/AUDIT_EVENTS.md).          |
-| `onAuditSinkError`        | `(error, event) => void`           | Called when `auditSink` throws or rejects. Sink failures never change an auth result. Defaults to logging the failure.                                                                         |
-| `pwnedPasswordFailClosed` | `boolean`                          | Rejects signups and password changes when the breached-password API cannot be reached.                                                                                                         |
-| `usernameValidator`       | `(username: string) => boolean`    | Overrides the default username validation rule. Default: `3–20 chars, alphanumeric + underscore only` (`/^[a-zA-Z0-9_]{3,20}$/`). Return `true` to accept, `false` to reject.                  |
-| `accountSecurity`         | `boolean`                          | Enables account identity state. Denies authentication for `disabled` accounts and records new signups as `active`. Requires the account security table or collection. Defaults to `false`.     |
+| Option                    | Type                                             | Purpose                                                                                                                                                                                        |
+| ------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `authTypes`               | `("credentials" \| "magicLink" \| "recovery")[]` | Enables the supported auth flows. Defaults to credentials only.                                                                                                                                |
+| `recovery`                | `RecoveryOptions`                                | Required when `authTypes` includes `"recovery"`. `deliver` (required) receives each issued token; `baseUrl` builds a ready-made link; `tokenTtlMinutes` is 5–60, default 15.                   |
+| `blockedPasswords`        | `string[]`                                       | Rejects passwords containing the user's email, username, or any supplied blocked terms.                                                                                                        |
+| `magicLinkBaseUrl`        | `string`                                         | Base URL for magic link emails. When set, `request()` returns a ready-to-use URL in the format `{baseUrl}?token={token}`. When omitted, the raw token is returned for manual URL construction. |
+| `cryptoAdapter`           | `ICryptoAdapter`                                 | Replaces the default bcrypt-based crypto implementation.                                                                                                                                       |
+| `customMaskingKeys`       | `string[]`                                       | Adds case-insensitive keys to this manager's masking list. Not shared with other managers.                                                                                                     |
+| `auditSink`               | `AuditSink`                                      | Receives this manager's typed authentication events: a function, an `{ emit }` object, or a logger with `audit()`. Defaults to the console. See [Audit Events](docs/AUDIT_EVENTS.md).          |
+| `onAuditSinkError`        | `(error, event) => void`                         | Called when `auditSink` throws or rejects. Sink failures never change an auth result. Defaults to logging the failure.                                                                         |
+| `pwnedPasswordFailClosed` | `boolean`                                        | Rejects signups, password changes, and recovery confirmations when the breached-password API cannot be reached.                                                                                |
+| `usernameValidator`       | `(username: string) => boolean`                  | Overrides the default username validation rule. Default: `3–20 chars, alphanumeric + underscore only` (`/^[a-zA-Z0-9_]{3,20}$/`). Return `true` to accept, `false` to reject.                  |
+| `accountSecurity`         | `boolean`                                        | Enables account identity state. Denies authentication for `disabled` accounts and records new signups as `active`. Requires the account security table or collection. Defaults to `false`.     |
 
 > **Important:** The built-in adapters require database-level, non-partial, single-field unique indexes or constraints for both `email` and `username`. OwlAuth verifies those requirements while connecting. This is essential: application-level duplicate checks improve the user experience but cannot prevent concurrent signups from creating duplicate identities. Custom repositories must provide equivalent database-level uniqueness guarantees.
 
@@ -309,6 +404,8 @@ if (requested.success) {
 - `magicLink.request()`: `correlationId`
 - `magicLink.verify()`: `correlationId`
 - `magicLink.consume()`: `correlationId`
+- `recovery.request()`: `correlationId`
+- `recovery.confirm()`: `blockedPasswords`, `pwnedPasswordFailClosed`, `correlationId`
 
 ## Response Model
 
@@ -328,6 +425,8 @@ Result payloads are:
 - `RequestMagicLinkResult`: `string` — when `magicLinkBaseUrl` is configured: full URL `"{baseUrl}?token={rawToken}"` ready to embed in an email. Without `magicLinkBaseUrl`: the raw token for manual URL construction. Pass the complete raw token directly to `verify()` and `consume()`.
 - `VerifyMagicLinkResult`: `{ isValid: boolean; userId: UserId; lookupKey: string; }`
 - `ConsumeMagicLinkResult`: `{ userId: UserId }`
+- `RequestRecoveryResult`: `null` — the result is identical for every address, so it carries nothing. The token arrives through `recovery.deliver`.
+- `ConfirmRecoveryResult`: `{ userId: UserId; magicLinksInvalidated: boolean }`
 
 `SafeUser` and `UserId` are exported directly from the package and can be imported for type annotations:
 
@@ -371,6 +470,16 @@ Here's exactly what owlauth does, and where each decision comes from. Every cont
 | Short expiry window                       | Tokens expire 15 minutes after issuance.                                                                                                                       | [OWASP Forgot Password Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html), use a short token lifetime           |
 | Single-use with prior invalidation        | Requesting a new magic link immediately invalidates all previous active tokens for that user. Consumed tokens cannot be reused.                                | [OWASP Forgot Password Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html), single-use tokens                    |
 
+### Password Recovery
+
+| Control                         | What the library does                                                                                                                                                        | OWASP reference                                                                                                                                                             |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Consistent request response     | `recovery.request()` returns the same `202` message for known and unknown addresses, padded to a minimum duration so timing does not reveal the answer either.               | [Forgot Password Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html), return a consistent message                                 |
+| Random, hashed, purpose-bound   | Tokens come from Node's CSPRNG. Only a SHA-256 hash of the secret half is stored, bound to the `password_recovery` purpose, so it cannot be redeemed through any other flow. | [Forgot Password Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html), URL tokens                                                  |
+| Short-lived and single-use      | Tokens expire after 15 minutes by default (5–60 configurable). Spending one is a single atomic conditional write, and a new request supersedes earlier tokens.               | [Forgot Password Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html), single-use tokens that expire                               |
+| Same password policy throughout | The new password passes the same length, blocked-term, strength, and breach checks as signup and password change.                                                            | [Auth Cheat Sheet — Password Strength Controls](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#implement-proper-password-strength-controls) |
+| No automatic login              | A successful reset grants no session or token. Existing magic links are invalidated.                                                                                         | [Forgot Password Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html), do not log the user in automatically                        |
+
 ### Security Logging and Audit Trail
 
 | Control                    | What the library does                                                                                                                                                                                                                                                                                                                                                                                                             | OWASP reference                                                                                                                                                                                                                              |
@@ -384,11 +493,11 @@ Here's exactly what owlauth does, and where each decision comes from. Every cont
 The table above covers what this library actually does. It's **not** an OWASP certification, and it won't make your app ASVS-compliant on its own. You still need to handle:
 
 - TLS and secure transport
-- secure email delivery for magic links
+- secure email delivery for magic links and recovery messages
 - rate limiting, brute-force protection, and account lockout
-- session management
+- session management, including revoking sessions and application tokens after a password recovery
 - CSRF defenses where relevant
-- account verification and recovery workflows
+- account verification workflows
 - MFA or passkeys if the risk model requires them
 - authorization and role enforcement
 
@@ -400,7 +509,7 @@ Here's what's coming next:
 
 - **More application stacks**: First-party integrations for Express, Fastify, NestJS, Next.js, and serverless Node runtimes
 - **More data stores**: Additional adapters for MySQL, SQLite, DynamoDB, and other operationally common backends
-- **Stronger auth options**: WebAuthn, passkeys, TOTP-based MFA, and recovery-oriented flows
+- **Stronger auth options**: WebAuthn, passkeys, and TOTP-based MFA
 - **Operational hardening**: Built-in rate limiting hooks, lockout strategies, and safer recovery patterns
 - **Broader RestingOwl package family**: Adjacent packages for rate limiting, input sanitization, audit logging, secrets management, and CSRF protection
 

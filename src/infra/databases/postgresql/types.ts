@@ -25,6 +25,17 @@ export type MagicLinkRow = {
   created_at: Date;
 };
 
+export type ActionTokenRow = {
+  id: number | string;
+  user_id: number | string;
+  purpose: string;
+  selector: string;
+  token_hash: string;
+  expires_at: Date;
+  used_at: Date | null;
+  created_at: Date;
+};
+
 export type TableColumn = {
   column_name: string;
   is_nullable?: "YES" | "NO";
@@ -64,4 +75,7 @@ export interface InitPostgresOptions {
   magicLinkSchema?: string;
   accountSecurityTableName?: string;
   accountSecuritySchema?: string;
+  /** Used only when an action-token flow such as `recovery` is enabled. Defaults to `action_tokens`. */
+  actionTokenTableName?: string;
+  actionTokenSchema?: string;
 }

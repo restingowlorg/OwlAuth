@@ -2,12 +2,14 @@ import { Pool } from "pg";
 import { PostgresUserRepository } from "../../../repositories/postgresql/user.repo";
 import { PostgresMagicLinkRepository } from "../../../repositories/postgresql/magic.link.repo";
 import { PostgresAccountSecurityRepository } from "../../../repositories/postgresql/account.security.repo";
+import { PostgresActionTokenRepository } from "../../../repositories/postgresql/action.token.repo";
 import {
   PostgresAccountSecuritySchema,
+  PostgresActionTokenSchema,
   PostgresMagicLinkSchema,
   PostgresUserSchema
 } from "./schema";
-import { ACCOUNT_STATUSES, AuthDB } from "../../../repositories/contracts";
+import { ACCOUNT_STATUSES, ACTION_TOKEN_PURPOSES, AuthDB } from "../../../repositories/contracts";
 import {
   validateSchema,
   validateTable,
@@ -34,6 +36,8 @@ export async function initPostgres(
     magicLinkSchema = "public",
     accountSecurityTableName,
     accountSecuritySchema = "public",
+    actionTokenTableName,
+    actionTokenSchema = "public",
     authTypes,
     accountSecurity
   } = options;
@@ -133,11 +137,65 @@ export async function initPostgres(
       );
     }
 
+    // Action token table validations (only for the flows that issue them)
+    let actionTokenRepo: PostgresActionTokenRepository | undefined;
+
+    if (authTypes?.includes("recovery")) {
+      const actionTokenTable = actionTokenTableName ?? "action_tokens";
+      const qualifiedActionTokenTable = `${actionTokenSchema}.${actionTokenTable}`;
+
+      await Promise.all([
+        validateSchema(pool, actionTokenSchema),
+        validateTable(pool, qualifiedActionTokenTable),
+        validateColumns(
+          pool,
+          actionTokenSchema,
+          actionTokenTable,
+          PostgresActionTokenSchema.requiredColumns
+        ),
+        validateNonNullableColumns(pool, actionTokenSchema, actionTokenTable, [
+          "user_id",
+          "purpose",
+          "selector",
+          "token_hash",
+          "expires_at"
+        ]),
+        // The selector is how a token is found, so a duplicate would make one token
+        // shadow another.
+        validateUniqueColumn(pool, actionTokenSchema, actionTokenTable, "selector"),
+        // Without this constraint the column accepts any string, so a token could be
+        // stored under a purpose OwlAuth never honours.
+        validateColumnDomain(
+          pool,
+          actionTokenSchema,
+          actionTokenTable,
+          "purpose",
+          ACTION_TOKEN_PURPOSES
+        ),
+        validateForeignKey(
+          pool,
+          actionTokenSchema,
+          actionTokenTable,
+          userSchema,
+          userTableName,
+          "user_id",
+          "id"
+        )
+      ]);
+
+      actionTokenRepo = new PostgresActionTokenRepository(
+        actionTokenSchema,
+        actionTokenTable,
+        pool
+      );
+    }
+
     // Return repositories
     return {
       userRepo: new PostgresUserRepository(userSchema, userTableName, pool),
       magicLinkRepo: magicRepo,
       accountSecurityRepo,
+      actionTokenRepo,
       close: async () => {
         await pool.end();
       }
