@@ -2,6 +2,7 @@ import { AuthAuditor } from "../infra/audit/auditor";
 import { AuthDB } from "../repositories/contracts";
 import { CredentialsAuthStrategy } from "../strategies/CredentialsStrategy";
 import { MagicLinkAuthStrategy } from "../strategies/MagicLinkStrategy";
+import { RecoveryAuthStrategy } from "../strategies/RecoveryStrategy";
 import { IAuthStrategy, Mutable } from "../strategies/types";
 import { AuthOptions, AuthType, IAuthMethods } from "./types";
 import { zxcvbnOptions } from "@zxcvbn-ts/core";
@@ -10,7 +11,8 @@ import * as zxcvbnEnPackage from "@zxcvbn-ts/language-en";
 
 const authStrategies: Record<AuthType, IAuthStrategy> = {
   credentials: new CredentialsAuthStrategy(),
-  magicLink: new MagicLinkAuthStrategy()
+  magicLink: new MagicLinkAuthStrategy(),
+  recovery: new RecoveryAuthStrategy()
 };
 
 let isZxcvbnConfigured = false;

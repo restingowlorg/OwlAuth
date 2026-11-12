@@ -1,6 +1,4 @@
-import { zxcvbn } from "@zxcvbn-ts/core";
 import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
-import { isBreachedPassword } from "../infra/security/pwned-passwords";
 import {
   UserRepository,
   MagicLinkRepository,
@@ -10,9 +8,66 @@ import {
   SafeUser,
   DuplicateUserError
 } from "../repositories/contracts";
-import { containsBlockedPasswords } from "../utils/check-blocked-passwords";
 import { isAuthenticationPermitted } from "../utils/account-status";
+import {
+  MAX_PASSWORD_LENGTH,
+  PasswordPolicyFailure,
+  checkNewPassword
+} from "../utils/password-policy";
 import { AuthResult, LoginResult, SignupResult, ChangePasswordResult } from "../types";
+
+/** The audit reason and caller response for one shared password-policy verdict. */
+type PolicyResponse = { reason: string; message: string; httpCode: number };
+
+// The policy is shared; the wording is not. Each flow keeps the exact reason and message it
+// used before the checks moved into `checkNewPassword`.
+const SIGNUP_POLICY_FAILURES: Record<PasswordPolicyFailure, PolicyResponse> = {
+  too_long: {
+    reason: "Password exceeds maximum length",
+    message: "Password must be 72 characters or less.",
+    httpCode: 400
+  },
+  blocked: {
+    reason: "Password contains blocked keywords",
+    message: "Password cannot contain username, email, or blocked words",
+    httpCode: 400
+  },
+  weak: { reason: "Password too weak", message: "Password too weak.", httpCode: 400 },
+  breached: {
+    reason: "Password found in data breach",
+    message: "Password found in data breach.",
+    httpCode: 400
+  },
+  check_unavailable: {
+    reason: "Breached password check failed (Fail-Closed)",
+    message: "Security check unavailable. Please try again later.",
+    httpCode: 503
+  }
+};
+
+const PASSWORD_CHANGE_POLICY_FAILURES: Record<PasswordPolicyFailure, PolicyResponse> = {
+  too_long: {
+    reason: "Password exceeds maximum length",
+    message: "Password must be 72 characters or less.",
+    httpCode: 400
+  },
+  blocked: {
+    reason: "New password contains blocked keywords",
+    message: "New password cannot contain username, email, or blocked words",
+    httpCode: 400
+  },
+  weak: { reason: "New password too weak", message: "New password too weak", httpCode: 400 },
+  breached: {
+    reason: "New password found in data breach",
+    message: "New password found in data breach",
+    httpCode: 400
+  },
+  check_unavailable: {
+    reason: "Breached password check failed (Fail-Closed)",
+    message: "Security check unavailable. Please try again later.",
+    httpCode: 503
+  }
+};
 
 export class AuthService {
   constructor(
@@ -128,18 +183,21 @@ export class AuthService {
         };
       }
 
-      if (password.length > 72) {
+      // Length is checked here as well as inside the shared policy below, so an over-long
+      // password is still reported ahead of an invalid username, as it was before these
+      // checks moved out.
+      if (password.length > MAX_PASSWORD_LENGTH) {
         this.logger.audit({
           type: "SIGNUP_FAILURE",
           email,
-          metadata: { username, reason: "Password exceeds maximum length" },
+          metadata: { username, reason: SIGNUP_POLICY_FAILURES.too_long.reason },
           correlationId: options?.correlationId
         });
         return {
           success: false,
           data: undefined,
-          message: "Password must be 72 characters or less.",
-          httpCode: 400
+          message: SIGNUP_POLICY_FAILURES.too_long.message,
+          httpCode: SIGNUP_POLICY_FAILURES.too_long.httpCode
         };
       }
 
@@ -162,68 +220,38 @@ export class AuthService {
         };
       }
 
-      if (containsBlockedPasswords(password, email, username, options?.blockedPasswords)) {
+      // Blocked terms, strength and breach status, in that order.
+      const policy = await checkNewPassword(
+        password,
+        {
+          email,
+          username,
+          blockedPasswords: options?.blockedPasswords,
+          pwnedPasswordFailClosed: options?.pwnedPasswordFailClosed
+        },
+        this.logger
+      );
+
+      if (!policy.ok) {
+        const failure = SIGNUP_POLICY_FAILURES[policy.code];
         this.logger.audit({
           type: "SIGNUP_FAILURE",
           email,
-          metadata: { username, reason: "Password contains blocked keywords" },
+          metadata: { username, reason: failure.reason },
           correlationId: options?.correlationId
         });
         return {
           success: false,
           data: undefined,
-          message: "Password cannot contain username, email, or blocked words",
-          httpCode: 400
+          message: failure.message,
+          httpCode: failure.httpCode
         };
       }
 
-      // Password strength
-      if (zxcvbn(password).score < 3) {
-        this.logger.audit({
-          type: "SIGNUP_FAILURE",
-          email,
-          metadata: { username, reason: "Password too weak" },
-          correlationId: options?.correlationId
-        });
-        return { success: false, data: undefined, message: "Password too weak.", httpCode: 400 };
-      }
-
-      // Breached password check
-      const breachCheck = await isBreachedPassword(password, this.logger);
-      if (breachCheck.detected) {
-        this.logger.audit({
-          type: "SIGNUP_FAILURE",
-          email,
-          metadata: { username, reason: "Password found in data breach" },
-          correlationId: options?.correlationId
-        });
-        return {
-          success: false,
-          data: undefined,
-          message: "Password found in data breach.",
-          httpCode: 400
-        };
-      }
-
-      if (breachCheck.error && options?.pwnedPasswordFailClosed) {
-        this.logger.audit({
-          type: "SIGNUP_FAILURE",
-          email,
-          metadata: { username, reason: "Breached password check failed (Fail-Closed)" },
-          correlationId: options?.correlationId
-        });
-        return {
-          success: false,
-          data: undefined,
-          message: "Security check unavailable. Please try again later.",
-          httpCode: 503
-        };
-      }
-
-      if (breachCheck.error) {
+      if (policy.breachCheckError) {
         this.logger.warn(
           "PwnedPassword check failed (system is fail-open). Proceeding with signup.",
-          { email, error: breachCheck.error.message },
+          { email, error: policy.breachCheckError.message },
           options?.correlationId
         );
       }
@@ -635,86 +663,38 @@ export class AuthService {
         };
       }
 
-      if (newPassword.length > 72) {
+      // Length, blocked terms, strength and breach status, in that order.
+      const policy = await checkNewPassword(
+        newPassword,
+        {
+          email: user.email,
+          username: user.username,
+          blockedPasswords: options?.blockedPasswords,
+          pwnedPasswordFailClosed: options?.pwnedPasswordFailClosed
+        },
+        this.logger
+      );
+
+      if (!policy.ok) {
+        const failure = PASSWORD_CHANGE_POLICY_FAILURES[policy.code];
         this.logger.audit({
           type: "PASSWORD_CHANGE_FAILURE",
           userId: user.id,
-          metadata: { reason: "Password exceeds maximum length" },
+          metadata: { reason: failure.reason },
           correlationId: options?.correlationId
         });
         return {
           success: false,
           data: undefined,
-          message: "Password must be 72 characters or less.",
-          httpCode: 400
+          message: failure.message,
+          httpCode: failure.httpCode
         };
       }
 
-      // Check blocked passwords
-      if (
-        containsBlockedPasswords(newPassword, user.email, user.username, options?.blockedPasswords)
-      ) {
-        this.logger.audit({
-          type: "PASSWORD_CHANGE_FAILURE",
-          userId: user.id,
-          metadata: { reason: "New password contains blocked keywords" },
-          correlationId: options?.correlationId
-        });
-        return {
-          success: false,
-          data: undefined,
-          message: "New password cannot contain username, email, or blocked words",
-          httpCode: 400
-        };
-      }
-
-      // Password strength
-      if (zxcvbn(newPassword).score < 3) {
-        this.logger.audit({
-          type: "PASSWORD_CHANGE_FAILURE",
-          userId: user.id,
-          metadata: { reason: "New password too weak" },
-          correlationId: options?.correlationId
-        });
-        return { success: false, data: undefined, message: "New password too weak", httpCode: 400 };
-      }
-
-      // Breach check
-      const breachCheck = await isBreachedPassword(newPassword, this.logger);
-      if (breachCheck.detected) {
-        this.logger.audit({
-          type: "PASSWORD_CHANGE_FAILURE",
-          userId: user.id,
-          metadata: { reason: "New password found in data breach" },
-          correlationId: options?.correlationId
-        });
-        return {
-          success: false,
-          data: undefined,
-          message: "New password found in data breach",
-          httpCode: 400
-        };
-      }
-
-      if (breachCheck.error && options?.pwnedPasswordFailClosed) {
-        this.logger.audit({
-          type: "PASSWORD_CHANGE_FAILURE",
-          userId: user.id,
-          metadata: { reason: "Breached password check failed (Fail-Closed)" },
-          correlationId: options?.correlationId
-        });
-        return {
-          success: false,
-          data: undefined,
-          message: "Security check unavailable. Please try again later.",
-          httpCode: 503
-        };
-      }
-
-      if (breachCheck.error) {
+      if (policy.breachCheckError) {
         this.logger.warn(
           "PwnedPassword check failed (system is fail-open). Proceeding with password change.",
-          { userId, error: breachCheck.error.message },
+          { userId, error: policy.breachCheckError.message },
           options?.correlationId
         );
       }

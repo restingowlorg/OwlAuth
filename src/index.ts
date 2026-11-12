@@ -7,8 +7,12 @@ export {
   ChangePasswordResult,
   RequestMagicLinkResult,
   VerifyMagicLinkResult,
-  ConsumeMagicLinkResult
+  ConsumeMagicLinkResult,
+  RequestRecoveryResult,
+  ConfirmRecoveryResult
 } from "./types/index";
+
+export type { RecoveryDelivery, RecoveryOptions } from "./core/types";
 
 export { MongoAdapter } from "./infra/databases/mongo/adapter";
 export { PostgresAdapter } from "./infra/databases/postgresql/adapter";
@@ -30,4 +34,4 @@ export type {
   AuditLoggerSink,
   AuditSinkErrorHandler
 } from "./infra/audit/auditor";
-export type { SafeUser, UserId, AccountStatus } from "./repositories/contracts";
+export type { SafeUser, UserId, AccountStatus, ActionTokenPurpose } from "./repositories/contracts";
