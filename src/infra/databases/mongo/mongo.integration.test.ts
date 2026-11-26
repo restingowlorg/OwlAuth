@@ -580,8 +580,8 @@ integrationDescribe("MongoDB adapter integration", () => {
       const crypto = new BcryptAdapter();
       const users = new MongoUserRepo(database.collection<IMongoUserDoc>(userCollectionName));
       await users.create({
-        email: "recover@example.com",
-        username: "recover_user",
+        email: "pwreset@example.com",
+        username: "pwreset",
         passwordHash: await crypto.hashPassword("OriginalPassword!2026-unused")
       });
 
@@ -593,7 +593,7 @@ integrationDescribe("MongoDB adapter integration", () => {
       });
 
       try {
-        const requested = await auth.recovery.request("recover@example.com");
+        const requested = await auth.recovery.request("pwreset@example.com");
         expect(requested.httpCode).toBe(202);
         expect(deliveries).toHaveLength(1);
 
@@ -601,9 +601,9 @@ integrationDescribe("MongoDB adapter integration", () => {
         expect(unknown).toEqual(requested);
         expect(deliveries).toHaveLength(1);
 
-        // Must not contain the email local part or username ("recover"), or the shared
-        // password policy rejects it as a blocked term before the token is ever spent.
-        const newPassword = `Fresh-Credential-${randomUUID()}`;
+        // Password must not contain the email local part ("pwreset") or username ("pwreset");
+        // 'w' is not a hex digit so neither can appear in the UUID portion.
+        const newPassword = `Rk9!-${randomUUID()}`;
         const [first, second] = await Promise.all([
           auth.recovery.confirm(deliveries[0].token, newPassword),
           auth.recovery.confirm(deliveries[0].token, newPassword)
@@ -611,7 +611,7 @@ integrationDescribe("MongoDB adapter integration", () => {
 
         expect([first.success, second.success].filter(Boolean)).toHaveLength(1);
 
-        const login = await auth.credentials.login("recover@example.com", newPassword);
+        const login = await auth.credentials.login("pwreset@example.com", newPassword);
         expect(login.success).toBe(true);
 
         const replay = await auth.recovery.confirm(deliveries[0].token, `Again-${randomUUID()}`);
