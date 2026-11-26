@@ -105,6 +105,12 @@ export class PostgresActionTokenRepository implements ActionTokenRepository {
     }
     try {
       await client.query("BEGIN");
+      // Serialize concurrent createSuperseding calls for the same user+purpose so the
+      // second caller's UPDATE runs after the first caller commits its INSERT.
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))", [
+        String(input.userId),
+        input.purpose
+      ]);
       await client.query(
         `UPDATE ${this.getTable()}
          SET used_at = NOW()
@@ -122,7 +128,11 @@ export class PostgresActionTokenRepository implements ActionTokenRepository {
       if (!row) throw new Error("Insert returned no row");
       return PostgresActionTokenRepository.toToken(row);
     } catch {
-      await client.query("ROLLBACK");
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // connection may have been dropped; nothing to roll back
+      }
       return null;
     } finally {
       client.release();

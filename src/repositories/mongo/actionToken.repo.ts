@@ -4,6 +4,7 @@ import { IMongoActionTokenDoc } from "../../infra/databases/mongo/types";
 
 export class MongoActionTokenRepo implements ActionTokenRepository {
   private collection: Collection<IMongoActionTokenDoc>;
+  private pendingSuperseding = new Map<string, Promise<ActionToken | null>>();
 
   constructor(collection: Collection<IMongoActionTokenDoc>) {
     this.collection = collection;
@@ -95,11 +96,10 @@ export class MongoActionTokenRepo implements ActionTokenRepository {
   }
 
   /**
-   * Sequential invalidate-then-insert. On replica-set deployments these could be wrapped in
-   * a session transaction for full atomicity, but doing so would require the MongoDB client
-   * and breaks standalone test setups. The window between the two writes is narrow and the
-   * confirm() consume() gate still limits each token to one password write even if two
-   * tokens are briefly live. Use a replica set and PostgreSQL for the strictest guarantee.
+   * Serialized invalidate-then-insert. Concurrent calls for the same user+purpose are
+   * queued so each one runs after the previous fully commits — the second writer's
+   * updateMany therefore sees and supersedes the first writer's inserted token.
+   * This is in-process serialization; use PostgreSQL for a cross-process guarantee.
    */
   async createSuperseding(input: {
     userId: UserId;
@@ -108,16 +108,32 @@ export class MongoActionTokenRepo implements ActionTokenRepository {
     tokenHash: string;
     expiresAt: Date;
   }): Promise<ActionToken | null> {
-    try {
-      const now = new Date();
-      await this.collection.updateMany(
-        { user_id: new ObjectId(input.userId), purpose: input.purpose, used_at: null },
-        { $set: { used_at: now, updated_at: now } }
-      );
-      return await this.create(input);
-    } catch {
-      return null;
-    }
+    const key = `${input.userId}:${input.purpose}`;
+    const previous = this.pendingSuperseding.get(key) ?? Promise.resolve(null);
+
+    const operation: Promise<ActionToken | null> = previous
+      .catch(() => null)
+      .then(async () => {
+        try {
+          const now = new Date();
+          await this.collection.updateMany(
+            { user_id: new ObjectId(input.userId), purpose: input.purpose, used_at: null },
+            { $set: { used_at: now, updated_at: now } }
+          );
+          return await this.create(input);
+        } catch {
+          return null;
+        }
+      });
+
+    this.pendingSuperseding.set(key, operation);
+    void operation.finally(() => {
+      if (this.pendingSuperseding.get(key) === operation) {
+        this.pendingSuperseding.delete(key);
+      }
+    });
+
+    return operation;
   }
 
   async invalidateByUserId(userId: UserId, purpose: ActionTokenPurpose): Promise<boolean> {
