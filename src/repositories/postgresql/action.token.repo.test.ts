@@ -146,6 +146,7 @@ describe("PostgresActionTokenRepository", () => {
     it("wraps invalidate and insert in a transaction", async () => {
       clientQuery
         .mockResolvedValueOnce(undefined) // BEGIN
+        .mockResolvedValueOnce(undefined) // pg_advisory_xact_lock
         .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE (invalidate)
         .mockResolvedValueOnce({ rows: [row] }) // INSERT
         .mockResolvedValueOnce(undefined); // COMMIT
@@ -154,15 +155,17 @@ describe("PostgresActionTokenRepository", () => {
 
       const sqls = clientQuery.mock.calls.map(([sql]) => sql.replace(/\s+/g, " ").trim());
       expect(sqls[0]).toBe("BEGIN");
-      expect(sqls[1]).toMatch(/UPDATE .+ SET used_at = NOW/);
-      expect(sqls[2]).toMatch(/INSERT INTO/);
-      expect(sqls[3]).toBe("COMMIT");
+      expect(sqls[1]).toMatch(/pg_advisory_xact_lock/);
+      expect(sqls[2]).toMatch(/UPDATE .+ SET used_at = NOW/);
+      expect(sqls[3]).toMatch(/INSERT INTO/);
+      expect(sqls[4]).toBe("COMMIT");
       expect(clientRelease).toHaveBeenCalled();
     });
 
     it("returns the inserted token", async () => {
       clientQuery
         .mockResolvedValueOnce(undefined) // BEGIN
+        .mockResolvedValueOnce(undefined) // pg_advisory_xact_lock
         .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE
         .mockResolvedValueOnce({ rows: [row] }) // INSERT
         .mockResolvedValueOnce(undefined); // COMMIT
@@ -175,6 +178,7 @@ describe("PostgresActionTokenRepository", () => {
     it("rolls back and returns null when the insert fails", async () => {
       clientQuery
         .mockResolvedValueOnce(undefined) // BEGIN
+        .mockResolvedValueOnce(undefined) // pg_advisory_xact_lock
         .mockResolvedValueOnce({ rowCount: 0 }) // UPDATE
         .mockRejectedValueOnce(new Error("unique violation")); // INSERT throws
 
