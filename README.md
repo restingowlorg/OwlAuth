@@ -314,7 +314,7 @@ const confirmed = await auth.recovery.confirm(tokenFromLink, "a-new-strong-passw
 
 Recovery needs a table or collection to store tokens. Create it with the [migration](docs/migrations/ROOS-35-password-recovery.md) before enabling the flow. OwlAuth validates the schema at startup.
 
-**`request(email)`** returns the same `202` result, padded to the same minimum duration, whether or not the address belongs to an account. It also gives that answer when the account's status does not permit recovery, or when storage or delivery fails. Each case is still distinguishable in the [audit trail](docs/AUDIT_EVENTS.md). The token reaches your application only through `deliver`, never in the result. OwlAuth awaits `deliver`, so a slow inline send would show up as a timing difference. Enqueue instead. If `deliver` throws, the error is contained and the response does not change.
+**`request(email)`** returns the same `202` result, padded to the same minimum duration, whether or not the address belongs to an account. It also gives that answer when the account's status does not permit recovery, or when storage or delivery fails. Each case is still distinguishable in the [audit trail](docs/AUDIT_EVENTS.md). The token reaches your application only through `deliver`, never in the result. OwlAuth fires `deliver` in the background and returns at the minimum-duration floor, so slow or stalled delivery cannot extend the response time beyond it. Enqueue for resilience rather than timing safety. If `deliver` throws, the error is contained and the response does not change.
 
 **`confirm(token, newPassword)`** checks, in this order:
 
@@ -323,9 +323,9 @@ Recovery needs a table or collection to store tokens. Create it with the [migrat
 3. The new password passes the same policy as signup and `changePassword()`: maximum length, blocked terms, `zxcvbn` strength, and the Have I Been Pwned check, honouring `pwnedPasswordFailClosed`. A rejected password **leaves the token usable**, so the user can try again without a new email.
 4. The token is spent with one atomic conditional write. Of two concurrent requests with the same token, exactly one succeeds. The other gets the invalid-token response.
 
-On success OwlAuth replaces the password, retires the user's other recovery tokens and outstanding magic links, and emits `PASSWORD_RECOVERY_COMPLETED`. The token and password are never part of an event.
+On success OwlAuth replaces the password, retires the user's other recovery tokens and outstanding magic links, and emits `PASSWORD_RECOVERY_COMPLETED`. The token and password are never part of an event. Magic-link revocation is part of the durable transition: if revocation fails and a magic-link repo is wired, `confirm` returns a `500` rather than silently leaving active links in place.
 
-Tokens are `selector.verifier`. The 16-byte selector finds the row. The 32-byte verifier is stored only as a SHA-256 hash, bound to the `password_recovery` purpose. Requesting a new token supersedes any earlier one.
+Tokens are `selector.verifier`. The 16-byte selector finds the row. The 32-byte verifier is stored only as a SHA-256 hash, bound to the `password_recovery` purpose. Requesting a new token atomically supersedes any earlier one (the PostgreSQL adapter uses a transaction; MongoDB carries a narrow residual window on standalone deployments without multi-document transaction support).
 
 #### What your application owns
 

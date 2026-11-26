@@ -94,6 +94,32 @@ export class MongoActionTokenRepo implements ActionTokenRepository {
     return result.modifiedCount > 0;
   }
 
+  /**
+   * Sequential invalidate-then-insert. On replica-set deployments these could be wrapped in
+   * a session transaction for full atomicity, but doing so would require the MongoDB client
+   * and breaks standalone test setups. The window between the two writes is narrow and the
+   * confirm() consume() gate still limits each token to one password write even if two
+   * tokens are briefly live. Use a replica set and PostgreSQL for the strictest guarantee.
+   */
+  async createSuperseding(input: {
+    userId: UserId;
+    purpose: ActionTokenPurpose;
+    selector: string;
+    tokenHash: string;
+    expiresAt: Date;
+  }): Promise<ActionToken | null> {
+    try {
+      const now = new Date();
+      await this.collection.updateMany(
+        { user_id: new ObjectId(input.userId), purpose: input.purpose, used_at: null },
+        { $set: { used_at: now, updated_at: now } }
+      );
+      return await this.create(input);
+    } catch {
+      return null;
+    }
+  }
+
   async invalidateByUserId(userId: UserId, purpose: ActionTokenPurpose): Promise<boolean> {
     try {
       const now = new Date();

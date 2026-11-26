@@ -1,9 +1,13 @@
-import { Pool } from "pg";
+import { Pool, PoolClient } from "pg";
 import { PostgresActionTokenRepository } from "./action.token.repo";
 
 describe("PostgresActionTokenRepository", () => {
   const query = jest.fn<Promise<unknown>, [string, unknown[]]>();
-  const pool = { query } as unknown as Pool;
+  const clientQuery = jest.fn<Promise<unknown>, [string, (unknown[] | undefined)?]>();
+  const clientRelease = jest.fn();
+  const mockClient = { query: clientQuery, release: clientRelease } as unknown as PoolClient;
+  const connect = jest.fn<Promise<PoolClient>, []>().mockResolvedValue(mockClient);
+  const pool = { query, connect } as unknown as Pool;
 
   const repo = new PostgresActionTokenRepository("auth", "action_tokens", pool);
 
@@ -31,6 +35,7 @@ describe("PostgresActionTokenRepository", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    connect.mockResolvedValue(mockClient);
   });
 
   describe("create", () => {
@@ -134,6 +139,59 @@ describe("PostgresActionTokenRepository", () => {
       query.mockRejectedValue(new Error("connection terminated"));
 
       await expect(repo.invalidateByUserId("42", "password_recovery")).resolves.toBe(false);
+    });
+  });
+
+  describe("createSuperseding", () => {
+    it("wraps invalidate and insert in a transaction", async () => {
+      clientQuery
+        .mockResolvedValueOnce(undefined) // BEGIN
+        .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE (invalidate)
+        .mockResolvedValueOnce({ rows: [row] }) // INSERT
+        .mockResolvedValueOnce(undefined); // COMMIT
+
+      await repo.createSuperseding(input);
+
+      const sqls = clientQuery.mock.calls.map(([sql]) => sql.replace(/\s+/g, " ").trim());
+      expect(sqls[0]).toBe("BEGIN");
+      expect(sqls[1]).toMatch(/UPDATE .+ SET used_at = NOW/);
+      expect(sqls[2]).toMatch(/INSERT INTO/);
+      expect(sqls[3]).toBe("COMMIT");
+      expect(clientRelease).toHaveBeenCalled();
+    });
+
+    it("returns the inserted token", async () => {
+      clientQuery
+        .mockResolvedValueOnce(undefined) // BEGIN
+        .mockResolvedValueOnce({ rowCount: 1 }) // UPDATE
+        .mockResolvedValueOnce({ rows: [row] }) // INSERT
+        .mockResolvedValueOnce(undefined); // COMMIT
+
+      const result = await repo.createSuperseding(input);
+
+      expect(result).toEqual(expect.objectContaining({ selector: "sel", tokenHash: "hash" }));
+    });
+
+    it("rolls back and returns null when the insert fails", async () => {
+      clientQuery
+        .mockResolvedValueOnce(undefined) // BEGIN
+        .mockResolvedValueOnce({ rowCount: 0 }) // UPDATE
+        .mockRejectedValueOnce(new Error("unique violation")); // INSERT throws
+
+      const result = await repo.createSuperseding(input);
+
+      expect(result).toBeNull();
+      const calls = clientQuery.mock.calls.map(([sql]) => sql.trim());
+      expect(calls).toContain("ROLLBACK");
+      expect(clientRelease).toHaveBeenCalled();
+    });
+
+    it("rolls back and returns null when the connection fails", async () => {
+      connect.mockRejectedValueOnce(new Error("pool exhausted"));
+
+      const result = await repo.createSuperseding(input);
+
+      expect(result).toBeNull();
     });
   });
 });

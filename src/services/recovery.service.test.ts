@@ -110,6 +110,9 @@ describe("RecoveryService", () => {
     };
 
     actionTokens = {
+      createSuperseding: jest
+        .fn<Promise<ActionToken | null>, [CreateActionTokenInput]>()
+        .mockImplementation((input) => Promise.resolve(storedToken(input))),
       create: jest
         .fn<Promise<ActionToken>, [CreateActionTokenInput]>()
         .mockImplementation((input) => Promise.resolve(storedToken(input))),
@@ -156,7 +159,7 @@ describe("RecoveryService", () => {
       const result = await build().request(EMAIL, { correlationId: "req-1" });
 
       expect(result).toEqual(ACCEPTED);
-      expect(actionTokens.create).toHaveBeenCalledWith(
+      expect(actionTokens.createSuperseding).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: USER.id,
           purpose: "password_recovery",
@@ -164,6 +167,8 @@ describe("RecoveryService", () => {
           tokenHash: "stored-hash"
         })
       );
+      // Delivery is fired in the background; flush microtasks before asserting.
+      await Promise.resolve();
       expect(deliver).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: USER.id,
@@ -182,30 +187,64 @@ describe("RecoveryService", () => {
       // altered cannot verify.
       expect(crypto.hashToken).toHaveBeenCalledWith(`password_recovery:${VERIFIER}`);
 
-      const created = actionTokens.create.mock.calls[0][0];
+      const created = actionTokens.createSuperseding.mock.calls[0][0];
       expect(created.tokenHash).toBe("stored-hash");
       expect(JSON.stringify(created)).not.toContain(VERIFIER);
     });
 
-    it("supersedes outstanding recovery tokens before issuing a new one", async () => {
+    it("atomically supersedes outstanding tokens when issuing a new one", async () => {
       await build().request(EMAIL);
 
-      expect(actionTokens.invalidateByUserId).toHaveBeenCalledWith(USER.id, "password_recovery");
-      const invalidateOrder = actionTokens.invalidateByUserId.mock.invocationCallOrder[0];
-      const createOrder = actionTokens.create.mock.invocationCallOrder[0];
-      expect(invalidateOrder).toBeLessThan(createOrder);
+      // createSuperseding does both invalidate and insert in one call, eliminating the
+      // window where two concurrent requests could each leave a live token.
+      expect(actionTokens.createSuperseding).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: USER.id, purpose: "password_recovery" })
+      );
+      expect(actionTokens.invalidateByUserId).not.toHaveBeenCalled();
+      expect(actionTokens.create).not.toHaveBeenCalled();
     });
 
     it("builds a url from baseUrl when one is configured", async () => {
       await build({ baseUrl: "https://app.example/reset" }).request(EMAIL);
+      await Promise.resolve();
 
       expect(deliver).toHaveBeenCalledWith(
         expect.objectContaining({ url: `https://app.example/reset?token=${TOKEN}` })
       );
     });
 
+    it("preserves existing query parameters when setting the token", async () => {
+      await build({ baseUrl: "https://app.example/reset?lang=en" }).request(EMAIL);
+      await Promise.resolve();
+
+      const { url } = deliver.mock.calls[0][0] as { url: string };
+      const parsed = new URL(url);
+      expect(parsed.searchParams.get("lang")).toBe("en");
+      expect(parsed.searchParams.get("token")).toBe(TOKEN);
+    });
+
+    it("replaces an existing token parameter rather than duplicating it", async () => {
+      await build({ baseUrl: "https://app.example/reset?token=old" }).request(EMAIL);
+      await Promise.resolve();
+
+      const { url } = deliver.mock.calls[0][0] as { url: string };
+      const parsed = new URL(url);
+      expect(parsed.searchParams.getAll("token")).toHaveLength(1);
+      expect(parsed.searchParams.get("token")).toBe(TOKEN);
+    });
+
+    it("preserves a fragment in the baseUrl", async () => {
+      await build({ baseUrl: "https://app.example/reset#step=2" }).request(EMAIL);
+      await Promise.resolve();
+
+      const { url } = deliver.mock.calls[0][0] as { url: string };
+      expect(url).toContain("#step=2");
+      expect(new URL(url).searchParams.get("token")).toBe(TOKEN);
+    });
+
     it("omits the url when no baseUrl is configured", async () => {
       await build().request(EMAIL);
+      await Promise.resolve();
 
       expect(deliver.mock.calls[0][0]).not.toHaveProperty("url");
     });
@@ -214,7 +253,7 @@ describe("RecoveryService", () => {
       const before = Date.now();
       await build({ tokenTtlMinutes: 5 }).request(EMAIL);
 
-      const { expiresAt } = actionTokens.create.mock.calls[0][0];
+      const { expiresAt } = actionTokens.createSuperseding.mock.calls[0][0];
       const ttlMs = expiresAt.getTime() - before;
       expect(ttlMs).toBeGreaterThan(4 * 60 * 1000);
       expect(ttlMs).toBeLessThanOrEqual(5 * 60 * 1000 + 50);
@@ -224,7 +263,7 @@ describe("RecoveryService", () => {
       const before = Date.now();
       await build().request(EMAIL);
 
-      const { expiresAt } = actionTokens.create.mock.calls[0][0];
+      const { expiresAt } = actionTokens.createSuperseding.mock.calls[0][0];
       expect(expiresAt.getTime() - before).toBeLessThanOrEqual(15 * 60 * 1000 + 50);
       expect(expiresAt.getTime() - before).toBeGreaterThan(14 * 60 * 1000);
     });
@@ -253,16 +292,12 @@ describe("RecoveryService", () => {
       it.each([
         ["a lookup that throws", () => users.findByEmail.mockRejectedValue(new Error("db down"))],
         [
-          "an invalidation that fails",
-          () => actionTokens.invalidateByUserId.mockResolvedValue(false)
+          "createSuperseding returning null",
+          () => actionTokens.createSuperseding.mockResolvedValue(null)
         ],
         [
-          "a storage write that returns nothing",
-          () => actionTokens.create.mockResolvedValue(null as unknown as ActionToken)
-        ],
-        [
-          "a storage write that throws",
-          () => actionTokens.create.mockRejectedValue(new Error("insert failed"))
+          "createSuperseding throwing",
+          () => actionTokens.createSuperseding.mockRejectedValue(new Error("insert failed"))
         ],
         [
           "a delivery callback that throws",
@@ -281,16 +316,16 @@ describe("RecoveryService", () => {
         await expect(build().request(EMAIL)).resolves.toEqual(ACCEPTED);
       });
 
-      it("does not issue a token when the invalidation write fails", async () => {
-        actionTokens.invalidateByUserId.mockResolvedValue(false);
+      it("does not deliver when createSuperseding fails", async () => {
+        actionTokens.createSuperseding.mockResolvedValue(null);
 
         await build().request(EMAIL);
+        await Promise.resolve();
 
-        expect(actionTokens.create).not.toHaveBeenCalled();
         expect(deliver).not.toHaveBeenCalled();
       });
 
-      it.each([300, 300])("pads a known-address response to the floor", async () => {
+      it("pads a known-address response to the floor regardless of delivery speed", async () => {
         const startedAt = Date.now();
         await build().request(EMAIL);
 
@@ -345,6 +380,8 @@ describe("RecoveryService", () => {
       deliver.mockRejectedValue(new Error("mailer down"));
 
       await build().request(EMAIL);
+      // Delivery is fired in the background; let the rejected promise settle.
+      await Promise.resolve();
 
       expect(auditedTypes()).toEqual(["PASSWORD_RECOVERY_REQUESTED", "PASSWORD_RECOVERY_FAILURE"]);
       expect(logger.error).toHaveBeenCalledWith(
@@ -355,8 +392,34 @@ describe("RecoveryService", () => {
       );
     });
 
+    it("does not forward the delivery callback error to the diagnostic log", async () => {
+      const secretInError = new Error(`token is ${TOKEN} and verifier is ${VERIFIER}`);
+      deliver.mockRejectedValue(secretInError);
+
+      await build().request(EMAIL);
+      await Promise.resolve();
+
+      const errorArg = (logger.error.mock.calls[0] as unknown[])[1] as Error;
+      expect(errorArg.message).not.toContain(VERIFIER);
+      expect(errorArg.message).not.toContain(SELECTOR);
+    });
+
+    it("returns at the minimum floor even with a slow delivery callback", async () => {
+      // 500 ms delivery — well past the 300 ms floor.
+      deliver.mockImplementation(() => new Promise<void>((resolve) => setTimeout(resolve, 500)));
+
+      const startedAt = Date.now();
+      await build().request(EMAIL);
+      const elapsed = Date.now() - startedAt;
+
+      // Response must arrive at the floor, not at floor + delivery.
+      expect(elapsed).toBeGreaterThanOrEqual(295);
+      expect(elapsed).toBeLessThan(450);
+    });
+
     it("keeps the token out of every audit event", async () => {
       await build({ baseUrl: "https://app.example/reset" }).request(EMAIL);
+      await Promise.resolve();
 
       expect(auditedEvents()).not.toContain(VERIFIER);
       expect(auditedEvents()).not.toContain(SELECTOR);
@@ -410,14 +473,31 @@ describe("RecoveryService", () => {
       expect(auditedTypes()).toEqual(["PASSWORD_RECOVERY_COMPLETED"]);
     });
 
-    it("still succeeds when magic-link invalidation fails", async () => {
+    it("returns failure when magic-link revocation is wired but fails", async () => {
       magicLinks.invalidateByUserId.mockRejectedValue(new Error("db down"));
 
       const result = await build().confirm(TOKEN, NEW_PASSWORD);
 
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(500);
+      expect(auditedTypes()).toContain("PASSWORD_RECOVERY_FAILURE");
+    });
+
+    it("returns failure when magic-link revocation is wired but returns false", async () => {
+      magicLinks.invalidateByUserId.mockResolvedValue(false);
+
+      const result = await build().confirm(TOKEN, NEW_PASSWORD);
+
+      expect(result.success).toBe(false);
+      expect(result.httpCode).toBe(500);
+    });
+
+    it("succeeds when no magic-link store is wired (recovery-only manager)", async () => {
+      const result = await build({}, { withMagicLinks: false }).confirm(TOKEN, NEW_PASSWORD);
+
       expect(result.success).toBe(true);
       expect(result).toMatchObject({ data: { magicLinksInvalidated: false } });
-      expect(logger.warn).toHaveBeenCalled();
+      expect(auditedTypes()).toEqual(["PASSWORD_RECOVERY_COMPLETED"]);
     });
 
     describe("rejects every unusable token with one indistinguishable response", () => {

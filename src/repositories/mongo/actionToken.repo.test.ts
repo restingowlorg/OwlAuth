@@ -167,4 +167,40 @@ describe("MongoActionTokenRepo", () => {
       );
     });
   });
+
+  describe("createSuperseding", () => {
+    it("invalidates existing tokens then inserts the new one", async () => {
+      const insertedId = new ObjectId();
+      updateMany.mockResolvedValue({ acknowledged: true, modifiedCount: 1 });
+      insertOne.mockResolvedValue({ acknowledged: true, insertedId });
+
+      const result = await repo.createSuperseding(input);
+
+      const [filter, update] = updateMany.mock.calls[0];
+      expect((filter as { used_at: unknown }).used_at).toBeNull();
+      expect((filter as { user_id: unknown }).user_id).toBeInstanceOf(ObjectId);
+      expect((update as { $set: { used_at: unknown } }).$set.used_at).toBeInstanceOf(Date);
+      expect(insertOne).toHaveBeenCalled();
+      expect(result).toEqual(expect.objectContaining({ selector: "sel", tokenHash: "hash" }));
+    });
+
+    it("returns null when the updateMany throws", async () => {
+      updateMany.mockRejectedValue(new Error("socket closed"));
+
+      await expect(repo.createSuperseding(input)).resolves.toBeNull();
+    });
+
+    it("returns null when the insert fails", async () => {
+      updateMany.mockResolvedValue({ acknowledged: true, modifiedCount: 0 });
+      insertOne.mockResolvedValue({ acknowledged: false, insertedId: new ObjectId() });
+
+      await expect(repo.createSuperseding(input)).resolves.toBeNull();
+    });
+
+    it("returns null for a malformed user id", async () => {
+      await expect(
+        repo.createSuperseding({ ...input, userId: "not-an-object-id" })
+      ).resolves.toBeNull();
+    });
+  });
 });

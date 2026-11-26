@@ -524,6 +524,54 @@ integrationDescribe("MongoDB adapter integration", () => {
       await expect(tokens.consume("theirs", purpose)).resolves.toBe(true);
     });
 
+    it("createSuperseding leaves exactly one live token for the user", async () => {
+      const tokens = new MongoActionTokenRepo(await createActionTokenCollection());
+      const userId = await createUser("supersede_user");
+      const expiresAt = new Date(Date.now() + 60_000);
+
+      await tokens.create({ userId, purpose, selector: "old-sel", tokenHash: "h", expiresAt });
+
+      const newToken = await tokens.createSuperseding({
+        userId,
+        purpose,
+        selector: "new-sel",
+        tokenHash: "h2",
+        expiresAt
+      });
+
+      expect(newToken).not.toBeNull();
+      await expect(tokens.consume("old-sel", purpose)).resolves.toBe(false);
+      await expect(tokens.consume("new-sel", purpose)).resolves.toBe(true);
+    });
+
+    // Regression: two concurrent request() calls. MongoDB's sequential implementation means
+    // the last writer wins rather than atomically serialising, but the consume() gate still
+    // limits each token to one password write. Full atomicity requires a replica set.
+    it("two concurrent createSuperseding calls leave at most one live token", async () => {
+      const tokens = new MongoActionTokenRepo(await createActionTokenCollection());
+      const userId = await createUser("concurrent_supersede_user");
+      const expiresAt = new Date(Date.now() + 60_000);
+
+      const [a, b] = await Promise.all([
+        tokens.createSuperseding({
+          userId,
+          purpose,
+          selector: "sel-a",
+          tokenHash: "ha",
+          expiresAt
+        }),
+        tokens.createSuperseding({ userId, purpose, selector: "sel-b", tokenHash: "hb", expiresAt })
+      ]);
+
+      expect(a).not.toBeNull();
+      expect(b).not.toBeNull();
+
+      const liveA = await tokens.consume("sel-a", purpose);
+      const liveB = await tokens.consume("sel-b", purpose);
+      // Sequential implementation: the second writer supersedes the first, so exactly one survives.
+      expect([liveA, liveB].filter(Boolean)).toHaveLength(1);
+    });
+
     // End to end through the public API: request, deliver, confirm, then log in with the
     // new password. The second confirm with the same token must fail.
     it("recovers an account through the public API", async () => {

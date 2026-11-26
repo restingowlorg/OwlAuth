@@ -85,6 +85,50 @@ export class PostgresActionTokenRepository implements ActionTokenRepository {
     return (result.rowCount ?? 0) > 0;
   }
 
+  /**
+   * Wraps the invalidate-then-insert pair in a single transaction so two concurrent
+   * `request()` calls cannot both leave a live token. If the transaction cannot be
+   * committed the method returns null; the service stops without issuing the token.
+   */
+  async createSuperseding(input: {
+    userId: UserId;
+    purpose: ActionTokenPurpose;
+    selector: string;
+    tokenHash: string;
+    expiresAt: Date;
+  }): Promise<ActionToken | null> {
+    let client;
+    try {
+      client = await this.pool.connect();
+    } catch {
+      return null;
+    }
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `UPDATE ${this.getTable()}
+         SET used_at = NOW()
+         WHERE user_id = $1 AND purpose = $2 AND used_at IS NULL`,
+        [input.userId, input.purpose]
+      );
+      const result = await client.query<ActionTokenRow>(
+        `INSERT INTO ${this.getTable()} (user_id, purpose, selector, token_hash, expires_at)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [input.userId, input.purpose, input.selector, input.tokenHash, input.expiresAt]
+      );
+      await client.query("COMMIT");
+      const row = result.rows[0];
+      if (!row) throw new Error("Insert returned no row");
+      return PostgresActionTokenRepository.toToken(row);
+    } catch {
+      await client.query("ROLLBACK");
+      return null;
+    } finally {
+      client.release();
+    }
+  }
+
   async invalidateByUserId(userId: UserId, purpose: ActionTokenPurpose): Promise<boolean> {
     try {
       await this.pool.query(

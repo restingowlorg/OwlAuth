@@ -166,33 +166,14 @@ export class RecoveryService {
         return await this.acceptedResponse(startedAt);
       }
 
-      // Supersede anything outstanding first. If that write does not land, issuing another
-      // token would leave more live tokens than intended, so stop instead.
-      const invalidated = await this.actionTokens.invalidateByUserId(user.id, PURPOSE);
-      if (!invalidated) {
-        this.logger.error(
-          "Failed to invalidate existing recovery tokens",
-          new Error("DB update failed"),
-          { userId: user.id },
-          options?.correlationId
-        );
-        this.logger.audit({
-          type: "PASSWORD_RECOVERY_FAILURE",
-          userId: user.id,
-          email,
-          metadata: { reason: "Existing recovery token invalidation failed" },
-          correlationId: options?.correlationId
-        });
-
-        return await this.acceptedResponse(startedAt);
-      }
-
       const selector = this.crypto.generateToken(SELECTOR_BYTES);
       const verifier = this.crypto.generateToken(VERIFIER_BYTES);
       const tokenHash = await this.crypto.hashToken(`${PURPOSE}:${verifier}`);
       const expiresAt = new Date(Date.now() + this.tokenTtlMs);
 
-      const record = await this.actionTokens.create({
+      // Fix 1: atomic invalidate-then-insert prevents two concurrent request() calls from
+      // each leaving a live token. Returns null if either write fails.
+      const record = await this.actionTokens.createSuperseding({
         userId: user.id,
         purpose: PURPOSE,
         selector,
@@ -203,7 +184,7 @@ export class RecoveryService {
       if (!record) {
         this.logger.error(
           "Failed to create recovery token",
-          new Error("DB insert failed"),
+          new Error("DB write failed"),
           { userId: user.id },
           options?.correlationId
         );
@@ -225,20 +206,26 @@ export class RecoveryService {
         correlationId: options?.correlationId
       });
 
-      await this.deliverToken(
+      // Fix 4: fire delivery in the background — delivery time must not extend the response
+      // beyond the minimum-duration floor. deliverToken handles all errors internally.
+      void this.deliverToken(
         {
           userId: user.id,
           email: user.email,
           token: `${selector}.${verifier}`,
+          // Fix 5: use URL.searchParams so an existing query string is preserved correctly.
           ...(this.config.baseUrl
-            ? { url: `${this.config.baseUrl}?token=${selector}.${verifier}` }
+            ? { url: RecoveryService.buildResetUrl(this.config.baseUrl, `${selector}.${verifier}`) }
             : {}),
           expiresAt,
           ...(options?.correlationId ? { correlationId: options.correlationId } : {})
         },
         user.id,
         email
-      );
+      ).catch(() => {
+        // deliverToken catches and logs all errors; this suppresses the unhandled-rejection
+        // warning in the rare case it throws outside its own try/catch.
+      });
 
       return await this.acceptedResponse(startedAt);
     } catch (err: unknown) {
@@ -268,8 +255,15 @@ export class RecoveryService {
   ): Promise<void> {
     try {
       await this.config.deliver(delivery);
-    } catch (err: unknown) {
-      this.logger.error("Recovery delivery failed", err, { userId }, delivery.correlationId);
+    } catch {
+      // Fix 2: never forward the callback's error — it may contain the token or URL.
+      // Log a fixed message so the diagnostic sink cannot surface secret material.
+      this.logger.error(
+        "Recovery delivery failed",
+        new Error("delivery callback threw"),
+        { userId },
+        delivery.correlationId
+      );
       this.logger.audit({
         type: "PASSWORD_RECOVERY_FAILURE",
         userId,
@@ -278,6 +272,13 @@ export class RecoveryService {
         correlationId: delivery.correlationId
       });
     }
+  }
+
+  /** Build a reset URL, setting `token` via searchParams so existing query params survive. */
+  private static buildResetUrl(baseUrl: string, token: string): string {
+    const url = new URL(baseUrl);
+    url.searchParams.set("token", token);
+    return url.toString();
   }
 
   /**
@@ -443,10 +444,31 @@ export class RecoveryService {
       }
 
       await this.invalidateRemainingTokens(user.id, options?.correlationId);
+
+      // Fix 3: when a magic-link repo is wired, revocation is part of the durable recovery
+      // transition. A failed revocation means active magic links survive a password reset,
+      // so this is a hard failure rather than a silent degradation. When no magic-link repo
+      // is provided (recovery-only manager) the result is false and that is expected.
       const magicLinksInvalidated = await this.invalidateMagicLinks(
         user.id,
         options?.correlationId
       );
+
+      if (this.magicLinks !== undefined && !magicLinksInvalidated) {
+        this.logger.audit({
+          type: "PASSWORD_RECOVERY_FAILURE",
+          userId: user.id,
+          metadata: { reason: "Active sessions could not be revoked" },
+          correlationId: options?.correlationId
+        });
+
+        return {
+          success: false,
+          data: undefined,
+          message: "Password was updated but active sessions could not be revoked",
+          httpCode: 500
+        };
+      }
 
       if (magicLinksInvalidated) {
         this.logger.audit({

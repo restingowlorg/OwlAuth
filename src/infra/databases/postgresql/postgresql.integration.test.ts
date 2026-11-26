@@ -651,6 +651,57 @@ integrationDescribe("PostgreSQL adapter integration", () => {
       await expect(tokens.consume("theirs", purpose)).resolves.toBe(true);
     });
 
+    it("createSuperseding leaves exactly one live token for the user", async () => {
+      await createActionTokenTable();
+      const userId = await createUser("supersede_user");
+      const tokens = tokenRepo();
+      const expiresAt = new Date(Date.now() + 60_000);
+
+      // Seed an existing token.
+      await tokens.create({ userId, purpose, selector: "old-sel", tokenHash: "h", expiresAt });
+
+      const newToken = await tokens.createSuperseding({
+        userId,
+        purpose,
+        selector: "new-sel",
+        tokenHash: "h2",
+        expiresAt
+      });
+
+      expect(newToken).not.toBeNull();
+      // The old token is now spent.
+      await expect(tokens.consume("old-sel", purpose)).resolves.toBe(false);
+      // Only the new token is live.
+      await expect(tokens.consume("new-sel", purpose)).resolves.toBe(true);
+    });
+
+    // Regression: two concurrent request() calls must not each leave a live token.
+    it("two concurrent createSuperseding calls leave at most one live token", async () => {
+      await createActionTokenTable();
+      const userId = await createUser("concurrent_supersede_user");
+      const tokens = tokenRepo();
+      const expiresAt = new Date(Date.now() + 60_000);
+
+      const [a, b] = await Promise.all([
+        tokens.createSuperseding({
+          userId,
+          purpose,
+          selector: "sel-a",
+          tokenHash: "ha",
+          expiresAt
+        }),
+        tokens.createSuperseding({ userId, purpose, selector: "sel-b", tokenHash: "hb", expiresAt })
+      ]);
+
+      expect(a).not.toBeNull();
+      expect(b).not.toBeNull();
+
+      // The transaction guarantees exactly one token survives as live.
+      const liveA = await tokens.consume("sel-a", purpose);
+      const liveB = await tokens.consume("sel-b", purpose);
+      expect([liveA, liveB].filter(Boolean)).toHaveLength(1);
+    });
+
     // End to end through the public API: request, deliver, confirm, then log in with the
     // new password. The second confirm with the same token must fail.
     it("recovers an account through the public API", async () => {

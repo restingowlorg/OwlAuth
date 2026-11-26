@@ -84,6 +84,25 @@ export interface ActionTokenRepository {
    */
   consume(selector: string, purpose: ActionTokenPurpose): Promise<boolean>;
 
+  /**
+   * Atomically invalidate the user's existing tokens of `purpose` and insert the new one.
+   *
+   * Combining both writes prevents the race where two concurrent `request()` calls each
+   * invalidate first and then each insert a live token, leaving two tokens active. The
+   * PostgreSQL implementation wraps both writes in a transaction; the MongoDB implementation
+   * is sequential and carries a narrow residual window on standalone deployments that do not
+   * support multi-document transactions.
+   *
+   * Returns `null` if either write fails, so the service can bail out cleanly.
+   */
+  createSuperseding(input: {
+    userId: UserId;
+    purpose: ActionTokenPurpose;
+    selector: string;
+    tokenHash: string;
+    expiresAt: Date;
+  }): Promise<ActionToken | null>;
+
   /** Mark every outstanding token of this purpose for the user as used. */
   invalidateByUserId(userId: UserId, purpose: ActionTokenPurpose): Promise<boolean>;
 }
