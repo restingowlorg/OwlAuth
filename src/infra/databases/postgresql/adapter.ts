@@ -15,7 +15,9 @@ export class PostgresAdapter implements IDatabaseAdapter {
       magicLinkTableName,
       magicLinkSchema,
       accountSecurityTableName,
-      accountSecuritySchema
+      accountSecuritySchema,
+      actionTokenTableName,
+      actionTokenSchema
     } = this.config;
     const { authTypes, accountSecurity } = options;
 
@@ -32,6 +34,8 @@ export class PostgresAdapter implements IDatabaseAdapter {
       magicLinkSchema,
       accountSecurityTableName,
       accountSecuritySchema,
+      actionTokenTableName,
+      actionTokenSchema,
       authTypes,
       accountSecurity
     });

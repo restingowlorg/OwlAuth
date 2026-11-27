@@ -24,6 +24,129 @@ export type MagicLinkToken = {
 };
 
 /**
+ * What a stored action token authorises. A token is bound to exactly one purpose, and the
+ * purpose is part of every lookup, so a token minted for one action cannot be spent on
+ * another even if its row is found.
+ *
+ * These are local authentication actions only. An action token is never an application
+ * credential: it is not a bearer, access, refresh or JWT token, and it grants nothing until
+ * it is exchanged through the flow that issued it.
+ */
+export type ActionTokenPurpose = "password_recovery";
+
+/**
+ * Every valid purpose. Kept beside the type so the two cannot drift, and used to validate
+ * the datastore constraint that restricts the stored column.
+ */
+export const ACTION_TOKEN_PURPOSES: readonly ActionTokenPurpose[] = ["password_recovery"];
+
+/**
+ * A single-use token for a local authentication action.
+ *
+ * `selector` is stored in the clear and identifies the row; `tokenHash` is the hash of the
+ * secret half, which is never stored. Finding a row therefore proves nothing — the secret
+ * still has to verify against the hash.
+ */
+export type ActionToken = {
+  id: string;
+  userId: UserId;
+  purpose: ActionTokenPurpose;
+  selector: string;
+  tokenHash: string;
+  expiresAt: Date;
+  usedAt: Date | null;
+  createdAt: Date;
+};
+
+/**
+ * Result of a full recovery commit that spans the action token, user password, and magic
+ * links tables. `ok: true` means every write succeeded; `ok: false` with the specific
+ * `reason` lets the service produce the right error response:
+ *
+ * - `already_used`           — the token was already spent; no write succeeded
+ * - `password_update_failed` — the token was consumed but the password row was not updated
+ * - `revocation_failed`      — PostgreSQL: the whole transaction rolled back (password NOT
+ *                              changed, token NOT spent, can retry); MongoDB: password was
+ *                              changed but magic-link revocation failed (see impl note)
+ */
+export type RecoveryCommitOutcome =
+  | { ok: true; magicLinksInvalidated: boolean }
+  | { ok: false; reason: "already_used" | "password_update_failed" | "revocation_failed" };
+
+/**
+ * Optional store for single-use action tokens. Required only by the flows that issue them,
+ * such as password recovery.
+ */
+export interface ActionTokenRepository {
+  create(input: {
+    userId: UserId;
+    purpose: ActionTokenPurpose;
+    selector: string;
+    tokenHash: string;
+    expiresAt: Date;
+  }): Promise<ActionToken>;
+
+  findBySelector(selector: string, purpose: ActionTokenPurpose): Promise<ActionToken | null>;
+
+  /**
+   * Spend the token, as one atomic conditional write.
+   *
+   * Marks it used only if it is currently unused and unexpired, and reports whether this
+   * call was the one that did so. The unused condition is part of the same write, so two
+   * concurrent callers cannot both be told yes — which is what stops a token being redeemed
+   * twice. Implementations judge expiry with whichever clock they can read atomically, so
+   * callers must not rely on it alone; the service checks expiry itself as well.
+   */
+  consume(selector: string, purpose: ActionTokenPurpose): Promise<boolean>;
+
+  /**
+   * Atomically invalidate the user's existing tokens of `purpose` and insert the new one.
+   *
+   * Combining both writes prevents the race where two concurrent `request()` calls each
+   * invalidate first and then each insert a live token, leaving two tokens active. The
+   * PostgreSQL implementation wraps both writes in a transaction; the MongoDB implementation
+   * is sequential and carries a narrow residual window on standalone deployments that do not
+   * support multi-document transactions.
+   *
+   * Returns `null` if either write fails, so the service can bail out cleanly.
+   */
+  createSuperseding(input: {
+    userId: UserId;
+    purpose: ActionTokenPurpose;
+    selector: string;
+    tokenHash: string;
+    expiresAt: Date;
+  }): Promise<ActionToken | null>;
+
+  /** Mark every outstanding token of this purpose for the user as used. */
+  invalidateByUserId(userId: UserId, purpose: ActionTokenPurpose): Promise<boolean>;
+
+  /**
+   * Atomically consume the token, update the user's password, and revoke their magic links.
+   *
+   * PostgreSQL: all three writes run inside one transaction that also takes the same advisory
+   * lock used by `createSuperseding`. This serializes confirmations with new issuances for the
+   * same user+purpose, closing the window where a new token could be issued and a second
+   * confirmation land after the first one consumes its token but before it saves the password.
+   * If any step fails the transaction rolls back: the token is NOT spent and the password is
+   * NOT changed, so the user can retry.
+   *
+   * MongoDB: operations are sequential and use the same in-process serialization queue as
+   * `createSuperseding`, but the residual cross-process window noted there applies here too;
+   * prefer PostgreSQL for a cross-process guarantee.
+   *
+   * `magicLinksInvalidated` in the success outcome is true when a magic-link store is
+   * configured and the revocation query ran without error (even if zero rows were affected).
+   */
+  commitRecovery(input: {
+    selector: string;
+    purpose: ActionTokenPurpose;
+    userId: UserId;
+    passwordHash: string;
+  }): Promise<RecoveryCommitOutcome>;
+}
+
+/**
  * Durable account policy state.
  *
  * `disabled` is an administrative decision that denies authentication until it is reversed.
@@ -84,6 +207,7 @@ export type AuthDB = {
   userRepo: UserRepository;
   magicLinkRepo?: MagicLinkRepository;
   accountSecurityRepo?: AccountSecurityRepository;
+  actionTokenRepo?: ActionTokenRepository;
   close: () => Promise<void>;
 };
 

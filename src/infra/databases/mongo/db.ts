@@ -2,10 +2,12 @@ import { MongoClient, Collection, Db, Document } from "mongodb";
 import { MongoMagicLinkRepo } from "../../../repositories/mongo/magicLink.repo";
 import { MongoUserRepo } from "../../../repositories/mongo/user.repo";
 import { MongoAccountSecurityRepo } from "../../../repositories/mongo/accountSecurity.repo";
+import { MongoActionTokenRepo } from "../../../repositories/mongo/actionToken.repo";
 import { ACCOUNT_STATUSES, AuthDB } from "../../../repositories/contracts";
 import { MongoAccountSecuritySchema } from "./schema";
 import {
   IMongoAccountSecurityDoc,
+  IMongoActionTokenDoc,
   IMongoMagicLinkDoc,
   IMongoUserDoc,
   InitMongoOptions
@@ -205,6 +207,7 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
     userCollectionName,
     magicLinkCollectionName,
     accountSecurityCollectionName,
+    actionTokenCollectionName,
     authTypes,
     accountSecurity
   } = options;
@@ -224,16 +227,18 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
       validateUniqueIndex(userColl, userCollectionName, "username")
     ]);
 
-    // Magic link collection
+    // Magic link collection.
+    //
+    // Wired whenever a name is provided, not only when magic-link login is in authTypes.
+    // A recovery-only manager must still be able to revoke magic links issued by a separate
+    // login manager sharing the same database.
     let magicColl: Collection<IMongoMagicLinkDoc> | undefined;
-    if (authTypes?.includes("magicLink")) {
-      if (!magicLinkCollectionName) {
-        throw new Error(
-          `[Auth:connectMongo] Magic link auth requested but 'magicLinkCollectionName' is not provided`
-        );
-      }
-
+    if (magicLinkCollectionName) {
       magicColl = db.collection<IMongoMagicLinkDoc>(magicLinkCollectionName);
+    } else if (authTypes?.includes("magicLink")) {
+      throw new Error(
+        `[Auth:connectMongo] Magic link auth requested but 'magicLinkCollectionName' is not provided`
+      );
     }
 
     // Account security collection
@@ -259,12 +264,32 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
       await validateUniqueIndex(accountSecurityColl, accountSecurityCollectionName, "user_id");
     }
 
+    // Action token collection (only for the flows that issue them)
+    let actionTokenColl: Collection<IMongoActionTokenDoc> | undefined;
+    if (authTypes?.includes("recovery")) {
+      if (!actionTokenCollectionName) {
+        throw new Error(
+          `[Auth:connectMongo] Password recovery requested but 'actionTokenCollectionName' is not provided`
+        );
+      }
+
+      actionTokenColl = db.collection<IMongoActionTokenDoc>(actionTokenCollectionName);
+
+      // The selector is how a token is found, so a duplicate would make one token shadow
+      // another. Unlike `status` on account security, an unexpected `purpose` needs no
+      // constraint: it simply never matches a lookup, which fails safe.
+      await validateUniqueIndex(actionTokenColl, actionTokenCollectionName, "selector");
+    }
+
     // Initialize repositories
     return {
       userRepo: new MongoUserRepo(userColl),
       magicLinkRepo: magicColl ? new MongoMagicLinkRepo(magicColl) : undefined,
       accountSecurityRepo: accountSecurityColl
         ? new MongoAccountSecurityRepo(accountSecurityColl)
+        : undefined,
+      actionTokenRepo: actionTokenColl
+        ? new MongoActionTokenRepo(actionTokenColl, userColl, magicColl)
         : undefined,
       close: async () => {
         await client.close();

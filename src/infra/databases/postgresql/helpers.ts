@@ -151,8 +151,9 @@ const LITERAL_LIST = new RegExp(String.raw`^\s*${LITERAL}(?:\s*,\s*${LITERAL})*\
  * Read the values from a predicate that constrains exactly one column, or `null` when the
  * expression is anything else.
  *
- * Only the canonical form PostgreSQL renders is accepted — `column = ANY (ARRAY[...])`,
- * which is what `IN (...)` normalises to — and it must be the *whole* expression. Scanning
+ * Only the canonical forms PostgreSQL renders are accepted — `column = ANY (ARRAY[...])`,
+ * which is what `IN (...)` normalises to, and `column = '...'`, which is what a one-value
+ * `IN ('...')` normalises to instead — and it must be the *whole* expression. Scanning
  * for literals anywhere in the definition is not enough: a constraint such as
  * `CHECK ((status = 'active') OR (note = ANY (ARRAY['pending_email_verification','disabled'])))`
  * contains exactly the expected literals while leaving `status` effectively unconstrained,
@@ -165,6 +166,18 @@ const LITERAL_LIST = new RegExp(String.raw`^\s*${LITERAL}(?:\s*,\s*${LITERAL})*\
  */
 function readSingleColumnDomain(definition: string, column: string): string[] | null {
   const body = unwrapParentheses(definition.replace(/^CHECK\s*/i, ""));
+
+  // PostgreSQL builds an array only for two or more values; `IN ('x')` is stored as
+  // `column = 'x'::text`, so a single-value domain arrives in this shape.
+  const equality = new RegExp(
+    String.raw`^\(?${escapeRegExp(column)}\)?(?:::[A-Za-z_ ]+)?\s*=\s*(${LITERAL})$`,
+    "is"
+  );
+  const single = equality.exec(body);
+  if (single) {
+    const literal = /^'((?:[^']|'')*)'/.exec(single[1] ?? "");
+    return literal ? [(literal[1] ?? "").replace(/''/g, "'")] : null;
+  }
 
   const predicate = new RegExp(
     String.raw`^\(?${escapeRegExp(column)}\)?(?:::[A-Za-z_ ]+)?\s*=\s*ANY\s*\(\s*\(?ARRAY\[(.*?)\]\)?(?:::[A-Za-z_\[\] ]+)?\s*\)$`,

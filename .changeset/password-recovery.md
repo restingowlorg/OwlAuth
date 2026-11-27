@@ -1,0 +1,17 @@
+---
+"@restingowlorg/owlauth": minor
+---
+
+Add password recovery. Enable it by adding `"recovery"` to `authTypes` and supplying `recovery.deliver`, which receives each issued token so your application can send the message. OwlAuth does not send email. `recovery.baseUrl` builds a ready-made link, and `recovery.tokenTtlMinutes` sets the lifetime: 5–60 minutes, default 15.
+
+`auth.recovery.request(email)` returns the same `202` result for every address, padded to a minimum duration. OwlAuth performs comparable crypto work on both paths before the floor, then fires all account-specific work (account-status check, token write, delivery) in the background after the response has gone out. Neither the body nor the response time before the floor reveals whether an account exists; a heavy database write cannot extend the response beyond it. `auth.recovery.confirm(token, newPassword)` checks the token's format, existence, expiry, single use and integrity, then applies the same password policy as signup and `changePassword()`: length, blocked terms, strength, and the breached-password check honouring `pwnedPasswordFailClosed`. Every unusable token gets one indistinguishable `400`. A password rejected by the policy leaves the token usable, so the user can retry.
+
+Tokens are `selector.verifier`. Only a SHA-256 hash of the purpose-bound verifier is stored. Confirmation is now a single atomic database operation (`commitRecovery`) that consumes the token, writes the new password, and revokes magic links together. The PostgreSQL adapter wraps all three in one transaction that also takes the same advisory lock as new token issuance, closing the race where a new token could be issued and a second confirmation land after the first consume but before the first password write; the full transaction rolls back on any failure, so the user can retry. The MongoDB adapter serializes the same operations in-process for the same user, with the same residual cross-process window noted for `createSuperseding` on standalone deployments. A new request atomically supersedes earlier tokens. `PASSWORD_RECOVERY_COMPLETED` never includes the token or the password. Recovery issues no bearer, access, refresh or JWT token and grants no session. When account identity state is enabled, an account whose status does not permit authentication cannot recover either.
+
+The magic-link store is wired into `commitRecovery` by the adapters whenever a magic-link table or collection name is provided, regardless of whether magic-link login is also enabled. A recovery-only manager that shares a database with a login manager therefore revokes those links on success. The application owns delivery, rate limiting, session revocation and application-token invalidation. The README includes a composition example.
+
+Tokens live in a new action token table or collection, validated at startup when recovery is enabled. PostgreSQL requires a unique `selector`, a `user_id` foreign key and a constraint restricting `purpose`; MongoDB requires a unique `selector` index and `actionTokenCollectionName`. Create it with `docs/migrations/ROOS-35-password-recovery.md`. No backfill is needed, and nothing changes for consumers that leave recovery disabled.
+
+The password policy that signup and `changePassword()` already applied now lives in one shared function used by all three flows. Their messages and audit reasons are unchanged.
+
+PostgreSQL schema validation now also accepts the `column = 'value'` form that PostgreSQL stores for a single-value `IN (...)` constraint.

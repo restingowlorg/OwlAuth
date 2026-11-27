@@ -6,6 +6,19 @@ export const PostgresAccountSecuritySchema = {
   requiredColumns: ["id", "user_id", "status", "email_verified_at", "updated_at"] as const
 };
 
+export const PostgresActionTokenSchema = {
+  requiredColumns: [
+    "id",
+    "user_id",
+    "purpose",
+    "selector",
+    "token_hash",
+    "expires_at",
+    "used_at",
+    "created_at"
+  ] as const
+};
+
 export const PostgresMagicLinkSchema = {
   requiredColumns: [
     "id",

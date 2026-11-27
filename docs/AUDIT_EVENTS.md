@@ -71,26 +71,28 @@ To link the events from one request, pass the same `correlationId` to the auth m
 
 `AUTH_AUDIT_EVENTS` is exported, and maps each type to its category and outcome. Every type has exactly one outcome, so a sink can act on `type` alone.
 
-| Category             | Types                                                                                      | Emitted by                                     |
-| -------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------- |
-| `signup`             | `SIGNUP`, `SIGNUP_FAILURE`                                                                 | `credentials.signup()`                         |
-| `login`              | `LOGIN_SUCCESS`, `LOGIN_FAILURE`                                                           | `credentials.login()`, `magicLink.consume()`   |
-| `password`           | `PASSWORD_CHANGE`, `PASSWORD_CHANGE_FAILURE`, `SESSION_INVALIDATION`                       | `credentials.changePassword()`                 |
-| `magic_link`         | `MAGIC_LINK_REQUESTED`, `MAGIC_LINK_VERIFIED`, `MAGIC_LINK_CONSUMED`, `MAGIC_LINK_FAILURE` | `magicLink.request()`, `verify()`, `consume()` |
-| `recovery`           | `PASSWORD_RECOVERY_REQUESTED`, `PASSWORD_RECOVERY_COMPLETED`, `PASSWORD_RECOVERY_FAILURE`  | Reserved for password recovery                 |
-| `email_verification` | `EMAIL_VERIFICATION_REQUESTED`, `EMAIL_VERIFIED`, `EMAIL_VERIFICATION_FAILURE`             | Reserved for email verification                |
-| `oidc`               | `OIDC_IDENTITY_LINKED`, `OIDC_IDENTITY_UNLINKED`, `OIDC_IDENTITY_LINK_FAILURE`             | Reserved for OIDC identity linking             |
-| `authenticator`      | `AUTHENTICATOR_ENROLLED`, `AUTHENTICATOR_REMOVED`, `AUTHENTICATOR_CHANGE_FAILURE`          | Reserved for MFA and passkey authenticators    |
+| Category             | Types                                                                                      | Emitted by                                                                            |
+| -------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `signup`             | `SIGNUP`, `SIGNUP_FAILURE`                                                                 | `credentials.signup()`                                                                |
+| `login`              | `LOGIN_SUCCESS`, `LOGIN_FAILURE`                                                           | `credentials.login()`, `magicLink.consume()`                                          |
+| `password`           | `PASSWORD_CHANGE`, `PASSWORD_CHANGE_FAILURE`, `SESSION_INVALIDATION`                       | `credentials.changePassword()`; `SESSION_INVALIDATION` also from `recovery.confirm()` |
+| `magic_link`         | `MAGIC_LINK_REQUESTED`, `MAGIC_LINK_VERIFIED`, `MAGIC_LINK_CONSUMED`, `MAGIC_LINK_FAILURE` | `magicLink.request()`, `verify()`, `consume()`                                        |
+| `recovery`           | `PASSWORD_RECOVERY_REQUESTED`, `PASSWORD_RECOVERY_COMPLETED`, `PASSWORD_RECOVERY_FAILURE`  | `recovery.request()`, `recovery.confirm()`                                            |
+| `email_verification` | `EMAIL_VERIFICATION_REQUESTED`, `EMAIL_VERIFIED`, `EMAIL_VERIFICATION_FAILURE`             | Reserved for email verification                                                       |
+| `oidc`               | `OIDC_IDENTITY_LINKED`, `OIDC_IDENTITY_UNLINKED`, `OIDC_IDENTITY_LINK_FAILURE`             | Reserved for OIDC identity linking                                                    |
+| `authenticator`      | `AUTHENTICATOR_ENROLLED`, `AUTHENTICATOR_REMOVED`, `AUTHENTICATOR_CHANGE_FAILURE`          | Reserved for MFA and passkey authenticators                                           |
 
 Reserved types are already in the type union, so a sink can handle them now. OwlAuth starts emitting each one when its flow ships.
 
 Useful metadata:
 
 - `LOGIN_SUCCESS` carries `method`: `"password"` or `"magic-link"`.
-- A successful `PASSWORD_CHANGE` carries `magicLinksInvalidated`.
-- `SESSION_INVALIDATION` means OwlAuth invalidated the user's outstanding magic links. OwlAuth holds no application sessions. Revoking those is up to your application (see below).
-- Operational failures are reported too. When a repository or crypto adapter throws, or a write does not complete, the method still returns its usual 500 result and emits the failure type for its flow (`SIGNUP_FAILURE`, `LOGIN_FAILURE`, `PASSWORD_CHANGE_FAILURE` or `MAGIC_LINK_FAILURE`). The `reason` is fixed text such as `"Internal error"` or `"Password update failed"`. The underlying error goes only to the diagnostic logger.
+- A successful `PASSWORD_CHANGE` or `PASSWORD_RECOVERY_COMPLETED` carries `magicLinksInvalidated`.
+- `SESSION_INVALIDATION` means OwlAuth invalidated the user's outstanding magic links, after a password change or a recovery. OwlAuth holds no application sessions. Revoking those is up to your application (see below).
+- Operational failures are reported too. When a repository or crypto adapter throws, or a write does not complete, the method still returns its usual result and emits the failure type for its flow (`SIGNUP_FAILURE`, `LOGIN_FAILURE`, `PASSWORD_CHANGE_FAILURE`, `MAGIC_LINK_FAILURE` or `PASSWORD_RECOVERY_FAILURE`). The `reason` is fixed text such as `"Internal error"` or `"Password update failed"`. The underlying error goes only to the diagnostic logger.
 - `MAGIC_LINK_FAILURE` from `magicLink.request()` carries the requested `email`, so failures can be counted per account. Mask it with `customMaskingKeys: ["email"]` if your sink must not hold addresses.
+- `recovery.request()` always returns the same result, so its events are the only place the real outcome appears. `PASSWORD_RECOVERY_REQUESTED` means a token was stored and handed to `deliver`. `PASSWORD_RECOVERY_FAILURE` carries the requested `email` and a `reason`: `"User not found"`, `"Account status does not permit recovery"`, `"Recovery token storage failed"`, `"Recovery delivery failed"`, and so on. A spike in `"User not found"` usually means someone is probing for accounts.
+- `PASSWORD_RECOVERY_FAILURE` from `recovery.confirm()` carries a `userId` once the token has been matched to an account, and a `reason` such as `"Token expired"`, `"Token already used"`, `"Token mismatch"` or `"New password too weak"`. The caller sees only the generic invalid-token response.
 
 ## What is never in an event
 

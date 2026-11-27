@@ -226,6 +226,71 @@ describe("validateColumnDomain", () => {
     ).resolves.toBeUndefined();
   });
 
+  // PostgreSQL builds `= ANY (ARRAY[...])` only for two or more values. A one-value
+  // `IN ('x')` is stored as a plain equality, which is the only form a single-value
+  // domain such as the action token `purpose` can ever take.
+  describe("single-value domains", () => {
+    function callPurpose(): Promise<void> {
+      return validateColumnDomain(pool, "public", "action_tokens", "purpose", [
+        "password_recovery"
+      ]);
+    }
+
+    it("accepts the equality PostgreSQL renders for a one-value IN", async () => {
+      (pool.query as jest.Mock).mockResolvedValue({
+        rows: [{ definition: "CHECK ((purpose = 'password_recovery'::text))" }]
+      });
+
+      await expect(callPurpose()).resolves.toBeUndefined();
+    });
+
+    it("accepts the equality without a cast", async () => {
+      (pool.query as jest.Mock).mockResolvedValue({
+        rows: [{ definition: "CHECK ((purpose = 'password_recovery'))" }]
+      });
+
+      await expect(callPurpose()).resolves.toBeUndefined();
+    });
+
+    it("rejects an equality on the wrong value", async () => {
+      (pool.query as jest.Mock).mockResolvedValue({
+        rows: [{ definition: "CHECK ((purpose = 'email_change'::text))" }]
+      });
+
+      await expect(callPurpose()).rejects.toThrow("must restrict 'purpose' to exactly");
+    });
+
+    it("rejects an equality on a different column", async () => {
+      (pool.query as jest.Mock).mockResolvedValue({
+        rows: [{ definition: "CHECK ((note = 'password_recovery'::text))" }]
+      });
+
+      await expect(callPurpose()).rejects.toThrow("must restrict 'purpose' to exactly");
+    });
+
+    it("rejects an equality combined with another predicate", async () => {
+      (pool.query as jest.Mock).mockResolvedValue({
+        rows: [
+          {
+            definition:
+              "CHECK (((purpose = 'password_recovery'::text) OR (note = 'password_recovery'::text)))"
+          }
+        ]
+      });
+
+      await expect(callPurpose()).rejects.toThrow("must restrict 'purpose' to exactly");
+    });
+
+    // A single equality yields one value, so it can never satisfy a multi-value domain.
+    it("does not let a single equality satisfy a three-value domain", async () => {
+      (pool.query as jest.Mock).mockResolvedValue({
+        rows: [{ definition: "CHECK ((status = 'active'::text))" }]
+      });
+
+      await expect(call()).rejects.toThrow("must restrict 'status' to exactly");
+    });
+  });
+
   // A native enum states the permitted set directly, so no CHECK constraint is needed.
   describe("native enum columns", () => {
     function mockEnumLabels(labels: string[]): void {

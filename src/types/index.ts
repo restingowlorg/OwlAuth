@@ -17,6 +17,19 @@ export type ChangePasswordResult = {
   tokensInvalidated: boolean;
 };
 
+/**
+ * Recovery requests carry no data back: the response is identical whether or not the address
+ * belongs to an account, so there is nothing account-specific to return. The token reaches
+ * the application through the `recovery.deliver` callback instead.
+ */
+export type RequestRecoveryResult = null;
+
+export type ConfirmRecoveryResult = {
+  userId: UserId;
+  /** Whether OwlAuth's outstanding magic links for the user were invalidated. */
+  magicLinksInvalidated: boolean;
+};
+
 export type RequestMagicLinkResult = string;
 
 export type VerifyMagicLinkResult = {
