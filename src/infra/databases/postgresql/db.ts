@@ -62,21 +62,33 @@ export async function initPostgres(
       validateUniqueColumn(pool, userSchema, userTableName, "username")
     ]);
 
-    // Magic link table validations (if enabled)
+    // Magic link table validations.
+    //
+    // The table is wired whenever a name is provided, not only when magic-link login is in
+    // authTypes. A recovery-only manager must still be able to revoke magic links issued by
+    // a separate login manager that shares the same database, so the repo must be available
+    // to RecoveryService's atomic commit even when "magicLink" is not in authTypes.
     let magicRepo: PostgresMagicLinkRepository | undefined;
+    let resolvedMagicTable: string | undefined;
+    let resolvedMagicSchema: string = magicLinkSchema;
 
-    if (authTypes?.includes("magicLink")) {
-      const magicTable = magicLinkTableName ?? "magic_links";
-      const qualifiedMagicTable = `${magicLinkSchema}.${magicTable}`;
+    if (magicLinkTableName) {
+      resolvedMagicTable = magicLinkTableName;
+      const qualifiedMagicTable = `${magicLinkSchema}.${resolvedMagicTable}`;
 
       await Promise.all([
         validateSchema(pool, magicLinkSchema),
         validateTable(pool, qualifiedMagicTable),
-        validateColumns(pool, magicLinkSchema, magicTable, PostgresMagicLinkSchema.requiredColumns),
+        validateColumns(
+          pool,
+          magicLinkSchema,
+          resolvedMagicTable,
+          PostgresMagicLinkSchema.requiredColumns
+        ),
         validateForeignKey(
           pool,
           magicLinkSchema,
-          magicTable,
+          resolvedMagicTable,
           userSchema,
           userTableName,
           "user_id",
@@ -84,7 +96,36 @@ export async function initPostgres(
         )
       ]);
 
-      magicRepo = new PostgresMagicLinkRepository(magicLinkSchema, magicTable, pool);
+      magicRepo = new PostgresMagicLinkRepository(magicLinkSchema, resolvedMagicTable, pool);
+    } else if (authTypes?.includes("magicLink")) {
+      // No explicit table name but magicLink login requested: apply the existing default and
+      // validate, keeping backward-compatible behaviour for callers that relied on the
+      // implicit default table name.
+      resolvedMagicTable = "magic_links";
+      resolvedMagicSchema = magicLinkSchema;
+      const qualifiedMagicTable = `${magicLinkSchema}.${resolvedMagicTable}`;
+
+      await Promise.all([
+        validateSchema(pool, magicLinkSchema),
+        validateTable(pool, qualifiedMagicTable),
+        validateColumns(
+          pool,
+          magicLinkSchema,
+          resolvedMagicTable,
+          PostgresMagicLinkSchema.requiredColumns
+        ),
+        validateForeignKey(
+          pool,
+          magicLinkSchema,
+          resolvedMagicTable,
+          userSchema,
+          userTableName,
+          "user_id",
+          "id"
+        )
+      ]);
+
+      magicRepo = new PostgresMagicLinkRepository(magicLinkSchema, resolvedMagicTable, pool);
     }
 
     // Account security table validations (if enabled)
@@ -186,7 +227,11 @@ export async function initPostgres(
       actionTokenRepo = new PostgresActionTokenRepository(
         actionTokenSchema,
         actionTokenTable,
-        pool
+        pool,
+        userSchema,
+        userTableName,
+        resolvedMagicTable ? resolvedMagicSchema : undefined,
+        resolvedMagicTable
       );
     }
 

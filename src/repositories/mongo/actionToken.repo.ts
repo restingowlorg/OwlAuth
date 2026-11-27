@@ -1,13 +1,51 @@
 import { Collection, ObjectId } from "mongodb";
-import { ActionToken, ActionTokenPurpose, ActionTokenRepository, UserId } from "../contracts";
-import { IMongoActionTokenDoc } from "../../infra/databases/mongo/types";
+import {
+  ActionToken,
+  ActionTokenPurpose,
+  ActionTokenRepository,
+  RecoveryCommitOutcome,
+  UserId
+} from "../contracts";
+import {
+  IMongoActionTokenDoc,
+  IMongoMagicLinkDoc,
+  IMongoUserDoc
+} from "../../infra/databases/mongo/types";
 
 export class MongoActionTokenRepo implements ActionTokenRepository {
   private collection: Collection<IMongoActionTokenDoc>;
-  private pendingSuperseding = new Map<string, Promise<ActionToken | null>>();
+  /**
+   * Shared serialization queue for all per-(userId, purpose) operations.
+   *
+   * Both `createSuperseding` and `commitRecovery` chain onto this queue for the same key,
+   * so a new token cannot be issued while a confirmation is in flight and vice versa
+   * (in-process serialization only — the cross-process residual window noted in the
+   * contracts still applies on standalone MongoDB deployments).
+   */
+  private pendingOps = new Map<string, Promise<unknown>>();
 
-  constructor(collection: Collection<IMongoActionTokenDoc>) {
+  constructor(
+    collection: Collection<IMongoActionTokenDoc>,
+    private readonly userCollection: Collection<IMongoUserDoc>,
+    private readonly mlCollection?: Collection<IMongoMagicLinkDoc>
+  ) {
     this.collection = collection;
+  }
+
+  /** Chain `op` after any in-flight operation for the same `key`, then register it. */
+  private chainOp<T>(key: string, op: () => Promise<T>): Promise<T> {
+    const previous = this.pendingOps.get(key) ?? Promise.resolve(null);
+    const result: Promise<T> = previous.catch(() => null).then(op);
+    // Store a swallowed version so a failed op does not poison subsequent chains, and keep a
+    // reference to that same object for the cleanup comparison below.
+    const stored = result.catch(() => undefined);
+    this.pendingOps.set(key, stored);
+    void stored.finally(() => {
+      if (this.pendingOps.get(key) === stored) {
+        this.pendingOps.delete(key);
+      }
+    });
+    return result;
   }
 
   private static toToken(doc: IMongoActionTokenDoc): ActionToken {
@@ -108,32 +146,18 @@ export class MongoActionTokenRepo implements ActionTokenRepository {
     tokenHash: string;
     expiresAt: Date;
   }): Promise<ActionToken | null> {
-    const key = `${input.userId}:${input.purpose}`;
-    const previous = this.pendingSuperseding.get(key) ?? Promise.resolve(null);
-
-    const operation: Promise<ActionToken | null> = previous
-      .catch(() => null)
-      .then(async () => {
-        try {
-          const now = new Date();
-          await this.collection.updateMany(
-            { user_id: new ObjectId(input.userId), purpose: input.purpose, used_at: null },
-            { $set: { used_at: now, updated_at: now } }
-          );
-          return await this.create(input);
-        } catch {
-          return null;
-        }
-      });
-
-    this.pendingSuperseding.set(key, operation);
-    void operation.finally(() => {
-      if (this.pendingSuperseding.get(key) === operation) {
-        this.pendingSuperseding.delete(key);
+    return this.chainOp(`${input.userId}:${input.purpose}`, async () => {
+      try {
+        const now = new Date();
+        await this.collection.updateMany(
+          { user_id: new ObjectId(input.userId), purpose: input.purpose, used_at: null },
+          { $set: { used_at: now, updated_at: now } }
+        );
+        return await this.create(input);
+      } catch {
+        return null;
       }
     });
-
-    return operation;
   }
 
   async invalidateByUserId(userId: UserId, purpose: ActionTokenPurpose): Promise<boolean> {
@@ -147,5 +171,71 @@ export class MongoActionTokenRepo implements ActionTokenRepository {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Sequential consume → password update → magic-link revocation, serialized with
+   * `createSuperseding` via the shared `pendingOps` queue for the same user+purpose.
+   *
+   * Unlike the PostgreSQL implementation there is no distributed transaction: if the
+   * password write succeeds but magic-link revocation fails (or the process crashes between
+   * the two), the outcome is `revocation_failed` and the password change is NOT rolled back.
+   * The user's password is therefore already changed in this case. Use PostgreSQL if a fully
+   * durable, cross-process atomic transition is required.
+   */
+  async commitRecovery(input: {
+    selector: string;
+    purpose: ActionTokenPurpose;
+    userId: UserId;
+    passwordHash: string;
+  }): Promise<RecoveryCommitOutcome> {
+    return this.chainOp(`${input.userId}:${input.purpose}`, async () => {
+      const now = new Date();
+
+      // Consume the token.
+      const consumeResult = await this.collection.updateOne(
+        {
+          selector: input.selector,
+          purpose: input.purpose,
+          used_at: null,
+          expires_at: { $gt: now }
+        },
+        { $set: { used_at: now, updated_at: now } }
+      );
+      if (consumeResult.modifiedCount === 0) {
+        return { ok: false, reason: "already_used" } as RecoveryCommitOutcome;
+      }
+
+      // Update the user's password.
+      let userObjectId: ObjectId;
+      try {
+        userObjectId = new ObjectId(input.userId);
+      } catch {
+        return { ok: false, reason: "password_update_failed" } as RecoveryCommitOutcome;
+      }
+      const updateResult = await this.userCollection.updateOne(
+        { _id: userObjectId },
+        { $set: { password: input.passwordHash, updated_at: now } }
+      );
+      if (updateResult.modifiedCount === 0) {
+        return { ok: false, reason: "password_update_failed" } as RecoveryCommitOutcome;
+      }
+
+      // Revoke magic links if a magic-link collection is configured.
+      if (this.mlCollection) {
+        try {
+          await this.mlCollection.updateMany(
+            { user_id: userObjectId, used_at: null },
+            { $set: { used_at: now, updated_at: now } }
+          );
+        } catch {
+          // Password is already written; report the failure so the caller can surface it.
+          return { ok: false, reason: "revocation_failed" } as RecoveryCommitOutcome;
+        }
+        return { ok: true, magicLinksInvalidated: true };
+      }
+
+      return { ok: true, magicLinksInvalidated: false };
+    });
   }
 }

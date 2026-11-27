@@ -9,7 +9,7 @@ import {
   AccountStatus,
   ActionToken,
   ActionTokenRepository,
-  MagicLinkRepository,
+  RecoveryCommitOutcome,
   SafeUser,
   UserRepository
 } from "../repositories/contracts";
@@ -47,10 +47,14 @@ const INVALID_TOKEN = {
   httpCode: 400
 };
 
+/** Flush all pending microtasks (multiple rounds to settle async chains). */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 6; i++) await Promise.resolve();
+}
+
 describe("RecoveryService", () => {
   let users: jest.Mocked<UserRepository>;
   let actionTokens: jest.Mocked<ActionTokenRepository>;
-  let magicLinks: jest.Mocked<MagicLinkRepository>;
   let accountSecurity: jest.Mocked<AccountSecurityRepository>;
   let crypto: jest.Mocked<ICryptoAdapter>;
   let logger: jest.Mocked<IAuditLogger>;
@@ -72,7 +76,7 @@ describe("RecoveryService", () => {
 
   function build(
     config: Partial<RecoveryServiceConfig> = {},
-    extras: { withMagicLinks?: boolean; withAccountSecurity?: boolean } = {}
+    extras: { withAccountSecurity?: boolean } = {}
   ): RecoveryService {
     return new RecoveryService(
       users,
@@ -80,7 +84,6 @@ describe("RecoveryService", () => {
       crypto,
       logger,
       { deliver, ...config },
-      extras.withMagicLinks === false ? undefined : magicLinks,
       extras.withAccountSecurity ? accountSecurity : undefined
     );
   }
@@ -118,15 +121,13 @@ describe("RecoveryService", () => {
         .mockImplementation((input) => Promise.resolve(storedToken(input))),
       findBySelector: jest.fn().mockResolvedValue(storedToken()),
       consume: jest.fn().mockResolvedValue(true),
-      invalidateByUserId: jest.fn().mockResolvedValue(true)
-    };
-
-    magicLinks = {
-      create: jest.fn(),
-      findByLookupKey: jest.fn(),
-      consume: jest.fn(),
       invalidateByUserId: jest.fn().mockResolvedValue(true),
-      deleteByUserId: jest.fn()
+      commitRecovery: jest
+        .fn<
+          Promise<RecoveryCommitOutcome>,
+          [Parameters<ActionTokenRepository["commitRecovery"]>[0]]
+        >()
+        .mockResolvedValue({ ok: true, magicLinksInvalidated: true })
     };
 
     accountSecurity = {
@@ -159,6 +160,8 @@ describe("RecoveryService", () => {
       const result = await build().request(EMAIL, { correlationId: "req-1" });
 
       expect(result).toEqual(ACCEPTED);
+      // The token write and delivery run in the background; flush before asserting.
+      await flushMicrotasks();
       expect(actionTokens.createSuperseding).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: USER.id,
@@ -167,8 +170,6 @@ describe("RecoveryService", () => {
           tokenHash: "stored-hash"
         })
       );
-      // Delivery is fired in the background; flush microtasks before asserting.
-      await Promise.resolve();
       expect(deliver).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: USER.id,
@@ -180,8 +181,17 @@ describe("RecoveryService", () => {
       expect(auditedTypes()).toEqual(["PASSWORD_RECOVERY_REQUESTED"]);
     });
 
+    it("writes the token after the response (background issuance)", async () => {
+      await build().request(EMAIL);
+      // The response is already returned; the DB write has not run yet.
+      expect(actionTokens.createSuperseding).not.toHaveBeenCalled();
+      await flushMicrotasks();
+      expect(actionTokens.createSuperseding).toHaveBeenCalled();
+    });
+
     it("stores only the hash of the verifier, never the token itself", async () => {
       await build().request(EMAIL);
+      await flushMicrotasks();
 
       // The purpose is bound into the hashed material, so a row whose purpose column was
       // altered cannot verify.
@@ -194,6 +204,7 @@ describe("RecoveryService", () => {
 
     it("atomically supersedes outstanding tokens when issuing a new one", async () => {
       await build().request(EMAIL);
+      await flushMicrotasks();
 
       // createSuperseding does both invalidate and insert in one call, eliminating the
       // window where two concurrent requests could each leave a live token.
@@ -206,7 +217,7 @@ describe("RecoveryService", () => {
 
     it("builds a url from baseUrl when one is configured", async () => {
       await build({ baseUrl: "https://app.example/reset" }).request(EMAIL);
-      await Promise.resolve();
+      await flushMicrotasks();
 
       expect(deliver).toHaveBeenCalledWith(
         expect.objectContaining({ url: `https://app.example/reset?token=${TOKEN}` })
@@ -215,7 +226,7 @@ describe("RecoveryService", () => {
 
     it("preserves existing query parameters when setting the token", async () => {
       await build({ baseUrl: "https://app.example/reset?lang=en" }).request(EMAIL);
-      await Promise.resolve();
+      await flushMicrotasks();
 
       const { url } = deliver.mock.calls[0][0] as { url: string };
       const parsed = new URL(url);
@@ -225,7 +236,7 @@ describe("RecoveryService", () => {
 
     it("replaces an existing token parameter rather than duplicating it", async () => {
       await build({ baseUrl: "https://app.example/reset?token=old" }).request(EMAIL);
-      await Promise.resolve();
+      await flushMicrotasks();
 
       const { url } = deliver.mock.calls[0][0] as { url: string };
       const parsed = new URL(url);
@@ -235,7 +246,7 @@ describe("RecoveryService", () => {
 
     it("preserves a fragment in the baseUrl", async () => {
       await build({ baseUrl: "https://app.example/reset#step=2" }).request(EMAIL);
-      await Promise.resolve();
+      await flushMicrotasks();
 
       const { url } = deliver.mock.calls[0][0] as { url: string };
       expect(url).toContain("#step=2");
@@ -244,7 +255,7 @@ describe("RecoveryService", () => {
 
     it("omits the url when no baseUrl is configured", async () => {
       await build().request(EMAIL);
-      await Promise.resolve();
+      await flushMicrotasks();
 
       expect(deliver.mock.calls[0][0]).not.toHaveProperty("url");
     });
@@ -252,6 +263,7 @@ describe("RecoveryService", () => {
     it("honours a custom token lifetime", async () => {
       const before = Date.now();
       await build({ tokenTtlMinutes: 5 }).request(EMAIL);
+      await flushMicrotasks();
 
       const { expiresAt } = actionTokens.createSuperseding.mock.calls[0][0];
       const ttlMs = expiresAt.getTime() - before;
@@ -262,6 +274,7 @@ describe("RecoveryService", () => {
     it("defaults the token lifetime to 15 minutes", async () => {
       const before = Date.now();
       await build().request(EMAIL);
+      await flushMicrotasks();
 
       const { expiresAt } = actionTokens.createSuperseding.mock.calls[0][0];
       expect(expiresAt.getTime() - before).toBeLessThanOrEqual(15 * 60 * 1000 + 50);
@@ -320,7 +333,7 @@ describe("RecoveryService", () => {
         actionTokens.createSuperseding.mockResolvedValue(null);
 
         await build().request(EMAIL);
-        await Promise.resolve();
+        await flushMicrotasks();
 
         expect(deliver).not.toHaveBeenCalled();
       });
@@ -356,6 +369,8 @@ describe("RecoveryService", () => {
           const result = await build({}, { withAccountSecurity: true }).request(EMAIL);
 
           expect(result).toEqual(ACCEPTED);
+          // The status check runs in background; flush before asserting no issuance.
+          await flushMicrotasks();
           expect(actionTokens.create).not.toHaveBeenCalled();
           expect(deliver).not.toHaveBeenCalled();
         }
@@ -365,12 +380,14 @@ describe("RecoveryService", () => {
         accountSecurity.findByUserId.mockResolvedValue(null);
 
         await build({}, { withAccountSecurity: true }).request(EMAIL);
+        await flushMicrotasks();
 
         expect(actionTokens.create).not.toHaveBeenCalled();
       });
 
       it("issues a token for an active account", async () => {
         await build({}, { withAccountSecurity: true }).request(EMAIL);
+        await flushMicrotasks();
 
         expect(deliver).toHaveBeenCalled();
       });
@@ -380,8 +397,7 @@ describe("RecoveryService", () => {
       deliver.mockRejectedValue(new Error("mailer down"));
 
       await build().request(EMAIL);
-      // Delivery is fired in the background; let the rejected promise settle.
-      await Promise.resolve();
+      await flushMicrotasks();
 
       expect(auditedTypes()).toEqual(["PASSWORD_RECOVERY_REQUESTED", "PASSWORD_RECOVERY_FAILURE"]);
       expect(logger.error).toHaveBeenCalledWith(
@@ -397,7 +413,7 @@ describe("RecoveryService", () => {
       deliver.mockRejectedValue(secretInError);
 
       await build().request(EMAIL);
-      await Promise.resolve();
+      await flushMicrotasks();
 
       const errorArg = (logger.error.mock.calls[0] as unknown[])[1] as Error;
       expect(errorArg.message).not.toContain(VERIFIER);
@@ -419,7 +435,7 @@ describe("RecoveryService", () => {
 
     it("keeps the token out of every audit event", async () => {
       await build({ baseUrl: "https://app.example/reset" }).request(EMAIL);
-      await Promise.resolve();
+      await flushMicrotasks();
 
       expect(auditedEvents()).not.toContain(VERIFIER);
       expect(auditedEvents()).not.toContain(SELECTOR);
@@ -440,15 +456,14 @@ describe("RecoveryService", () => {
         `password_recovery:${VERIFIER}`,
         "stored-hash"
       );
-      expect(users.updatePassword).toHaveBeenCalledWith(USER.id, "new-password-hash");
       expect(auditedTypes()).toEqual(["SESSION_INVALIDATION", "PASSWORD_RECOVERY_COMPLETED"]);
     });
 
-    it("hashes the new password before spending the token", async () => {
+    it("hashes the new password before calling commitRecovery", async () => {
       await build().confirm(TOKEN, NEW_PASSWORD);
 
       expect(crypto.hashPassword.mock.invocationCallOrder[0]).toBeLessThan(
-        actionTokens.consume.mock.invocationCallOrder[0]
+        actionTokens.commitRecovery.mock.invocationCallOrder[0]
       );
     });
 
@@ -456,25 +471,45 @@ describe("RecoveryService", () => {
       await build().confirm(TOKEN, NEW_PASSWORD);
 
       expect(actionTokens.findBySelector).toHaveBeenCalledWith(SELECTOR, "password_recovery");
-      expect(actionTokens.consume).toHaveBeenCalledWith(SELECTOR, "password_recovery");
     });
 
-    it("retires the user's remaining recovery tokens and magic links", async () => {
+    it("uses commitRecovery instead of separate consume and updatePassword calls", async () => {
+      await build().confirm(TOKEN, NEW_PASSWORD);
+
+      expect(actionTokens.commitRecovery).toHaveBeenCalledWith(
+        expect.objectContaining({
+          selector: SELECTOR,
+          purpose: "password_recovery",
+          userId: USER.id,
+          passwordHash: "new-password-hash"
+        })
+      );
+      // consume and updatePassword must NOT be called directly — the race they left open
+      // is closed by commitRecovery's advisory-lock transaction.
+      expect(actionTokens.consume).not.toHaveBeenCalled();
+      expect(users.updatePassword).not.toHaveBeenCalled();
+    });
+
+    it("retires the user's remaining recovery tokens after commitRecovery succeeds", async () => {
       await build().confirm(TOKEN, NEW_PASSWORD);
 
       expect(actionTokens.invalidateByUserId).toHaveBeenCalledWith(USER.id, "password_recovery");
-      expect(magicLinks.invalidateByUserId).toHaveBeenCalledWith(USER.id);
     });
 
-    it("reports magicLinksInvalidated false when there is no magic-link store", async () => {
-      const result = await build({}, { withMagicLinks: false }).confirm(TOKEN, NEW_PASSWORD);
+    it("reports magicLinksInvalidated false when the shared store reports none revoked", async () => {
+      actionTokens.commitRecovery.mockResolvedValueOnce({ ok: true, magicLinksInvalidated: false });
+
+      const result = await build().confirm(TOKEN, NEW_PASSWORD);
 
       expect(result).toMatchObject({ data: { magicLinksInvalidated: false } });
       expect(auditedTypes()).toEqual(["PASSWORD_RECOVERY_COMPLETED"]);
     });
 
-    it("returns failure when magic-link revocation is wired but fails", async () => {
-      magicLinks.invalidateByUserId.mockRejectedValue(new Error("db down"));
+    it("returns failure when magic-link revocation fails", async () => {
+      actionTokens.commitRecovery.mockResolvedValueOnce({
+        ok: false,
+        reason: "revocation_failed"
+      });
 
       const result = await build().confirm(TOKEN, NEW_PASSWORD);
 
@@ -483,17 +518,10 @@ describe("RecoveryService", () => {
       expect(auditedTypes()).toContain("PASSWORD_RECOVERY_FAILURE");
     });
 
-    it("returns failure when magic-link revocation is wired but returns false", async () => {
-      magicLinks.invalidateByUserId.mockResolvedValue(false);
+    it("succeeds when commitRecovery reports no magic links were invalidated", async () => {
+      actionTokens.commitRecovery.mockResolvedValueOnce({ ok: true, magicLinksInvalidated: false });
 
       const result = await build().confirm(TOKEN, NEW_PASSWORD);
-
-      expect(result.success).toBe(false);
-      expect(result.httpCode).toBe(500);
-    });
-
-    it("succeeds when no magic-link store is wired (recovery-only manager)", async () => {
-      const result = await build({}, { withMagicLinks: false }).confirm(TOKEN, NEW_PASSWORD);
 
       expect(result.success).toBe(true);
       expect(result).toMatchObject({ data: { magicLinksInvalidated: false } });
@@ -534,8 +562,8 @@ describe("RecoveryService", () => {
         const result = await build().confirm(TOKEN, NEW_PASSWORD);
 
         expect(result).toEqual(INVALID_TOKEN);
-        expect(actionTokens.consume).not.toHaveBeenCalled();
-        expect(users.updatePassword).not.toHaveBeenCalled();
+        // All rejections happen before commitRecovery is reached.
+        expect(actionTokens.commitRecovery).not.toHaveBeenCalled();
       });
 
       it("a token whose purpose row was found but whose user is gone", async () => {
@@ -544,7 +572,7 @@ describe("RecoveryService", () => {
         const result = await build().confirm(TOKEN, NEW_PASSWORD);
 
         expect(result).toEqual(INVALID_TOKEN);
-        expect(actionTokens.consume).not.toHaveBeenCalled();
+        expect(actionTokens.commitRecovery).not.toHaveBeenCalled();
       });
 
       it("an account whose status no longer permits recovery", async () => {
@@ -558,8 +586,7 @@ describe("RecoveryService", () => {
         const result = await build({}, { withAccountSecurity: true }).confirm(TOKEN, NEW_PASSWORD);
 
         expect(result).toEqual(INVALID_TOKEN);
-        expect(actionTokens.consume).not.toHaveBeenCalled();
-        expect(users.updatePassword).not.toHaveBeenCalled();
+        expect(actionTokens.commitRecovery).not.toHaveBeenCalled();
       });
     });
 
@@ -600,10 +627,9 @@ describe("RecoveryService", () => {
           const result = await build().confirm(TOKEN, password);
 
           expect(result).toMatchObject({ success: false, ...expected });
-          // The token survives, so the user can retry with a better password rather than
-          // having to request a whole new recovery message.
-          expect(actionTokens.consume).not.toHaveBeenCalled();
-          expect(users.updatePassword).not.toHaveBeenCalled();
+          // The token survives — policy is checked before commitRecovery is called, so
+          // the user can retry with a better password rather than requesting a new message.
+          expect(actionTokens.commitRecovery).not.toHaveBeenCalled();
         }
       );
 
@@ -622,7 +648,7 @@ describe("RecoveryService", () => {
           message: "Security check unavailable. Please try again later.",
           httpCode: 503
         });
-        expect(actionTokens.consume).not.toHaveBeenCalled();
+        expect(actionTokens.commitRecovery).not.toHaveBeenCalled();
       });
 
       it("proceeds with a warning when the breach lookup fails and fail-closed is not set", async () => {
@@ -655,8 +681,11 @@ describe("RecoveryService", () => {
 
     describe("concurrent confirmation", () => {
       it("lets exactly one of two simultaneous requests reset the password", async () => {
-        // The store decides the winner: the second conditional write matches no unused row.
-        actionTokens.consume.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+        // The store's advisory-lock transaction decides the winner: the second caller's
+        // consume finds the token already spent and returns already_used.
+        actionTokens.commitRecovery
+          .mockResolvedValueOnce({ ok: true, magicLinksInvalidated: true })
+          .mockResolvedValueOnce({ ok: false, reason: "already_used" });
         const service = build();
 
         const results = await Promise.all([
@@ -665,21 +694,23 @@ describe("RecoveryService", () => {
         ]);
 
         expect(results.filter((result) => result.success)).toHaveLength(1);
-        expect(users.updatePassword).toHaveBeenCalledTimes(1);
+        expect(actionTokens.commitRecovery).toHaveBeenCalledTimes(2);
       });
 
       it("rejects the loser with the standard invalid-token response", async () => {
-        actionTokens.consume.mockResolvedValue(false);
+        actionTokens.commitRecovery.mockResolvedValue({ ok: false, reason: "already_used" });
 
         const result = await build().confirm(TOKEN, NEW_PASSWORD);
 
         expect(result).toEqual(INVALID_TOKEN);
-        expect(users.updatePassword).not.toHaveBeenCalled();
       });
     });
 
     it("reports a failed password write as a server error", async () => {
-      users.updatePassword.mockResolvedValue(false);
+      actionTokens.commitRecovery.mockResolvedValueOnce({
+        ok: false,
+        reason: "password_update_failed"
+      });
 
       const result = await build().confirm(TOKEN, NEW_PASSWORD);
 

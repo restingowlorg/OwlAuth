@@ -1,16 +1,36 @@
 import { Pool } from "pg";
-import { ActionToken, ActionTokenPurpose, ActionTokenRepository, UserId } from "../contracts";
+import {
+  ActionToken,
+  ActionTokenPurpose,
+  ActionTokenRepository,
+  RecoveryCommitOutcome,
+  UserId
+} from "../contracts";
 import { ActionTokenRow } from "../../infra/databases/postgresql/types";
 
 export class PostgresActionTokenRepository implements ActionTokenRepository {
   constructor(
     private readonly schemaName: string,
     private readonly tableName: string,
-    private readonly pool: Pool
+    private readonly pool: Pool,
+    private readonly userSchemaName: string,
+    private readonly userTableName: string,
+    private readonly mlSchemaName?: string,
+    private readonly mlTableName?: string
   ) {}
 
   private getTable() {
     return `"${this.schemaName}"."${this.tableName}"`;
+  }
+
+  private getUserTable() {
+    return `"${this.userSchemaName}"."${this.userTableName}"`;
+  }
+
+  private getMlTable(): string | null {
+    return this.mlSchemaName && this.mlTableName
+      ? `"${this.mlSchemaName}"."${this.mlTableName}"`
+      : null;
   }
 
   private static toToken(row: ActionTokenRow): ActionToken {
@@ -152,6 +172,94 @@ export class PostgresActionTokenRepository implements ActionTokenRepository {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Runs inside one transaction that also takes the same advisory lock as `createSuperseding`.
+   * This serializes every confirmation with every new issuance for the same user+purpose: a
+   * new token cannot be issued (and therefore cannot be consumed and win a later password
+   * write) while this transaction holds the lock.
+   *
+   * On any failure the transaction rolls back completely — the token is not spent and the
+   * password is not changed — so the user can retry with the same token.
+   */
+  async commitRecovery(input: {
+    selector: string;
+    purpose: ActionTokenPurpose;
+    userId: UserId;
+    passwordHash: string;
+  }): Promise<RecoveryCommitOutcome> {
+    let client;
+    try {
+      client = await this.pool.connect();
+    } catch {
+      return { ok: false, reason: "password_update_failed" };
+    }
+
+    // Track progress so the catch block can return the right reason.
+    // "setup" covers BEGIN and advisory-lock — no token write has occurred yet, so a throw
+    // there is a transient infrastructure failure, not a spent-token signal.
+    let stage: "setup" | "consume" | "password" | "magic_links" = "setup";
+    try {
+      await client.query("BEGIN");
+      // Same advisory lock as createSuperseding — the two operations are now mutually
+      // exclusive for the same user+purpose, so a new token cannot be issued while a
+      // confirmation is in flight and vice versa.
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))", [
+        String(input.userId),
+        input.purpose
+      ]);
+
+      stage = "consume";
+      const consumeResult = await client.query(
+        `UPDATE ${this.getTable()}
+         SET used_at = NOW()
+         WHERE selector = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > NOW()`,
+        [input.selector, input.purpose]
+      );
+      if ((consumeResult.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK");
+        return { ok: false, reason: "already_used" };
+      }
+
+      stage = "password";
+      const updateResult = await client.query(
+        `UPDATE ${this.getUserTable()}
+         SET password = $1, updated_at = NOW()
+         WHERE id = $2`,
+        [input.passwordHash, input.userId]
+      );
+      if ((updateResult.rowCount ?? 0) === 0) {
+        await client.query("ROLLBACK");
+        return { ok: false, reason: "password_update_failed" };
+      }
+
+      stage = "magic_links";
+      let magicLinksInvalidated = false;
+      const mlTable = this.getMlTable();
+      if (mlTable) {
+        // A thrown error here triggers the catch which rolls back the whole transaction:
+        // the password write and the consume are both undone.
+        await client.query(
+          `UPDATE ${mlTable} SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`,
+          [input.userId]
+        );
+        magicLinksInvalidated = true;
+      }
+
+      await client.query("COMMIT");
+      return { ok: true, magicLinksInvalidated };
+    } catch {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // connection may have been dropped; nothing to roll back
+      }
+      if (stage !== "magic_links") return { ok: false, reason: "password_update_failed" };
+      return { ok: false, reason: "revocation_failed" };
+    } finally {
+      client.release();
     }
   }
 }

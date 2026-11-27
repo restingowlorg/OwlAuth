@@ -227,16 +227,18 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
       validateUniqueIndex(userColl, userCollectionName, "username")
     ]);
 
-    // Magic link collection
+    // Magic link collection.
+    //
+    // Wired whenever a name is provided, not only when magic-link login is in authTypes.
+    // A recovery-only manager must still be able to revoke magic links issued by a separate
+    // login manager sharing the same database.
     let magicColl: Collection<IMongoMagicLinkDoc> | undefined;
-    if (authTypes?.includes("magicLink")) {
-      if (!magicLinkCollectionName) {
-        throw new Error(
-          `[Auth:connectMongo] Magic link auth requested but 'magicLinkCollectionName' is not provided`
-        );
-      }
-
+    if (magicLinkCollectionName) {
       magicColl = db.collection<IMongoMagicLinkDoc>(magicLinkCollectionName);
+    } else if (authTypes?.includes("magicLink")) {
+      throw new Error(
+        `[Auth:connectMongo] Magic link auth requested but 'magicLinkCollectionName' is not provided`
+      );
     }
 
     // Account security collection
@@ -286,7 +288,9 @@ export async function connectMongo(options: InitMongoOptions & BaseAuthOptions):
       accountSecurityRepo: accountSecurityColl
         ? new MongoAccountSecurityRepo(accountSecurityColl)
         : undefined,
-      actionTokenRepo: actionTokenColl ? new MongoActionTokenRepo(actionTokenColl) : undefined,
+      actionTokenRepo: actionTokenColl
+        ? new MongoActionTokenRepo(actionTokenColl, userColl, magicColl)
+        : undefined,
       close: async () => {
         await client.close();
       }

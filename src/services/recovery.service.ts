@@ -2,7 +2,6 @@ import {
   AccountSecurityRepository,
   ActionTokenPurpose,
   ActionTokenRepository,
-  MagicLinkRepository,
   UserRepository
 } from "../repositories/contracts";
 import { IAuditLogger, ICryptoAdapter } from "../infra/security/types";
@@ -85,7 +84,6 @@ export class RecoveryService {
     private readonly crypto: ICryptoAdapter,
     private readonly logger: IAuditLogger,
     private readonly config: RecoveryServiceConfig,
-    private readonly magicLinks?: MagicLinkRepository,
     private readonly accountSecurity?: AccountSecurityRepository
   ) {
     this.tokenTtlMs = (config.tokenTtlMinutes ?? DEFAULT_RECOVERY_TTL_MINUTES) * 60 * 1000;
@@ -126,6 +124,10 @@ export class RecoveryService {
   /**
    * Begin recovery. Always reports acceptance, whatever happened internally.
    *
+   * Both paths do comparable crypto work before the response so the floor is not the only
+   * thing levelling them. All account-specific work — the account-status check, the token
+   * write, and delivery — runs entirely in the background after the floor fires, so a slow
+   * database write cannot extend the known-account response beyond the unknown-account one.
    * Each path emits an audit event saying what really occurred, so an operator watching the
    * sink can tell an unknown address from a storage failure even though the caller cannot.
    */
@@ -138,12 +140,12 @@ export class RecoveryService {
     try {
       const user = await this.users.findByEmail(email);
 
-      if (!user) {
-        // Comparable crypto work for an unknown address, so the floor is not the only thing
-        // levelling the two paths.
-        const decoy = this.crypto.generateToken(VERIFIER_BYTES);
-        await this.crypto.hashToken(`${PURPOSE}:${decoy}`);
+      // Comparable crypto work on both paths before the response. The hash keeps the
+      // unknown-address path from finishing faster than the known-address one would.
+      const decoy = this.crypto.generateToken(VERIFIER_BYTES);
+      await this.crypto.hashToken(`${PURPOSE}:${decoy}`);
 
+      if (!user) {
         this.logger.audit({
           type: "PASSWORD_RECOVERY_FAILURE",
           email,
@@ -154,16 +156,44 @@ export class RecoveryService {
         return await this.acceptedResponse(startedAt);
       }
 
+      // All account-specific work fires in the background. The response is padded to the
+      // floor before this point, so the token write and delivery cannot extend it.
+      void this.issueAndDeliver(user, options).catch(() => {
+        // issueAndDeliver catches and logs all errors internally.
+      });
+
+      return await this.acceptedResponse(startedAt);
+    } catch (err: unknown) {
+      this.logger.error("Recovery request exception", err, { email }, options?.correlationId);
+      this.logger.audit({
+        type: "PASSWORD_RECOVERY_FAILURE",
+        email,
+        metadata: { reason: "Internal error" },
+        correlationId: options?.correlationId
+      });
+
+      return await this.acceptedResponse(startedAt);
+    }
+  }
+
+  /**
+   * Account-status check, token issuance, and delivery — everything that only runs for a
+   * known account and cannot affect the response time.
+   */
+  private async issueAndDeliver(
+    user: { id: string; email: string },
+    options?: { correlationId?: string }
+  ): Promise<void> {
+    try {
       if (await this.isRecoveryBlocked(user.id)) {
         this.logger.audit({
           type: "PASSWORD_RECOVERY_FAILURE",
           userId: user.id,
-          email,
+          email: user.email,
           metadata: { reason: "Account status does not permit recovery" },
           correlationId: options?.correlationId
         });
-
-        return await this.acceptedResponse(startedAt);
+        return;
       }
 
       const selector = this.crypto.generateToken(SELECTOR_BYTES);
@@ -171,8 +201,6 @@ export class RecoveryService {
       const tokenHash = await this.crypto.hashToken(`${PURPOSE}:${verifier}`);
       const expiresAt = new Date(Date.now() + this.tokenTtlMs);
 
-      // Fix 1: atomic invalidate-then-insert prevents two concurrent request() calls from
-      // each leaving a live token. Returns null if either write fails.
       const record = await this.actionTokens.createSuperseding({
         userId: user.id,
         purpose: PURPOSE,
@@ -191,12 +219,11 @@ export class RecoveryService {
         this.logger.audit({
           type: "PASSWORD_RECOVERY_FAILURE",
           userId: user.id,
-          email,
+          email: user.email,
           metadata: { reason: "Recovery token storage failed" },
           correlationId: options?.correlationId
         });
-
-        return await this.acceptedResponse(startedAt);
+        return;
       }
 
       this.logger.audit({
@@ -206,14 +233,11 @@ export class RecoveryService {
         correlationId: options?.correlationId
       });
 
-      // Fix 4: fire delivery in the background — delivery time must not extend the response
-      // beyond the minimum-duration floor. deliverToken handles all errors internally.
       void this.deliverToken(
         {
           userId: user.id,
           email: user.email,
           token: `${selector}.${verifier}`,
-          // Fix 5: use URL.searchParams so an existing query string is preserved correctly.
           ...(this.config.baseUrl
             ? { url: RecoveryService.buildResetUrl(this.config.baseUrl, `${selector}.${verifier}`) }
             : {}),
@@ -221,24 +245,24 @@ export class RecoveryService {
           ...(options?.correlationId ? { correlationId: options.correlationId } : {})
         },
         user.id,
-        email
+        user.email
       ).catch(() => {
-        // deliverToken catches and logs all errors; this suppresses the unhandled-rejection
-        // warning in the rare case it throws outside its own try/catch.
+        // deliverToken catches and logs all errors; this suppresses any unhandled rejection.
       });
-
-      return await this.acceptedResponse(startedAt);
     } catch (err: unknown) {
-      this.logger.error("Recovery request exception", err, { email }, options?.correlationId);
-      // A fixed reason: the error message may carry internals and is kept to diagnostics.
+      this.logger.error(
+        "Recovery issue exception",
+        err,
+        { userId: user.id },
+        options?.correlationId
+      );
       this.logger.audit({
         type: "PASSWORD_RECOVERY_FAILURE",
-        email,
+        userId: user.id,
+        email: user.email,
         metadata: { reason: "Internal error" },
         correlationId: options?.correlationId
       });
-
-      return await this.acceptedResponse(startedAt);
     }
   }
 
@@ -256,7 +280,7 @@ export class RecoveryService {
     try {
       await this.config.deliver(delivery);
     } catch {
-      // Fix 2: never forward the callback's error — it may contain the token or URL.
+      // Never forward the callback's error — it may contain the token or URL.
       // Log a fixed message so the diagnostic sink cannot surface secret material.
       this.logger.error(
         "Recovery delivery failed",
@@ -412,63 +436,63 @@ export class RecoveryService {
 
       const newHash = await this.crypto.hashPassword(newPassword);
 
-      // The one gate that decides the race: whoever wins this write resets the password.
-      const consumed = await this.actionTokens.consume(parsed.selector, PURPOSE);
-      if (!consumed) {
-        return this.rejectToken("Token already used (race)", options, user.id);
-      }
+      // Atomically consume the token, write the new password, and revoke magic links in one
+      // database transaction (PostgreSQL) or serialized sequence (MongoDB). This closes the
+      // race where a new token could be issued and a second confirm land after the first
+      // consume but before the first password write.
+      const commit = await this.actionTokens.commitRecovery({
+        selector: parsed.selector,
+        purpose: PURPOSE,
+        userId: user.id,
+        passwordHash: newHash
+      });
 
-      const updated = await this.users.updatePassword(user.id, newHash);
-      if (!updated) {
-        // The token is already spent. That fails safe: the password stands and the user has
-        // to request a new recovery message rather than retrying with a burnt token.
-        this.logger.error(
-          "Password update failed during recovery",
-          new Error("Database update returned false"),
-          { userId: user.id },
-          options?.correlationId
-        );
-        this.logger.audit({
-          type: "PASSWORD_RECOVERY_FAILURE",
-          userId: user.id,
-          metadata: { reason: "Password update failed" },
-          correlationId: options?.correlationId
-        });
+      if (!commit.ok) {
+        if (commit.reason === "already_used") {
+          return this.rejectToken("Token already used (race)", options, user.id);
+        }
 
-        return {
-          success: false,
-          data: undefined,
-          message: "Failed to update password",
-          httpCode: 500
-        };
-      }
+        if (commit.reason === "password_update_failed") {
+          this.logger.error(
+            "Password update failed during recovery",
+            new Error("Database update returned false"),
+            { userId: user.id },
+            options?.correlationId
+          );
+          this.logger.audit({
+            type: "PASSWORD_RECOVERY_FAILURE",
+            userId: user.id,
+            metadata: { reason: "Password update failed" },
+            correlationId: options?.correlationId
+          });
+          return {
+            success: false,
+            data: undefined,
+            message: "Failed to update password",
+            httpCode: 500
+          };
+        }
 
-      await this.invalidateRemainingTokens(user.id, options?.correlationId);
-
-      // Fix 3: when a magic-link repo is wired, revocation is part of the durable recovery
-      // transition. A failed revocation means active magic links survive a password reset,
-      // so this is a hard failure rather than a silent degradation. When no magic-link repo
-      // is provided (recovery-only manager) the result is false and that is expected.
-      const magicLinksInvalidated = await this.invalidateMagicLinks(
-        user.id,
-        options?.correlationId
-      );
-
-      if (this.magicLinks !== undefined && !magicLinksInvalidated) {
+        // revocation_failed — PostgreSQL: the whole transaction rolled back, so neither the
+        // password nor the token was changed; the user can retry. MongoDB: the password was
+        // already written but magic-link revocation failed.
         this.logger.audit({
           type: "PASSWORD_RECOVERY_FAILURE",
           userId: user.id,
           metadata: { reason: "Active sessions could not be revoked" },
           correlationId: options?.correlationId
         });
-
         return {
           success: false,
           data: undefined,
-          message: "Password was updated but active sessions could not be revoked",
+          message: "Could not revoke active sessions. Please try the recovery again.",
           httpCode: 500
         };
       }
+
+      await this.invalidateRemainingTokens(user.id, options?.correlationId);
+
+      const { magicLinksInvalidated } = commit;
 
       if (magicLinksInvalidated) {
         this.logger.audit({
@@ -531,33 +555,6 @@ export class RecoveryService {
         { userId, error: err instanceof Error ? err.message : "Unknown error" },
         correlationId
       );
-    }
-  }
-
-  /**
-   * Retire outstanding magic links, since a recovered password must not leave an older
-   * passwordless route in. Best-effort, as it is after a password change.
-   */
-  private async invalidateMagicLinks(userId: string, correlationId?: string): Promise<boolean> {
-    if (!this.magicLinks) return false;
-
-    try {
-      const invalidated = await this.magicLinks.invalidateByUserId(userId);
-      if (!invalidated) {
-        this.logger.warn(
-          "Magic link invalidation returned false after recovery. Links may still be valid.",
-          { userId },
-          correlationId
-        );
-      }
-      return invalidated;
-    } catch (err: unknown) {
-      this.logger.warn(
-        "Failed to invalidate magic links after recovery. Proceeding without invalidation.",
-        { userId, error: err instanceof Error ? err.message : "Unknown error" },
-        correlationId
-      );
-      return false;
     }
   }
 }

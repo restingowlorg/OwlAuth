@@ -4,7 +4,6 @@ import {
   AccountSecurityRepository,
   ActionTokenRepository,
   AuthDB,
-  MagicLinkRepository,
   UserRepository
 } from "../repositories/contracts";
 import { RecoveryService, RecoveryServiceConfig } from "../services/recovery.service";
@@ -202,28 +201,21 @@ describe("RecoveryAuthStrategy", () => {
 
   describe("repository wiring", () => {
     const accountSecurityRepo = {} as AccountSecurityRepository;
-    const magicLinkRepo = {} as MagicLinkRepository;
 
-    function expectRepos(
-      expectedMagicLinks: MagicLinkRepository | undefined,
+    function expectAccountSecurity(
       expectedAccountSecurity: AccountSecurityRepository | undefined
     ): void {
+      // Magic links are no longer a service constructor argument — they are handled inside
+      // the action token repo's commitRecovery method, which the adapters wire directly.
       expect(RecoveryService).toHaveBeenCalledWith(
         mockDb.userRepo,
         mockDb.actionTokenRepo,
         expect.anything(),
         mockLogger,
         expect.anything(),
-        expectedMagicLinks,
         expectedAccountSecurity
       );
     }
-
-    it("passes the magic-link store when the adapter provides one", () => {
-      strategy.register({}, { ...mockDb, magicLinkRepo }, mockOptions, mockLogger);
-
-      expectRepos(magicLinkRepo, undefined);
-    });
 
     it("passes the account security store when the option is enabled", () => {
       strategy.register(
@@ -233,7 +225,7 @@ describe("RecoveryAuthStrategy", () => {
         mockLogger
       );
 
-      expectRepos(undefined, accountSecurityRepo);
+      expectAccountSecurity(accountSecurityRepo);
     });
 
     // A custom adapter may return a repository regardless of configuration. Enforcement
@@ -246,7 +238,7 @@ describe("RecoveryAuthStrategy", () => {
         mockLogger
       );
 
-      expectRepos(undefined, undefined);
+      expectAccountSecurity(undefined);
     });
   });
 });

@@ -64,7 +64,6 @@ export class RecoveryAuthStrategy implements IAuthStrategy {
         baseUrl: recovery.baseUrl,
         tokenTtlMinutes: recovery.tokenTtlMinutes
       },
-      db.magicLinkRepo,
       accountSecurityRepo
     );
 

@@ -1,6 +1,6 @@
 import { Collection, ObjectId } from "mongodb";
 import { MongoActionTokenRepo } from "./actionToken.repo";
-import { IMongoActionTokenDoc } from "../../infra/databases/mongo/types";
+import { IMongoActionTokenDoc, IMongoUserDoc } from "../../infra/databases/mongo/types";
 
 type Filter = Partial<Record<keyof IMongoActionTokenDoc, unknown>>;
 type Update = { $set: Partial<IMongoActionTokenDoc> };
@@ -18,7 +18,8 @@ describe("MongoActionTokenRepo", () => {
     updateMany
   } as unknown as Collection<IMongoActionTokenDoc>;
 
-  const repo = new MongoActionTokenRepo(collection);
+  // userCollection and mlCollection are only needed for commitRecovery; pass stubs here.
+  const repo = new MongoActionTokenRepo(collection, {} as unknown as Collection<IMongoUserDoc>);
 
   const userId = new ObjectId().toHexString();
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
