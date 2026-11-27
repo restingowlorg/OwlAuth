@@ -507,7 +507,7 @@ integrationDescribe("PostgreSQL adapter integration", () => {
     }
 
     function tokenRepo(): PostgresActionTokenRepository {
-      return new PostgresActionTokenRepository(schema, actionTokenTable, pool);
+      return new PostgresActionTokenRepository(schema, actionTokenTable, pool, schema, userTable);
     }
 
     it("connects when the action token schema is valid", async () => {

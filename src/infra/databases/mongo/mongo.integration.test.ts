@@ -451,7 +451,10 @@ integrationDescribe("MongoDB adapter integration", () => {
     // The acceptance criterion the whole design rests on, against a real server: of many
     // simultaneous attempts to spend one token, exactly one is told it succeeded.
     it("lets exactly one of many concurrent consumers spend a token", async () => {
-      const tokens = new MongoActionTokenRepo(await createActionTokenCollection());
+      const tokens = new MongoActionTokenRepo(
+        await createActionTokenCollection(),
+        database.collection<IMongoUserDoc>(userCollectionName)
+      );
       const userId = await createUser("race_user");
 
       await tokens.create({
@@ -472,7 +475,10 @@ integrationDescribe("MongoDB adapter integration", () => {
     });
 
     it("refuses to spend an expired token", async () => {
-      const tokens = new MongoActionTokenRepo(await createActionTokenCollection());
+      const tokens = new MongoActionTokenRepo(
+        await createActionTokenCollection(),
+        database.collection<IMongoUserDoc>(userCollectionName)
+      );
       const userId = await createUser("expired_user");
 
       await tokens.create({
@@ -487,7 +493,10 @@ integrationDescribe("MongoDB adapter integration", () => {
     });
 
     it("rejects a second token with the same selector", async () => {
-      const tokens = new MongoActionTokenRepo(await createActionTokenCollection());
+      const tokens = new MongoActionTokenRepo(
+        await createActionTokenCollection(),
+        database.collection<IMongoUserDoc>(userCollectionName)
+      );
       const userId = await createUser("dup_selector_user");
       const input = {
         userId,
@@ -502,7 +511,10 @@ integrationDescribe("MongoDB adapter integration", () => {
     });
 
     it("invalidates only the user's outstanding tokens", async () => {
-      const tokens = new MongoActionTokenRepo(await createActionTokenCollection());
+      const tokens = new MongoActionTokenRepo(
+        await createActionTokenCollection(),
+        database.collection<IMongoUserDoc>(userCollectionName)
+      );
       const userId = await createUser("invalidate_user");
       const otherId = await createUser("other_user");
       const expiresAt = new Date(Date.now() + 60_000);
@@ -525,7 +537,10 @@ integrationDescribe("MongoDB adapter integration", () => {
     });
 
     it("createSuperseding leaves exactly one live token for the user", async () => {
-      const tokens = new MongoActionTokenRepo(await createActionTokenCollection());
+      const tokens = new MongoActionTokenRepo(
+        await createActionTokenCollection(),
+        database.collection<IMongoUserDoc>(userCollectionName)
+      );
       const userId = await createUser("supersede_user");
       const expiresAt = new Date(Date.now() + 60_000);
 
@@ -548,7 +563,10 @@ integrationDescribe("MongoDB adapter integration", () => {
     // the last writer wins rather than atomically serialising, but the consume() gate still
     // limits each token to one password write. Full atomicity requires a replica set.
     it("two concurrent createSuperseding calls leave at most one live token", async () => {
-      const tokens = new MongoActionTokenRepo(await createActionTokenCollection());
+      const tokens = new MongoActionTokenRepo(
+        await createActionTokenCollection(),
+        database.collection<IMongoUserDoc>(userCollectionName)
+      );
       const userId = await createUser("concurrent_supersede_user");
       const expiresAt = new Date(Date.now() + 60_000);
 

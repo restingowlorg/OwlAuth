@@ -9,7 +9,7 @@ describe("PostgresActionTokenRepository", () => {
   const connect = jest.fn<Promise<PoolClient>, []>().mockResolvedValue(mockClient);
   const pool = { query, connect } as unknown as Pool;
 
-  const repo = new PostgresActionTokenRepository("auth", "action_tokens", pool);
+  const repo = new PostgresActionTokenRepository("auth", "action_tokens", pool, "auth", "users");
 
   const expiresAt = new Date("2026-01-01T00:15:00Z");
   const createdAt = new Date("2026-01-01T00:00:00Z");
