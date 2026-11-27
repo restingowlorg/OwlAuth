@@ -156,6 +156,9 @@ export class RecoveryService {
         return await this.acceptedResponse(startedAt);
       }
 
+      // Compute expiry relative to when the request arrived, not when the background
+      // work fires, so the floor wait does not shorten the token's usable lifetime.
+      const expiresAt = new Date(startedAt + this.tokenTtlMs);
       const response = await this.acceptedResponse(startedAt);
 
       // All account-specific work fires in the background, deferred to the next microtask
@@ -163,7 +166,7 @@ export class RecoveryService {
       // that the caller sees the returned response before issueAndDeliver starts, so a slow
       // DB write or delivery call cannot be observed by callers timing the endpoint.
       void Promise.resolve()
-        .then(() => this.issueAndDeliver(user, options))
+        .then(() => this.issueAndDeliver(user, options, expiresAt))
         .catch(() => {
           // issueAndDeliver catches and logs all errors internally.
         });
@@ -188,7 +191,8 @@ export class RecoveryService {
    */
   private async issueAndDeliver(
     user: { id: string; email: string },
-    options?: { correlationId?: string }
+    options: { correlationId?: string } | undefined,
+    expiresAt: Date
   ): Promise<void> {
     try {
       if (await this.isRecoveryBlocked(user.id)) {
@@ -205,7 +209,6 @@ export class RecoveryService {
       const selector = this.crypto.generateToken(SELECTOR_BYTES);
       const verifier = this.crypto.generateToken(VERIFIER_BYTES);
       const tokenHash = await this.crypto.hashToken(`${PURPOSE}:${verifier}`);
-      const expiresAt = new Date(Date.now() + this.tokenTtlMs);
 
       const record = await this.actionTokens.createSuperseding({
         userId: user.id,
