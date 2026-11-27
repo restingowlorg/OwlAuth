@@ -156,13 +156,19 @@ export class RecoveryService {
         return await this.acceptedResponse(startedAt);
       }
 
-      // All account-specific work fires in the background. The response is padded to the
-      // floor before this point, so the token write and delivery cannot extend it.
-      void this.issueAndDeliver(user, options).catch(() => {
-        // issueAndDeliver catches and logs all errors internally.
-      });
+      const response = await this.acceptedResponse(startedAt);
 
-      return await this.acceptedResponse(startedAt);
+      // All account-specific work fires in the background, deferred to the next microtask
+      // after the caller's await on request() resumes. Promise.resolve().then() guarantees
+      // that the caller sees the returned response before issueAndDeliver starts, so a slow
+      // DB write or delivery call cannot be observed by callers timing the endpoint.
+      void Promise.resolve()
+        .then(() => this.issueAndDeliver(user, options))
+        .catch(() => {
+          // issueAndDeliver catches and logs all errors internally.
+        });
+
+      return response;
     } catch (err: unknown) {
       this.logger.error("Recovery request exception", err, { email }, options?.correlationId);
       this.logger.audit({
