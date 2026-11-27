@@ -725,6 +725,10 @@ integrationDescribe("PostgreSQL adapter integration", () => {
       try {
         const requested = await auth.recovery.request("pwreset@example.com");
         expect(requested.httpCode).toBe(202);
+        // Token issuance and delivery run in the background after request() returns.
+        // Wait long enough for the DB write and delivery callback to complete before
+        // asserting, so the pool is not closed by a failed assertion mid-flight.
+        await new Promise((resolve) => setTimeout(resolve, 500));
         expect(deliveries).toHaveLength(1);
 
         const unknown = await auth.recovery.request("nobody@example.com");
